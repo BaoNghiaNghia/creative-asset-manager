@@ -598,6 +598,90 @@ def test_offline_data_retention_search_sort_pagination_and_csv(scenario):
     assert client.get("/api/v1/etsy-spy/logs/stats").json()["errors"] == 1
 
 
+def test_picked_special_columns_sort_across_pages_without_cross_tenant_leak(scenario):
+    client, db, _ = scenario
+    agent, headers = pair(client, db)
+    keys = ("1234500401", "1234500402", "1234500403")
+    payload = batch("sort-all-picked")
+    payload["records"]["listings"] = [
+        {**product(title=title), "listingKey": key,
+         "url": f"https://www.etsy.com/listing/{key}/test"}
+        for key, title in zip(keys, ("Zebra Shirt", "Apple Shirt", "Charlie Shirt"))
+    ]
+    result = sync(client, agent, headers, payload)
+    assert result.status_code == 200, result.text
+    for key in keys:
+        db.add(EtsySpyPicked(tenant_id="boostgame", listing_key=key))
+    for row in db.query(EtsySpyListing).filter(
+        EtsySpyListing.tenant_id == "boostgame",
+        EtsySpyListing.listing_key.in_(keys)
+    ).all():
+        # JSON is replaced, not mutated in-place, for SQLAlchemy change tracking.
+        keywords = {keys[0]: ["zebra shirt"], keys[1]: ["apple shirt"],
+                    keys[2]: []}[row.listing_key]
+        row.metadata_json = {**(row.metadata_json or {}), "keywordSms": keywords}
+    for num, key in enumerate((keys[0], keys[0], keys[1])):
+        db.add(ProcessingJobModel(
+            tenant_id="boostgame", job_type="etsy_design_extract",
+            entity_type="etsy_listing", entity_id=key,
+            idempotency_key=f"sort-design-{num}",
+            status="completed", payload_json={"design_assets": []},
+        ))
+    for key, state in ((keys[0], "processing"), (keys[1], "completed")):
+        db.add(ProcessingJobModel(
+            tenant_id="boostgame", job_type="etsy_tiktok_listing_generate",
+            entity_type="etsy_listing", entity_id=key,
+            idempotency_key=f"sort-tiktok-{key}",
+            status=state, payload_json={},
+        ))
+    for num, key in enumerate((keys[0], keys[1], keys[1])):
+        db.add(EtsySpyListingImage(
+            tenant_id="boostgame", listing_key=key,
+            pack_id="sp-" + ("a" if key == keys[0] else "b") * 40,
+            slot=1 if num < 2 else 2, garment_code="C1717",
+            design_sha256="a" * 64, source_sha256="b" * 64,
+            placement="front", drive_folder_id="folder",
+            drive_thumbnail_folder_id="thumb",
+            output_sha256="c" * 64, thumbnail_sha256="d" * 64,
+            drive_file_id="image-id", drive_thumbnail_id="thumb-id",
+        ))
+    # An unrelated tenant must not change any ranking.
+    db.add(ProcessingJobModel(
+        tenant_id="other-tenant", job_type="etsy_design_extract",
+        entity_type="etsy_listing", entity_id=keys[2],
+        idempotency_key="other-sort-design", status="completed",
+        payload_json={},
+    ))
+    db.commit()
+
+    endpoint = "/api/v1/etsy-spy/listings"
+    expected = {
+        "design": (keys[0], keys[1], keys[2]),
+        "tiktokListing": (keys[1], keys[0], keys[2]),
+        "listingImage": (keys[1], keys[0], keys[2]),
+        "keywordSms": (keys[0], keys[2], keys[1]),
+    }
+    for column, descending in expected.items():
+        for direction in ("asc", "desc"):
+            page_keys = []
+            for page in (1, 2, 3):
+                response = client.get(endpoint, params={
+                    "pick_state": "picked", "sort": column, "dir": direction,
+                    "page_size": 1, "page": page,
+                })
+                assert response.status_code == 200, (column, direction, response.text)
+                body = response.json()
+                assert body["total"] == 3
+                page_keys.append(body["items"][0]["listingKey"])
+            if direction == "desc":
+                assert tuple(page_keys) == descending, (column, page_keys)
+            elif column == "tiktokListing":
+                # The missing latest job is last even in ascending order.
+                assert tuple(page_keys) == (keys[0], keys[1], keys[2])
+            else:
+                assert tuple(page_keys) == tuple(reversed(descending)), (column, page_keys)
+
+
 def test_observed_day_buckets_start_at_6am_vietnam_and_follow_visible_eligibility(scenario):
     client, db, _ = scenario
     agent, headers = pair(client, db)

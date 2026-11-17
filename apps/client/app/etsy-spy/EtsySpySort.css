@@ -1,0 +1,54 @@
+/* All Etsy Spy column headers are real sort controls, including Picked
+   production-result columns. Preserve the compact, horizontally scrollable
+   table on desktop and touch screens. */
+.etsy-spy-page .etsy-table-wrap th .etsy-column-sort {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  width: 100%;
+  min-height: 39px;
+  padding: 9px 10px;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  white-space: nowrap;
+  font-weight: 760;
+}
+.etsy-spy-page .etsy-table-wrap th .etsy-column-sort:hover {
+  background: #edf4ff;
+  color: #285caa;
+}
+.etsy-spy-page .etsy-table-wrap th.etsy-header-sorted {
+  background: #eef4ff;
+  color: #2658a7;
+}
+.etsy-spy-page .etsy-table-wrap th.etsy-header-sorted .etsy-column-sort:hover {
+  background: #e4efff;
+}
+.etsy-spy-page .etsy-table-wrap .etsy-column-sort-label {
+  min-width: 0;
+}
+.etsy-spy-page .etsy-table-wrap .etsy-column-sort-icon {
+  display: inline-flex;
+  flex: 0 0 12px;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1;
+  color: #adb9c9;
+  font-weight: 800;
+  transition: color .15s ease;
+}
+.etsy-spy-page .etsy-table-wrap th .etsy-column-sort:hover .etsy-column-sort-icon {
+  color: #537eb8;
+}
+.etsy-spy-page .etsy-table-wrap .etsy-column-sort-icon.active {
+  color: #215ac7;
+}
+@media (prefers-reduced-motion: reduce) {
+  .etsy-spy-page .etsy-table-wrap .etsy-column-sort-icon {
+    transition: none;
+  }
+}

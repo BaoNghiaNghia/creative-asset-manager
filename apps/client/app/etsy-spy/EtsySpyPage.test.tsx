@@ -739,7 +739,8 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(html).toContain("Bestseller");
     expect(html).toContain("Keyword SMS");
     const headings = Array.from(container?.querySelectorAll(".etsy-data-table.is-products th:not(.etsy-select-header)") || [])
-      .map(x => (x.textContent || "").trim().replace(/\s*[↑↓]$/, ""));
+      .map(x => x.querySelector(".etsy-column-sort-label")?.textContent ??
+        (x.textContent || "").trim());
     expect(headings).toEqual([
       "Product / Etsy", "Keyword SMS", "Etsy Badge + TM",
       "Bought / 24h", "Views / 24h", "Carts", "Observed", "Action",
@@ -900,6 +901,63 @@ describe("Etsy Spy native CAM dashboard", () => {
     });
     expect(observed.filter(url => url.includes("/listings?")).length)
       .toBe(afterUpdateFetches);
+  });
+
+  it("sorts every Picked table column through the paged API in both directions", async () => {
+    await start({initialUrl: "/etsy-spy?tab=products&observed_day=all"});
+    pickedKeys.add(listing.listingKey);
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
+      await new Promise(resolve => setTimeout(resolve, 55));
+    });
+    const labels = [
+      ["Product / Etsy", "pageTitle", "asc"],
+      ["Design", "design", "desc"],
+      ["TikTok SEO", "tiktokListing", "desc"],
+      ["Listing Image", "listingImage", "desc"],
+      ["Keyword SMS", "keywordSms", "asc"],
+      ["Etsy Badge + TM", "badge", "asc"],
+      ["Bought / 24h", "bought24h", "desc"],
+      ["Views / 24h", "views24h", "desc"],
+      ["Carts", "inCarts", "desc"],
+      ["Observed", "observedAt", "desc"],
+    ] as const;
+    for (const [label, id, firstDir] of labels) {
+      const button = () => Array.from(container?.querySelectorAll<HTMLButtonElement>(
+        "#etsy-product-results th button") || []).find(
+          node => node.getAttribute("aria-label") === "Sort by " + label);
+      const waitForHeader = async () => {
+        for (let attempt = 0; attempt < 24 && !button(); attempt++) {
+          await act(async () => { await new Promise(resolve => setTimeout(resolve, 25)); });
+        }
+      };
+      await waitForHeader();
+      expect(button(), `Missing sort for ${label}; headers: ${Array.from(container?.querySelectorAll("#etsy-product-results th button") || [], x => x.getAttribute("aria-label")).join("|")}; loading: ${Boolean(container?.querySelector(".etsy-skeleton"))}; url: ${window.location.search}; table: ${Boolean(container?.querySelector(".etsy-data-table"))}`).toBeTruthy();
+      await act(async () => {
+        button()?.click();
+        await new Promise(resolve => setTimeout(resolve, 80));
+      });
+      await waitForHeader();
+      const params = new URLSearchParams(window.location.search);
+      expect(params.get("sort")).toBe(id);
+      expect(params.get("dir")).toBe(firstDir);
+      expect(params.get("page")).toBe("1");
+      expect(observed.some(url => url.includes("/listings?") &&
+        url.includes("sort=" + id) && url.includes("dir=" + firstDir))).toBe(true);
+      expect(button()?.closest("th")?.getAttribute("aria-sort"))
+        .toBe(firstDir === "asc" ? "ascending" : "descending");
+      expect(button()?.querySelector(".etsy-column-sort-icon")?.textContent)
+        .toBe(firstDir === "asc" ? "↑" : "↓");
+      await act(async () => { button()?.click(); await new Promise(resolve => setTimeout(resolve, 55)); });
+      const flipped = firstDir === "asc" ? "desc" : "asc";
+      expect(new URLSearchParams(window.location.search).get("dir")).toBe(flipped);
+      expect(button()?.closest("th")?.getAttribute("aria-sort"))
+        .toBe(flipped === "asc" ? "ascending" : "descending");
+    }
+    const quickSort = container?.querySelector<HTMLSelectElement>("#etsy-quick-sort");
+    expect(Array.from(quickSort?.options || [], option => option.value)).toEqual(
+      expect.arrayContaining(["design", "tiktokListing", "listingImage", "keywordSms"]));
+    expect(quickSort?.value).toBe("observedAt");
   });
 
   it("sorts on the backend, retains URL query params and separates pages", async () => {
@@ -1761,7 +1819,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
       await new Promise(resolve => setTimeout(resolve, 75));
     });
-    expect(Array.from(container?.querySelectorAll(".etsy-data-table th") || [])
+    expect(Array.from(container?.querySelectorAll(".etsy-data-table th .etsy-column-sort-label") || [])
       .map(x => x.textContent)).toContain("Design");
     const cell = container?.querySelector<HTMLElement>(".etsy-design-cell");
     expect(cell?.querySelectorAll(".etsy-design-thumb")).toHaveLength(3);

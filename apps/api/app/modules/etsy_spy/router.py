@@ -28,6 +28,7 @@ from .model import (
     EtsySpyLaterSeed as LaterSeed, EtsySpyLaterMatch as LaterMatch,
     EtsySpySmsStatus as SmsStatus,
     EtsySpyColorFeedback as ColorFeedback,
+    EtsySpyListingImage as ListingImage,
     EtsySpyWinKeyword as WinKeyword,
     EtsySpyParentKeyword as ParentKeyword,
     EtsySpySession as SessionRow,
@@ -649,12 +650,56 @@ def _listings_query(
         )
     cols = {
         "observedAt": root.observed_at, "keyword": root.keyword,
-        "sourceKind": root.source_kind, "badge": root.badge,
+        "sourceKind": root.source_kind,
+        "badge": func.coalesce(root.badge, root.search_badge),
         "bought24h": root.bought24h, "views24h": root.views24h,
         "inCarts": root.in_carts, "demandScore": root.demand_score,
-        "pageTitle": root.title, "tm": status,
+        "pageTitle": func.lower(root.title), "tm": status,
     }
     column = cols.get(sort, root.observed_at)
+    if pick_state == "picked":
+        # These four headers are real, tenant-scoped server-side sorts. A
+        # browser-only sort would silently misorder all pages after the first.
+        # Correlate on the one canonical Picked listing row, using existing
+        # processing-job and saved-image indexes without joining extra rows.
+        if sort == "design":
+            column = (select(func.count(ProcessingJobModel.id)).where(
+                ProcessingJobModel.tenant_id == tenant,
+                ProcessingJobModel.entity_type == "etsy_listing",
+                ProcessingJobModel.entity_id == root.listing_key,
+                ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
+                ProcessingJobModel.status == "completed",
+                ProcessingJobModel.cancellation_requested.is_(False),
+            ).correlate(root).scalar_subquery())
+        elif sort == "listingImage":
+            column = (select(func.count(ListingImage.slot)).where(
+                ListingImage.tenant_id == tenant,
+                ListingImage.listing_key == root.listing_key,
+            ).correlate(root).scalar_subquery())
+        elif sort == "tiktokListing":
+            # Use the *latest* job, exactly as the table's preview projection
+            # does, so an old success never outranks a newer failed retry.
+            column = (select(case(
+                (ProcessingJobModel.cancellation_requested.is_(True), 0),
+                (ProcessingJobModel.status == "completed", 4),
+                (ProcessingJobModel.status == "processing", 3),
+                (ProcessingJobModel.status.in_(("pending", "retry")), 2),
+                (ProcessingJobModel.status == "failed", 1),
+                else_=0,
+            )).where(
+                ProcessingJobModel.tenant_id == tenant,
+                ProcessingJobModel.entity_type == "etsy_listing",
+                ProcessingJobModel.entity_id == root.listing_key,
+                ProcessingJobModel.job_type == TIKTOK_LISTING_JOB_TYPE,
+            ).order_by(ProcessingJobModel.created_at.desc(),
+                       ProcessingJobModel.id.desc()).limit(1)
+              .correlate(root).scalar_subquery())
+        elif sort == "keywordSms":
+            # SQLAlchemy JSON indexing supports both SQLite test DB and
+            # PostgreSQL production. No array expansion or row multiplication.
+            # The displayed title fallback remains sortable when missing.
+            first_keyword = root.metadata_json["keywordSms"][0].as_string()
+            column = func.lower(func.coalesce(first_keyword, root.title))
     query = select(root, Trademark).outerjoin(Trademark, joined)
     total = select(func.count()).select_from(root).outerjoin(Trademark, joined)
     if pick_state in {"later", "picked"}:
@@ -671,7 +716,9 @@ def _listings_query(
     else:
         query = query.where(*condition)
         total = total.where(*condition)
-    query = query.order_by(_direction(direction)(column),
+    # Unknown values (including a missing TikTok draft) stay at the end in
+    # both directions; stable tie-breakers make cross-page sorting deterministic.
+    query = query.order_by(column.is_(None), _direction(direction)(column),
                            root.source_session_id, root.keyword, root.listing_key)
     return query, total
 
