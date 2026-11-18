@@ -84,7 +84,8 @@ def test_preflight_never_prints_auth_output(tmp_path, monkeypatch):
 
     def fake_run(cmd, **kwargs):
         called["cmd"], called["kwargs"] = cmd, kwargs
-        return SimpleNamespace(returncode=0, stdout=b"Logged in using ChatGPT account sensitive@example.net")
+        # Current CLI writes the success message to stderr, not stdout.
+        return SimpleNamespace(returncode=0, stdout=b"")
 
     monkeypatch.setattr(runner.subprocess, "run", fake_run)
     value = runner.preflight(home, binary)

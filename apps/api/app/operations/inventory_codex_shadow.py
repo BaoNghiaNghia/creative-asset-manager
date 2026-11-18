@@ -64,7 +64,9 @@ def preflight(home: Path, binary: Path) -> dict[str, object]:
         return {"engine": "codex_cli", "mode": "shadow", "ready": False,
                 "reason": "codex_login_check_unavailable"}
     # Never echo identity/email/tokens, only a safe boolean.
-    connected = run.returncode == 0 and b"Logged in" in run.stdout
+    # Codex CLI prints its login status to stderr in current versions. The
+    # documented exit code is the only reliable signal; never parse/log account text.
+    connected = run.returncode == 0
     return {"engine": "codex_cli", "mode": "shadow", "ready": connected,
             "reason": "ready" if connected else "codex_service_login_required"}
 
