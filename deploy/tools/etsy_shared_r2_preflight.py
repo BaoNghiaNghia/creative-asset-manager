@@ -13,10 +13,50 @@ import hmac
 import json
 from pathlib import Path
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 import time
 
-from production_env import SafeConfigurationError, parse_environment_file
+if __package__:
+    from .production_env import SafeConfigurationError, parse_environment_file
+else:  # Direct file execution remains supported for operators.
+    from production_env import SafeConfigurationError, parse_environment_file
+
+
+def _valid_https_origin(value: str) -> str | None:
+    parsed = urlsplit(value.strip().rstrip("/"))
+    if (parsed.scheme != "https" or not parsed.hostname or
+            parsed.username or parsed.password or parsed.port or
+            parsed.path or parsed.query or parsed.fragment):
+        return None
+    return parsed.scheme + "://" + parsed.hostname
+
+
+def _policy_allows_worker(policy: str, origin: str) -> bool:
+    directives = [part.strip().split() for part in policy.split(";")]
+    images = [part[1:] for part in directives if part and part[0] == "img-src"]
+    # No wildcard, substring match, or permissive default-src fallback.
+    return len(images) == 1 and origin in images[0]
+
+
+def _live_csp_allows_worker(app_url: str, origin: str) -> bool:
+    app_origin = _valid_https_origin(app_url)
+    if app_origin is None:
+        return False
+    request = Request(app_origin + "/etsy-spy", method="HEAD")
+    try:
+        with urlopen(request, timeout=5) as response:
+            headers = response.headers
+    except HTTPError as exc:
+        # CAM nginx sends CSP "always", including to unauthorized responses.
+        headers = exc.headers
+    except (URLError, OSError, ValueError):
+        return False
+    policies = headers.get_all("Content-Security-Policy", []) if headers else []
+    # Multiple CSP headers apply cumulatively in browsers.
+    return bool(policies) and all(
+        _policy_allows_worker(policy, origin) for policy in policies
+    )
 
 
 def probe(values: dict[str, str], *, do_network: bool) -> dict[str, object]:
@@ -39,14 +79,19 @@ def probe(values: dict[str, str], *, do_network: bool) -> dict[str, object]:
         "edge_redirect_enabled": values.get(
             "CAM_ETSY_IMAGE_SHARED_WORKER_ENABLED", "").lower() in {"1", "true"},
         "worker_signed_head": "not_run",
+        "csp_allows_worker": None,
         "edge_ready": False,
     }
     if missing or not do_network:
         return report
-    origin = values["R2_VIDEO_MEDIA_BASE_URL"].rstrip("/")
-    if not origin.startswith("https://") or "/" in origin[8:]:
+    origin = _valid_https_origin(values["R2_VIDEO_MEDIA_BASE_URL"])
+    if not origin:
         report["worker_signed_head"] = "invalid_origin"
+        report["csp_allows_worker"] = False
         return report
+    report["csp_allows_worker"] = _live_csp_allows_worker(
+        values.get("PUBLIC_APP_URL", ""), origin
+    )
     secret = values["R2_VIDEO_MEDIA_SIGNING_SECRET"]
     tenant_tag = hmac.new(secret.encode(), b"etsy-image-tenant-v1\0__cam_image_cdn_probe__",
                           hashlib.sha256).hexdigest()[:24]
@@ -72,7 +117,10 @@ def probe(values: dict[str, str], *, do_network: bool) -> dict[str, object]:
         503: "worker_or_binding_unavailable",
         0: "network_unavailable",
     }.get(status, "unexpected_response")
-    report["edge_ready"] = status == 404
+    report["edge_ready"] = (
+        report["shared_r2_cache_enabled"] and canary and
+        report["csp_allows_worker"] is True and status == 404
+    )
     return report
 
 
