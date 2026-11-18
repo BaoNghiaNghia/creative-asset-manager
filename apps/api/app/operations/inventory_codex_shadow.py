@@ -116,7 +116,7 @@ def main() -> int:
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "status": {"type": "string"},
+                    "status": {"type": "string", "enum": ["review_required"]},
                     "evidence": {"type": "string"},
                 },
                 "required": ["status", "evidence"],
@@ -151,7 +151,7 @@ def main() -> int:
             )
             if len(second.calls) != 1 or second.calls[0].name != "submit_review":
                 raise InventoryAiGatewayError("inventory_codex_smoke_no_submit", retryable=False)
-            if second.calls[0].arguments.get("status") not in {"review_required", "unverified", "needs_review"}:
+            if second.calls[0].arguments.get("status") != "review_required":
                 raise InventoryAiGatewayError("inventory_codex_smoke_invalid_status", retryable=False)
         except InventoryAiGatewayError as exc:
             print(json.dumps({"engine": "codex_cli", "account": args.account,
