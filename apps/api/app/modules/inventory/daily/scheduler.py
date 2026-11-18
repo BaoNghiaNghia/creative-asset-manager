@@ -42,6 +42,10 @@ V4_MANUAL_RECOVERY_ERROR_CODES = frozenset({
     "unknown_warehouse",
     "inventory_gemini_rate_limited",
     "inventory_gemini_transport_error",
+    "inventory_codex_timeout",
+    "inventory_codex_execution_failed",
+    "inventory_codex_profile_busy",
+    "inventory_codex_runtime_unavailable",
 })
 
 
@@ -470,6 +474,11 @@ class InventoryDailyScheduler:
                 "inventory_gemini_rate_limited",
                 "inventory_gemini_request_failed",
                 "inventory_gemini_transport_error",
+                "inventory_codex_timeout",
+                "inventory_codex_execution_failed",
+                "inventory_codex_profile_busy",
+                "inventory_codex_runtime_unavailable",
+                "inventory_codex_forced_tool_missing",
             }:
                 # Avoid hammering provider quota or a broken transport every minute.
                 job.next_attempt_at = max(

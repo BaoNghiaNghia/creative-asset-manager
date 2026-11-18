@@ -68,10 +68,12 @@ class InventoryDailySheetSemanticAnalyzer:
         gateway: RuntimeInventoryGeminiGateway,
         *,
         enabled: bool,
+        required_provider: str = "gemini",
     ) -> None:
         self.session_factory = session_factory
         self.gateway = gateway
         self.enabled = enabled
+        self.required_provider = required_provider
 
     def _runtime(self, tenant_id: str) -> tuple[str, str] | None:
         if not self.enabled:
@@ -85,7 +87,7 @@ class InventoryDailySheetSemanticAnalyzer:
         if control is None or not control.enabled or control.emergency_stop:
             return None
         models = tuple(str(value) for value in (control.allowed_models_json or ()) if value)
-        if control.provider != "gemini" or not models:
+        if control.provider != self.required_provider or not models:
             return None
         return control.provider, models[0]
 
@@ -213,10 +215,15 @@ def build_daily_sheet_semantic_analyzer(
     session_factory: sessionmaker[Session] = SessionLocal,
 ) -> InventoryDailySheetSemanticAnalyzer:
     runtime_settings = settings or get_settings()
-    gateway = RuntimeInventoryGeminiGateway(
-        InventoryGeminiCredentialResolver(session_factory, runtime_settings),
-        timeout_seconds=runtime_settings.INVENTORY_AI_TIMEOUT_SECONDS,
-    )
+    if runtime_settings.INVENTORY_AI_PROVIDER == "codex_cli":
+        from app.modules.inventory.ai.runtime_factory import build_inventory_gateway
+        gateway = build_inventory_gateway(session_factory, runtime_settings)
+    else:
+        gateway = RuntimeInventoryGeminiGateway(
+            InventoryGeminiCredentialResolver(session_factory, runtime_settings),
+            timeout_seconds=runtime_settings.INVENTORY_AI_TIMEOUT_SECONDS,
+        )
     return InventoryDailySheetSemanticAnalyzer(
-        session_factory, gateway, enabled=runtime_settings.INVENTORY_AI_ENABLED
+        session_factory, gateway, enabled=runtime_settings.INVENTORY_AI_ENABLED,
+        required_provider=runtime_settings.INVENTORY_AI_PROVIDER,
     )

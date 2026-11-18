@@ -561,6 +561,9 @@ class Settings(BaseSettings):
     INVENTORY_PREPARE_JPEG_QUALITY: int = 85
     INVENTORY_AI_ENABLED: bool = False
     INVENTORY_AI_PROVIDER: str = "gemini"
+    INVENTORY_CODEX_ACCOUNT: str = "account-1"
+    # 16 bounded carry-forward rounds must fit the 30-minute systemd lifecycle.
+    INVENTORY_CODEX_TIMEOUT_SECONDS: int = 80
     INVENTORY_AI_ALLOWED_MODELS: str = ""
     INVENTORY_AI_TIMEOUT_SECONDS: float = 45.0
     INVENTORY_AI_DEFAULT_DAILY_BUDGET_MICROS: int = 0

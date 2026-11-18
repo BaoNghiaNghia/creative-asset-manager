@@ -55,6 +55,7 @@ class InventoryDailySheetV4Service:
         token_resolver: Callable[[str], Any],
         enabled: bool,
         deployment_allowed_models: tuple[str, ...] = (),
+        required_provider: str = "gemini",
     ) -> None:
         self.session_factory = session_factory
         self.gateway = gateway
@@ -63,6 +64,7 @@ class InventoryDailySheetV4Service:
         self.token_resolver = token_resolver
         self.enabled = enabled
         self.deployment_allowed_models = tuple(dict.fromkeys(deployment_allowed_models))
+        self.required_provider = required_provider
 
     def _runtime(self, tenant_id: str) -> tuple[str, tuple[str, ...]]:
         if not self.enabled:
@@ -81,7 +83,7 @@ class InventoryDailySheetV4Service:
         if self.deployment_allowed_models:
             allowed = set(self.deployment_allowed_models)
             models = tuple(model for model in models if model in allowed)
-        if control.provider != "gemini" or not models:
+        if control.provider != self.required_provider or not models:
             raise V4AgentUnavailable("inventory_ai_model_not_allowed")
         return control.provider, models
 
@@ -461,10 +463,8 @@ def build_daily_sheet_v4_service(
     settings: Settings | None = None,
 ) -> InventoryDailySheetV4Service:
     runtime_settings = settings or get_settings()
-    gateway = RuntimeInventoryGeminiGateway(
-        InventoryGeminiCredentialResolver(session_factory, runtime_settings),
-        timeout_seconds=runtime_settings.INVENTORY_AI_TIMEOUT_SECONDS,
-    )
+    from app.modules.inventory.ai.runtime_factory import build_inventory_gateway
+    gateway = build_inventory_gateway(session_factory, runtime_settings)
     return InventoryDailySheetV4Service(
         session_factory=session_factory,
         gateway=gateway,
@@ -473,4 +473,5 @@ def build_daily_sheet_v4_service(
         token_resolver=token_resolver,
         enabled=runtime_settings.INVENTORY_AI_ENABLED,
         deployment_allowed_models=runtime_settings.inventory_ai_allowed_models,
+        required_provider=runtime_settings.INVENTORY_AI_PROVIDER,
     )

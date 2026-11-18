@@ -2483,7 +2483,7 @@ class InventoryDailySheetService:
                         action_label = "Preview lại recovery"
                     elif attention.get("error_code") in {"carry_forward_plan_has_issues", "unknown_material", "unknown_warehouse"}:
                         action_label = "Xử lý mapping và recovery"
-                    elif attention.get("error_code") in {"empty_carry_forward_plan", "closing_opening_mismatch", "inventory_gemini_rate_limited", "inventory_gemini_transport_error"}:
+                    elif attention.get("error_code") in {"empty_carry_forward_plan", "closing_opening_mismatch", "inventory_gemini_rate_limited", "inventory_gemini_transport_error", "inventory_codex_timeout", "inventory_codex_execution_failed", "inventory_codex_profile_busy"}:
                         action_label = "Preview recovery"
                     elif attention.get("error_code") == "previous_day_gemini_not_verified":
                         action_label = "Repair Gemini ngày trước"

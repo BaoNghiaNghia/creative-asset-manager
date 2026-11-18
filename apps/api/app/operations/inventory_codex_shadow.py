@@ -73,7 +73,7 @@ def preflight(home: Path, binary: Path) -> dict[str, object]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("preflight", "smoke", "shadow"))
+    parser.add_argument("action", choices=("preflight", "smoke", "tools-smoke", "shadow"))
     parser.add_argument("--account", choices=("account-1", "account-2"),
                         default=DEFAULT_ACCOUNT,
                         help="Existing managed Codex profile; no automatic account rotation")
@@ -92,6 +92,79 @@ def main() -> int:
     if not state["ready"]:
         print(json.dumps(state, sort_keys=True))
         return 2
+    if args.action == "tools-smoke":
+        from app.modules.inventory.ai.codex_cli_gateway import (
+            CodexCliConfig, RuntimeInventoryCodexGateway, DEFAULT_MODEL,
+        )
+        from app.modules.inventory.ai.gateway import InventoryAiGatewayError
+        gateway = RuntimeInventoryCodexGateway(CodexCliConfig(
+            home=str(home), binary=str(executable), account=args.account,
+            timeout_seconds=settings.INVENTORY_CODEX_TIMEOUT_SECONDS,
+        ))
+        sample = "SYNTHETIC_ONLY_NO_GOOGLE_SHEETS"
+        tools = [{
+            "name": "inspect_inventory_evidence",
+            "parameters": {
+                "type": "object",
+                "properties": {"reference": {"type": "string"}},
+                "required": ["reference"],
+                "additionalProperties": False,
+            },
+            "description": "Read an existing synthetic input record, no side effects.",
+        }, {
+            "name": "submit_review",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string"},
+                    "evidence": {"type": "string"},
+                },
+                "required": ["status", "evidence"],
+                "additionalProperties": False,
+            },
+            "description": "Submit a synthetic review result, no Sheet write.",
+        }]
+        history = [{"role": "user", "parts": [{"text":
+            "Only synthetic mock Inventory. First call inspect_inventory_evidence "
+            "with reference " + sample + ". Do not call submit_review until "
+            "you receive the synthetic inspection result."}]}]
+        try:
+            first = gateway.generate_tool_turn(
+                tenant_id="synthetic", contents=history, function_declarations=tools,
+                provider="codex_cli", model=args.model or DEFAULT_MODEL,
+                force_function_name="inspect_inventory_evidence",
+            )
+            if len(first.calls) != 1 or first.calls[0].name != "inspect_inventory_evidence":
+                raise InventoryAiGatewayError("inventory_codex_smoke_no_read_call", retryable=False)
+            history.append(dict(first.content))
+            history.append({"role": "user", "parts": [{
+                "functionResponse": {
+                    "name": "inspect_inventory_evidence",
+                    "response": {"reference": sample, "quantity": 10,
+                                 "quantity_unit": "unknown", "verified": False},
+                },
+            }]})
+            second = gateway.generate_tool_turn(
+                tenant_id="synthetic", contents=history, function_declarations=tools,
+                provider="codex_cli", model=args.model or DEFAULT_MODEL,
+                force_function_name="submit_review",
+            )
+            if len(second.calls) != 1 or second.calls[0].name != "submit_review":
+                raise InventoryAiGatewayError("inventory_codex_smoke_no_submit", retryable=False)
+            if second.calls[0].arguments.get("status") not in {"review_required", "unverified", "needs_review"}:
+                raise InventoryAiGatewayError("inventory_codex_smoke_invalid_status", retryable=False)
+        except InventoryAiGatewayError as exc:
+            print(json.dumps({"engine": "codex_cli", "account": args.account,
+                              "mode": "tools-smoke", "ready": False,
+                              "reason": exc.code}, sort_keys=True))
+            return 2
+        print(json.dumps({
+            "engine": "codex_cli", "account": args.account,
+            "mode": "tools-smoke", "ready": True,
+            "tool_rounds": 2, "calls_validated": 2, "writes": 0,
+            "scenario": "synthetic_evidence",
+        }, sort_keys=True))
+        return 0
     if args.action == "smoke":
         # Deliberately synthetic, no inventory/tenant/customer information.
         demo_hash = hashlib.sha256(b"cam-inventory-synthetic-smoke").hexdigest()

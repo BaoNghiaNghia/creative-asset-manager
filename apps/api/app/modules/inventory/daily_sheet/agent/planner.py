@@ -96,8 +96,9 @@ def bind_authoritative_source(plan: EditPlan, snapshot: WorkbookSnapshot) -> Edi
 
 class SheetAgentUnavailable(RuntimeError): pass
 class GeminiSheetAgentPlanner:
-    def __init__(self, session_factory: sessionmaker[Session], gateway: RuntimeInventoryGeminiGateway, *, enabled: bool) -> None:
+    def __init__(self, session_factory: sessionmaker[Session], gateway: RuntimeInventoryGeminiGateway, *, enabled: bool, required_provider: str = "gemini") -> None:
         self.session_factory, self.gateway, self.enabled = session_factory, gateway, enabled
+        self.required_provider = required_provider
     def _runtime(self, tenant_id: str) -> tuple[str, str]:
         if not self.enabled: raise SheetAgentUnavailable("inventory_ai_disabled")
         with self.session_factory() as session: control = session.scalar(select(InventoryAiControlModel).where(InventoryAiControlModel.tenant_id == tenant_id))

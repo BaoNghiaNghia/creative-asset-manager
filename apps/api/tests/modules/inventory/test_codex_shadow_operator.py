@@ -56,6 +56,53 @@ def test_smoke_uses_managed_account_one_with_synthetic_evidence(
     assert captured["data"]["cells"][0]["sheet"] == "SYNTHETIC_NO_REAL_DATA"
 
 
+def test_tools_smoke_two_rounds_never_touches_google_or_inventory_db(
+    tmp_path, monkeypatch, capsys,
+):
+    import json
+    import sys
+    from app.modules.inventory.ai.gateway import InventoryGeminiToolCall, InventoryGeminiToolTurn
+
+    monkeypatch.setattr(runner, "Settings", lambda **k: SimpleNamespace(
+        CODEX_IMAGE_HOME=str(tmp_path / "codex"),
+        CODEX_IMAGE_BINARY="/usr/bin/codex",
+        INVENTORY_CODEX_TIMEOUT_SECONDS=80,
+    ))
+    monkeypatch.setattr(runner, "preflight", lambda home, binary: {
+        "engine": "codex_cli", "mode": "shadow", "ready": True, "reason": "ready",
+    })
+    seen = []
+    class FakeGateway:
+        def __init__(self, *args, **kwargs): pass
+        def generate_tool_turn(self, **kwargs):
+            seen.append(kwargs)
+            if len(seen) == 1:
+                return InventoryGeminiToolTurn(
+                    content={"role":"model","parts":[]},
+                    calls=(InventoryGeminiToolCall(
+                        name="inspect_inventory_evidence",
+                        arguments={"reference": "SYNTHETIC_ONLY_NO_GOOGLE_SHEETS"},
+                    ),),
+                )
+            return InventoryGeminiToolTurn(
+                content={"role":"model","parts":[]},
+                calls=(InventoryGeminiToolCall(
+                    name="submit_review",
+                    arguments={"status":"review_required","evidence":"not verified"},
+                ),),
+            )
+    import app.modules.inventory.ai.codex_cli_gateway as cli
+    monkeypatch.setattr(cli, "RuntimeInventoryCodexGateway", FakeGateway)
+    monkeypatch.setattr(sys, "argv", ["inventory_codex_shadow", "tools-smoke"])
+    assert runner.main() == 0
+    result=json.loads(capsys.readouterr().out)
+    assert result["ready"] is True and result["writes"] == 0
+    assert result["tool_rounds"] == 2
+    assert seen[0]["force_function_name"] == "inspect_inventory_evidence"
+    assert seen[1]["force_function_name"] == "submit_review"
+    assert len(seen[1]["contents"]) == 3
+
+
 def test_preflight_rejects_root_or_shared_identity(tmp_path, monkeypatch):
     binary = tmp_path / "codex"
     binary.write_bytes(b"stub")

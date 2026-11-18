@@ -112,8 +112,9 @@ class ConfiguredAgentRuntime:
 
 def build_daily_sheet_agent_service(*, session_factory: sessionmaker[Session], context_provider, client_factory, token_resolver, settings: Settings | None = None) -> InventoryDailySheetAgentService:
     runtime_settings = settings or get_settings()
-    gateway = RuntimeInventoryGeminiGateway(InventoryGeminiCredentialResolver(session_factory, runtime_settings), timeout_seconds=runtime_settings.INVENTORY_AI_TIMEOUT_SECONDS)
-    planner = GeminiSheetAgentPlanner(session_factory, gateway, enabled=runtime_settings.INVENTORY_AI_ENABLED)
+    from app.modules.inventory.ai.runtime_factory import build_inventory_gateway
+    gateway = build_inventory_gateway(session_factory, runtime_settings)
+    planner = GeminiSheetAgentPlanner(session_factory, gateway, enabled=runtime_settings.INVENTORY_AI_ENABLED, required_provider=runtime_settings.INVENTORY_AI_PROVIDER)
     def valid_material(tenant_id: str, material_id: str) -> bool:
         with session_factory() as session:
             return session.scalar(select(InventoryItemModel.id).where(InventoryItemModel.tenant_id == tenant_id, InventoryItemModel.id == material_id, InventoryItemModel.active.is_(True))) is not None

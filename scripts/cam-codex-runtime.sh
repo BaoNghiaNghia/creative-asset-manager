@@ -157,7 +157,7 @@ inventory_smoke() {
   [[ -x "$python_bin" ]] || die "Production Python runtime is unavailable."
   codex_as_service_user codex login status >/dev/null || die "Service Codex login unavailable."
   (cd "$api_root" && codex_as_service_user "$python_bin" \
-    -m app.operations.inventory_codex_shadow smoke --account account-1)
+    -m app.operations.inventory_codex_shadow "${1:-smoke}" --account account-1)
 }
 
 case "${1:-}" in
@@ -168,10 +168,11 @@ case "${1:-}" in
   status-2) status_secondary ;;
   prepare-2) prepare_secondary ;;
   smoke) smoke ;;
-  inventory-smoke) inventory_smoke ;;
+  inventory-smoke) inventory_smoke smoke ;;
+  inventory-tools-smoke) inventory_smoke tools-smoke ;;
   *)
     cat >&2 <<'USAGE'
-Usage: sudo scripts/cam-codex-runtime.sh {prepare|login|status|prepare-2|login-2|status-2|smoke|inventory-smoke}
+Usage: sudo scripts/cam-codex-runtime.sh {prepare|login|status|prepare-2|login-2|status-2|smoke|inventory-smoke|inventory-tools-smoke}
 USAGE
     exit 2
     ;;

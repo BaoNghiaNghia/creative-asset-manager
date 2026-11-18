@@ -37,6 +37,11 @@ AUTO_RETRYABLE_ERRORS = frozenset({
     "inventory_gemini_request_failed_502",
     "inventory_gemini_request_failed_503",
     "inventory_gemini_request_failed_504",
+    "inventory_codex_timeout",
+    "inventory_codex_execution_failed",
+    "inventory_codex_profile_busy",
+    "inventory_codex_runtime_unavailable",
+    "inventory_codex_forced_tool_missing",
 })
 logger = logging.getLogger("cam.inventory.historical_replay_queue")
 
