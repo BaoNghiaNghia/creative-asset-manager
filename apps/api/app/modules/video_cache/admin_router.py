@@ -9,6 +9,7 @@ from app.core.database import SessionLocal
 from app.modules.authorization.principal import CurrentPrincipal, require_platform_admin
 from app.modules.video_cache.guard import VIDEO_DELIVERY_GUARD
 from app.modules.video_cache.metrics import delivery_observability_snapshot
+from app.modules.video_cache.retention_reporting import retention_status
 from app.modules.video_cache.runtime import (
     VideoDeliveryPrerequisiteError,
     VideoDeliveryRuntimeService,
@@ -116,7 +117,13 @@ def get_video_delivery_observability(
     _principal: CurrentPrincipal = Depends(require_platform_admin),
 ):
     settings = _settings(request)
+    try:
+        with SessionLocal() as session:
+            retention = retention_status(session, settings)
+    except SQLAlchemyError:
+        retention = {"status": "unavailable"}
     return {
         "metrics": delivery_observability_snapshot(),
         "guard": VIDEO_DELIVERY_GUARD.snapshot(settings),
+        "retention": retention,
     }

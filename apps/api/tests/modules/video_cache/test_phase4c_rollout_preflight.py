@@ -8,10 +8,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.config import Settings
+from app.modules.branding_dna import evidence_model as _branding_evidence_models
 from app.core.database import Base
 from app.modules.auth_persistence.model import TenantModel
 from app.modules.video_cache.model import (
     VIDEO_CDN_DELIVERY_SETTING_KEY,
+    utcnow,
     VideoCacheObjectModel,
     VideoDeliveryRuntimeSettingModel,
 )
@@ -37,6 +39,8 @@ def configured_settings(**updates) -> Settings:
         "R2_VIDEO_CACHE_SOFT_LIMIT_BYTES": 1000,
         "R2_VIDEO_CACHE_HARD_LIMIT_BYTES": 2000,
         "R2_VIDEO_CACHE_MAX_OBJECT_BYTES": 1000,
+        "R2_VIDEO_PLAYBACK_MAX_SOURCE_BYTES": 1000,
+        "R2_VIDEO_PLAYBACK_MAX_OUTPUT_BYTES": 1000,
         "VIDEO_CDN_DELIVERY_CANARY_TENANT_IDS": "tenant-a",
         "VIDEO_CDN_DELIVERY_GUARD_ENABLED": True,
     }
@@ -70,6 +74,7 @@ def context(*, runtime_enabled=False, ready_size=100):
                 mime_type="video/mp4",
                 status="ready",
                 size_bytes=ready_size,
+                cached_at=utcnow(),
             ))
         session.commit()
     return engine, factory

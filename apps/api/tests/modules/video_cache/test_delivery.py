@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -27,7 +28,8 @@ def config(**updates):
 
 def row(**updates):
     values = dict(tenant_id="test-tenant", content_hash="0123456789abcdef" * 4,
-        mime_type="video/mp4", status="ready", size_bytes=25)
+        mime_type="video/mp4", status="ready", size_bytes=25,
+        cached_at=datetime.fromtimestamp(VECTOR["expires_at"] - 3600, timezone.utc))
     values.update(updates)
     if "r2_key" not in values:
         values["r2_key"] = video_cache_key(values["tenant_id"], values["content_hash"])
@@ -142,6 +144,31 @@ def test_fixed_vector_and_path_expiry_binding():
                 VECTOR["pathname"].replace("test-tenant", "..")):
         with pytest.raises(VideoDeliveryUnavailable):
             sign_read_path(SECRET, bad, VECTOR["expires_at"])
+
+
+def test_absolute_retention_deadline_caps_signed_ticket_and_blocks_old_cache():
+    from datetime import timedelta
+    from app.modules.video_cache.retention_policy import expires_at, is_expired
+    now = VECTOR["expires_at"] - 600
+    old = datetime.fromtimestamp(now - 30 * 86400, timezone.utc)
+    settings = delivery_config()
+    service = VideoCacheDeliveryService(settings, clock=lambda: now)
+    with pytest.raises(VideoDeliveryUnavailable):
+        service.create_signed_url(row(cached_at=old))
+    with pytest.raises(VideoDeliveryUnavailable):
+        service.create_signed_url(row(cached_at=None))
+    near = datetime.fromtimestamp(now - 30 * 86400 + 17, timezone.utc)
+    ticket = service.create_signed_url(row(cached_at=near))
+    assert ticket.expires_at == now + 17
+    assert is_expired(near, 30, now=datetime.fromtimestamp(now+17, timezone.utc))
+    assert not is_expired(near, 30, now=datetime.fromtimestamp(now+16, timezone.utc))
+    assert expires_at(near, 30) == datetime.fromtimestamp(now+17, timezone.utc)
+
+
+@pytest.mark.parametrize("days", [0, 31, 365])
+def test_video_cache_retention_cannot_exceed_30_days(days):
+    with pytest.raises(ValueError, match="R2_VIDEO_CACHE_MAX_AGE_DAYS"):
+        config(R2_VIDEO_CACHE_MAX_AGE_DAYS=days)
 
 
 def test_ticket_expiry_can_be_capped_by_authorized_session():

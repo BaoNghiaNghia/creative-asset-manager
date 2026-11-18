@@ -8,6 +8,8 @@ from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+# Register the complete Branding DNA FK target before Base.metadata.create_all.
+from app.modules.branding_dna import evidence_model as _branding_evidence_models
 from app.core.database import Base
 from app.modules.assets.model import AssetModel, AssetSourceLinkModel, ExternalSourceModel, SourceAssetModel
 from app.modules.auth_persistence.model import TenantModel
@@ -517,4 +519,132 @@ def test_unreclaimable_pressure_bypasses_without_destroying_ready_cache(tmp_path
     assert fake.deleted == []
     with factory() as session:
         assert VideoCacheQuota.usage(session).effective_bytes == 8_600_000_000
+    engine.dispose()
+
+
+def test_absolute_30_day_cleanup_removes_only_expired_video_even_after_recent_access(tmp_path):
+    from datetime import timedelta
+    from app.modules.video_cache.cleanup import VideoCacheCleanup
+    from app.modules.video_cache.model import VideoCacheCleanupRunModel, utcnow
+    from app.modules.video_cache.retention_reporting import retention_status
+    engine, factory = setup(tmp_path)
+    old = seed(factory, data=b"cached-31-days")
+    fresh = seed(factory, data=b"cached-1-day")
+    now = utcnow()
+    with factory() as session:
+        for identity, cached_at in ((old, now - timedelta(days=31)),
+                                    (fresh, now - timedelta(days=1))):
+            asset, source, digest = identity
+            session.add(VideoCacheObjectModel(
+                tenant_id="tenant-a", asset_id=asset, source_asset_id=source,
+                content_hash=digest, r2_key=video_cache_key("tenant-a", digest),
+                mime_type="video/mp4", status="ready", size_bytes=120,
+                cached_at=cached_at, last_accessed_at=now,
+            ))
+        session.commit()
+    r2 = FakeR2()
+    outcome = asyncio.run(VideoCacheCleanup(factory, settings(), r2).run_once())
+    assert outcome["expired_deleted"] == 1
+    assert outcome["expired_bytes_freed"] == 120
+    assert outcome["delete_failures"] == 0
+    assert r2.deleted == [video_cache_key("tenant-a", old[2])]
+    with factory() as session:
+        remaining = session.scalars(select(VideoCacheObjectModel)).all()
+        assert len(remaining) == 1 and remaining[0].content_hash == fresh[2]
+        run = session.scalar(select(VideoCacheCleanupRunModel))
+        assert run.status == "completed" and run.expired_deleted == 1
+        summary = retention_status(session, settings())
+        assert summary["last_cleanup_bytes_freed"] == 120
+        assert summary["last_24h_expired_deleted"] == 1
+        assert summary["expired_ready_objects"] == 0
+    engine.dispose()
+
+
+def test_expiry_failure_remains_retryable_and_keeps_accounting(tmp_path):
+    from datetime import timedelta
+    from app.modules.video_cache.cleanup import VideoCacheCleanup
+    from app.modules.video_cache.model import VideoCacheCleanupRunModel, utcnow
+    engine, factory = setup(tmp_path)
+    asset, source, digest = seed(factory, data=b"retry-cache")
+    with factory() as session:
+        session.add(VideoCacheObjectModel(
+            tenant_id="tenant-a", asset_id=asset, source_asset_id=source,
+            content_hash=digest, r2_key=video_cache_key("tenant-a", digest),
+            mime_type="video/mp4", status="ready", size_bytes=200,
+            cached_at=utcnow() - timedelta(days=31),
+        ))
+        session.commit()
+    r2 = FakeR2(fail_delete=True)
+    cleanup = VideoCacheCleanup(factory, settings(), r2)
+    first = asyncio.run(cleanup.run_once())
+    assert first["expired_deleted"] == 0 and first["delete_failures"] == 1
+    with factory() as session:
+        row = session.scalar(select(VideoCacheObjectModel))
+        assert row.status == "deleting" and row.last_error_code == "r2_delete_retry"
+        assert VideoCacheQuota.usage(session).effective_bytes == 200
+        assert session.scalar(select(VideoCacheCleanupRunModel)).status == "partial"
+        row.next_attempt_at = utcnow() - timedelta(minutes=1)
+        row.cleanup_lease_expires_at = None
+        session.commit()
+    r2.fail_delete = False
+    next_run = asyncio.run(cleanup.run_once())
+    assert next_run["deleted"] == 1
+    with factory() as session:
+        assert session.scalar(select(VideoCacheObjectModel)) is None
+        assert VideoCacheQuota.usage(session).effective_bytes == 0
+    engine.dispose()
+
+
+def test_expired_video_original_and_playback_deleted_together(tmp_path):
+    from datetime import timedelta
+    from app.modules.video_cache.cleanup import VideoCacheCleanup
+    from app.modules.video_cache.model import utcnow
+    from app.modules.video_cache.service import video_playback_key
+    engine, factory = setup(tmp_path)
+    asset, source, digest = seed(factory, data=b"with-playback")
+    with factory() as session:
+        session.add(VideoCacheObjectModel(
+            tenant_id="tenant-a", asset_id=asset, source_asset_id=source,
+            content_hash=digest, r2_key=video_cache_key("tenant-a", digest),
+            mime_type="video/mp4", status="ready", size_bytes=200,
+            playback_status="ready", playback_size_bytes=80,
+            playback_kind="faststart",
+            playback_r2_key=video_playback_key("tenant-a", digest),
+            cached_at=utcnow() - timedelta(days=31),
+        ))
+        session.commit()
+    r2 = FakeR2()
+    outcome = asyncio.run(VideoCacheCleanup(factory, settings(), r2).run_once())
+    assert outcome["expired_deleted"] == 1 and outcome["expired_bytes_freed"] == 280
+    assert set(r2.deleted) == {
+        video_cache_key("tenant-a", digest),
+        video_playback_key("tenant-a", digest),
+    }
+    engine.dispose()
+
+
+def test_expiry_cleanup_is_bounded_and_never_deletes_outside_video_cache(tmp_path):
+    from datetime import timedelta
+    from app.modules.video_cache.cleanup import VideoCacheCleanup
+    from app.modules.video_cache.model import utcnow
+    engine, factory = setup(tmp_path)
+    identities = [seed(factory, data=f"old-{n}".encode()) for n in range(4)]
+    with factory() as session:
+        for index, (asset, source, digest) in enumerate(identities):
+            session.add(VideoCacheObjectModel(
+                tenant_id="tenant-a", asset_id=asset, source_asset_id=source,
+                content_hash=digest,
+                r2_key=(video_cache_key("tenant-a", digest)
+                        if index else "etsy-images/unapproved-file.webp"),
+                mime_type="video/mp4", status="ready", size_bytes=55,
+                cached_at=utcnow() - timedelta(days=31),
+            ))
+        session.commit()
+    r2 = FakeR2()
+    config = settings(R2_VIDEO_CACHE_CLEANUP_BATCH_SIZE=1)
+    outcome = asyncio.run(VideoCacheCleanup(factory, config, r2).run_once())
+    assert outcome["expired_deleted"] == 1
+    assert len(r2.deleted) == 1 and r2.deleted[0].startswith("video-cache/")
+    with factory() as session:
+        assert session.scalar(select(func.count()).select_from(VideoCacheObjectModel)) == 3
     engine.dispose()

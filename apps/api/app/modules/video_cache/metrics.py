@@ -16,6 +16,8 @@ _ALLOWED = frozenset({
     "video_cache_fill_completed_total",
     "video_cache_fill_failed_total",
     "video_cache_eviction_total",
+    "video_cache_expired_deleted_total",
+    "video_cache_expired_delete_failed_total",
     "video_cache_bypass_total",
     "video_cdn_redirect_total",
     "video_cdn_fallback_runtime_total",

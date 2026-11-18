@@ -15,6 +15,7 @@ class FakeBucket {
   headCalls = 0;
   listCalls = 0;
   missing = false;
+  uploaded: Date | undefined = new Date((NOW - 3600) * 1000);
   lastKey = "";
   lastRange: { offset: number; length: number } | undefined;
   async get(key: string, options?: { range?: { offset: number; length: number } }): Promise<R2ReadObject | null> {
@@ -24,7 +25,7 @@ class FakeBucket {
     if (this.missing) return null;
     const bytes = options?.range ? BYTES.slice(options.range.offset, options.range.offset + options.range.length) : BYTES;
     return { size: bytes.byteLength, body: new Blob([bytes]).stream() as ReadableStream<Uint8Array>,
-      httpEtag: '"etag-original"', uploaded: new Date("2026-01-01T00:00:00Z"),
+      httpEtag: '"etag-original"', uploaded: this.uploaded,
       httpMetadata: { contentType: "video/mp4" } };
   }
   async head(key: string): Promise<R2ReadObject | null> {
@@ -32,7 +33,7 @@ class FakeBucket {
     this.lastKey = key;
     if (this.missing) return null;
     return { size: BYTES.byteLength, httpEtag: '"etag-original"',
-      uploaded: new Date("2026-01-01T00:00:00Z"), httpMetadata: { contentType: "video/mp4" } };
+      uploaded: this.uploaded, httpMetadata: { contentType: "video/mp4" } };
   }
   list(): never { this.listCalls++; throw new Error("listing forbidden"); }
 }
@@ -67,7 +68,7 @@ test("valid GET streams exact bytes and conservative metadata", async () => {
   assert.deepEqual(new Uint8Array(await response.arrayBuffer()), BYTES);
   for (const [name, expected] of [
     ["Content-Type", "video/mp4"], ["Content-Length", String(BYTES.byteLength)],
-    ["ETag", '"etag-original"'], ["Last-Modified", "Thu, 01 Jan 2026 00:00:00 GMT"],
+    ["ETag", '"etag-original"'], ["Last-Modified", bucket.uploaded!.toUTCString()],
     ["Cache-Control", "private, no-store"], ["X-Content-Type-Options", "nosniff"],
     ["Referrer-Policy", "no-referrer"], ["Accept-Ranges", "bytes"], ["X-Video-Cache", "MISS"],
   ]) assert.equal(response.headers.get(name), expected);
@@ -207,7 +208,7 @@ test("R2 failure is generic and never reflects provider error or secret", async 
 test("non-video R2 content type is not reflected as active content", async () => {
   const { bucket, env, url } = fixture();
   bucket.head = async () => ({
-    size: BYTES.byteLength, httpMetadata: { contentType: "text/html" },
+    size: BYTES.byteLength, uploaded: bucket.uploaded, httpMetadata: { contentType: "text/html" },
   });
   const response = await send(url, env, "HEAD");
   assert.equal(response.status, 200);
@@ -310,6 +311,63 @@ test("bounded overlapping ranges reuse one fixed edge segment", async () => {
   assert.equal(cache.matches.length, 2);
 });
 
+
+
+test("30-day-old cached videos fail HEAD, full GET and Range with no cache write", async () => {
+  const { bucket, env, url } = fixture();
+  const cache = new FakeCache();
+  bucket.uploaded = new Date((NOW - 30 * 86400) * 1000);
+  for (const [method, headers] of [
+    ["HEAD", undefined], ["GET", undefined], ["GET", { Range: "bytes=0-3" }],
+  ] as const) {
+    const response = await send(url, env, method, NOW, headers, cache);
+    assert.equal(response.status, 404);
+    assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+  }
+  assert.equal(cache.puts.length, 0);
+});
+
+test("fresh edge cache is capped to remaining R2 lifetime and expires absolutely", async () => {
+  const { bucket, env, url } = fixture();
+  const cache = new FakeCache();
+  bucket.uploaded = new Date((NOW - 30 * 86400 + 20) * 1000);
+  const first = await send(url, env, "GET", NOW, undefined, cache);
+  assert.equal(first.status, 200);
+  await first.arrayBuffer();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(cache.puts.length, 1);
+  const cached = cache.entries.values().next().value as Response;
+  assert.equal(cached.headers.get("Cache-Control"), "public, max-age=20");
+  assert.equal(cached.headers.get("X-CAM-Video-Expires-At"), String(NOW + 20));
+  const afterExpiry = await send(url, env, "GET", NOW + 21, undefined, cache);
+  assert.equal(afterExpiry.status, 404);
+  assert.equal(cache.puts.length, 1);
+});
+
+test("old 365-day cache entries without an age marker are never reused", async () => {
+  const { bucket, env, url } = fixture();
+  const cache = new FakeCache();
+  cache.entries.set(
+    "https://cam-r2-video-cache.internal" + vector.pathname,
+    new Response(new Blob([BYTES]).stream(), {
+      status: 200,
+      headers: { "Cache-Control": "public, max-age=31536000, immutable", "Content-Type": "video/mp4" },
+    }),
+  );
+  const response = await send(url, env, "GET", NOW, undefined, cache);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("X-Video-Cache"), "MISS");
+  assert.equal(bucket.getCalls, 1);
+  await response.arrayBuffer();
+});
+
+test("missing R2 uploaded timestamp fails closed without serving content", async () => {
+  const { bucket, env, url } = fixture();
+  bucket.uploaded = undefined;
+  assert.equal((await send(url, env, "HEAD")).status, 503);
+  assert.equal((await send(url, env, "GET")).status, 503);
+  assert.equal((await send(url, env, "GET", NOW, { Range: "bytes=0-3" })).status, 503);
+});
 
 test("404 and provider failures are not cached", async () => {
   const { bucket, env, url } = fixture();

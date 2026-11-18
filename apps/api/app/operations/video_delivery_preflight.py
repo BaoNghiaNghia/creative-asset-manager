@@ -9,6 +9,7 @@ import argparse
 import hashlib
 import json
 from dataclasses import asdict, dataclass
+from datetime import timedelta
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from uuid import uuid4
@@ -27,7 +28,7 @@ from app.modules.video_cache.delivery import (
     VideoCacheDeliveryService,
     VideoDeliveryError,
 )
-from app.modules.video_cache.model import VideoCacheObjectModel
+from app.modules.video_cache.model import VideoCacheObjectModel, utcnow
 from app.modules.video_cache.quota import VideoCacheQuota
 from app.modules.video_cache.runtime import (
     VideoDeliveryRuntimeService,
@@ -207,6 +208,7 @@ def probe_worker_ticket(
         mime_type="video/mp4",
         status="ready",
         size_bytes=1,
+        cached_at=utcnow(),
     )
     try:
         ticket = VideoCacheDeliveryService(settings).create_signed_url(synthetic)
@@ -279,7 +281,9 @@ def probe_ready_video_ticket(
     """
     row = session.scalar(
         select(VideoCacheObjectModel)
-        .where(VideoCacheObjectModel.status == "ready")
+        .where(VideoCacheObjectModel.status == "ready",
+               VideoCacheObjectModel.cached_at > utcnow() - timedelta(
+                   days=settings.R2_VIDEO_CACHE_MAX_AGE_DAYS))
         .order_by(VideoCacheObjectModel.cached_at.desc(), VideoCacheObjectModel.id)
         .limit(1)
     )

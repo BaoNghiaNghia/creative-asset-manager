@@ -75,6 +75,29 @@ class VideoCacheObjectModel(Base):
     playback_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+
+class VideoCacheCleanupRunModel(Base):
+    """Durable, aggregate-only cleanup audit; no object keys or tenant identities."""
+
+    __tablename__ = "video_cache_cleanup_runs"
+    __table_args__ = (
+        CheckConstraint("expired_deleted >= 0 AND expired_bytes_freed >= 0",
+                        name="ck_video_cache_retention_nonnegative"),
+        Index("ix_video_cache_cleanup_runs_finished", "finished_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="completed")
+    expired_deleted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    expired_bytes_freed: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    remaining_expired_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    remaining_expired_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    delete_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    capacity_evicted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    recovered: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
 VIDEO_CDN_DELIVERY_SETTING_KEY = "VIDEO_CDN_DELIVERY_ENABLED"
 
 

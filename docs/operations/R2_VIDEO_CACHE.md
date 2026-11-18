@@ -26,6 +26,58 @@ Effective tracked bytes include original and derived physical bytes plus both or
 
 Access-touch is a tenant-qualified repository primitive with a default 300-second debounce. Public Review touches LRU only after a signed delivery ticket is successfully minted.
 
+## Absolute 30-day retention (revision 0211)
+
+Video cache is disposable. `R2_VIDEO_CACHE_MAX_AGE_DAYS=30` defaults to a
+strict upper bound of 30 days counted from original `cached_at`. Every
+access remains a read of the same cache generation; `last_accessed_at` never
+extends retention. Missing `cached_at` is expired, not indefinitely READY.
+Source videos in Drive/OneDrive and private Etsy images are not deleted.
+
+The video-worker scheduler calls `VideoCacheCleanup.run_once()` every
+`R2_VIDEO_CACHE_CLEANUP_INTERVAL_SECONDS` (default 600). It first retries
+claimed DELETING rows and then claims READY rows past their absolute deadline,
+even if the total bucket is below its 8-GB soft quota. Each claim uses the
+bucket-global quota lock and validates the exact original/playback key shape.
+Remote delete occurs before DB row deletion. Failed remote deletes remain
+DELETING, counted, and retried. Active derived playback preparation is not
+reclaimed until its job finishes or the existing stale-lease recovery applies.
+
+The signer caps each ticket at the original cache deadline, rejecting expired
+or unverified READY entries. Newer Worker code also rejects R2 objects uploaded
+30 days ago, and uses a short internal edge-cache TTL of at most one hour and
+no longer than the remaining R2 object lifetime. Legacy 365-day edge entries
+without an expiry marker are ignored. **Worker changes require a separate
+Cloudflare deployment**; deploying the API alone cannot update a live Worker.
+
+The private R2 bucket has a second, prefix-scoped safety net. Use
+`python3 -m deploy.tools.r2_video_lifecycle_30d plan` to inspect its rule
+without credentials. With a protected Cloudflare API token granted **Workers
+R2 Storage Write**, use `check` or `apply` to merge
+`cam-video-cache-expire-30d` (only `video-cache/`, 2,592,000 seconds).
+The guarded tool preserves all other lifecycle rules and refuses overlapping
+delete rules or missing permissions. Do not set a bucket-wide rule: the same
+bucket also holds `etsy-images/`. Cloudflare may take additional time to
+delete already expired objects.
+
+After migration 0211, the read-only
+`python -m app.operations.video_cache_cli` output and authorized
+`/api/v1/admin/video-delivery/observability` response include an aggregate
+retention section: current overdue count/bytes, latest completed cleanup,
+bytes released, failures, and 24-hour totals. Each automatic cleanup persists
+one aggregate audit row; histories older than 90 days are pruned. No tenant ID,
+object key or signed URL enters this ledger.
+
+To remove a pre-existing backlog without changing the recurring scheduler,
+run the **dry-run** operator CLI
+`python -m app.operations.video_cache_retention_30d` with the production
+env-file (default `/etc/creative-asset-manager/production.env`), then
+`python -m app.operations.video_cache_retention_30d --apply --max-items 250`.
+The CLI is bounded, only deletes exact expired DB-ledger video-cache keys,
+and reports freed bytes after successful remote deletes. It must run using
+the same production database and R2 credentials as the worker. Existing
+provider fallback remains authoritative.
+
 ## Derived Public Review playback
 
 Migration `0089_r2_video_playback_derivative` adds a fail-safe derived-playback ledger. The feature defaults OFF. When enabled, a new original fill admits one `video_playback_prepare` job only after the immutable original is durably READY. Existing READY originals are backfilled by the cache cleanup runner in bounded `R2_VIDEO_PLAYBACK_BACKFILL_BATCH_SIZE` batches (default 2), never from the Public Review request path. Admission therefore never blocks the current playback request. Until the derivative is READY, signed delivery continues using the immutable original.

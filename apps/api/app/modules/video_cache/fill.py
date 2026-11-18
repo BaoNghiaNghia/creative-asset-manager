@@ -16,6 +16,7 @@ from app.modules.processing.repository import ProcessingRepository
 from app.modules.video_cache.model import VideoCacheObjectModel, utcnow
 from app.modules.video_cache.metrics import emit_counter
 from app.modules.video_cache.quota import VideoCacheQuota
+from app.modules.video_cache.retention_policy import is_expired
 from app.modules.video_cache.repository import VideoCacheRepository
 from app.modules.video_cache.service import video_cache_key
 from app.providers.cloudflare.r2 import R2Adapter
@@ -32,6 +33,7 @@ class CacheFillStatus(str, Enum):
     BYPASSED_QUOTA = "bypassed_quota"
     BYPASSED_SOURCE_CHANGED = "bypassed_source_changed"
     BYPASSED_FAILED = "bypassed_failed"
+    BYPASSED_EXPIRED = "bypassed_expired"
     DISABLED = "disabled"
 
 
@@ -101,6 +103,8 @@ class VideoCacheFillService:
                 row = repo.get_by_tenant_and_hash(tenant_id, content_hash)
                 if row is not None:
                     if row.status == "ready":
+                        if is_expired(row.cached_at, self.settings.R2_VIDEO_CACHE_MAX_AGE_DAYS):
+                            return CacheFillResult(CacheFillStatus.BYPASSED_EXPIRED)
                         return CacheFillResult(CacheFillStatus.READY, row.id)
                     if row.status == "deleting":
                         return CacheFillResult(CacheFillStatus.BYPASSED_QUOTA)

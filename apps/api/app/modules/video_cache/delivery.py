@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 
 from app.core.config import Settings
 from app.modules.video_cache.model import VideoCacheObjectModel
+from app.modules.video_cache.retention_policy import expires_at
 from app.modules.video_cache.service import video_cache_key, video_playback_key
 
 _VIDEO_PATH = re.compile(
@@ -105,7 +106,18 @@ class VideoCacheDeliveryService:
         current = self._clock()
         if isinstance(current, bool) or not isinstance(current, int) or current < 0:
             raise VideoDeliveryUnavailable("Video delivery is unavailable")
-        expires_at = current + self.settings.R2_VIDEO_MEDIA_TICKET_TTL_SECONDS
+        retention_deadline = expires_at(
+            cache_object.cached_at, self.settings.R2_VIDEO_CACHE_MAX_AGE_DAYS
+        )
+        if retention_deadline is None:
+            raise VideoDeliveryUnavailable("Video delivery is unavailable")
+        deadline_seconds = int(retention_deadline.timestamp())
+        if deadline_seconds <= current:
+            raise VideoDeliveryUnavailable("Video delivery is unavailable")
+        ticket_expires_at = min(
+            current + self.settings.R2_VIDEO_MEDIA_TICKET_TTL_SECONDS,
+            deadline_seconds,
+        )
         if expires_at_cap is not None:
             if (
                 isinstance(expires_at_cap, bool)
@@ -113,15 +125,15 @@ class VideoCacheDeliveryService:
                 or expires_at_cap <= current
             ):
                 raise VideoDeliveryUnavailable("Video delivery is unavailable")
-            expires_at = min(expires_at, expires_at_cap)
+            ticket_expires_at = min(ticket_expires_at, expires_at_cap)
         pathname = "/" + expected_key
         signature = sign_read_path(
             self.settings.R2_VIDEO_MEDIA_SIGNING_SECRET.get_secret_value(),
             pathname,
-            expires_at,
+            ticket_expires_at,
         )
         url = (
             f"{self.settings.video_media_base_url}{pathname}"
-            f"?v=1&exp={expires_at}&sig={signature}"
+            f"?v=1&exp={ticket_expires_at}&sig={signature}"
         )
-        return SignedVideoDelivery(url=url, expires_at=expires_at, size_bytes=expected_size)
+        return SignedVideoDelivery(url=url, expires_at=ticket_expires_at, size_bytes=expected_size)

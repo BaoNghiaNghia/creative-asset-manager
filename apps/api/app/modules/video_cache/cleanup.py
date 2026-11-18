@@ -5,12 +5,13 @@ import logging
 import threading
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.processing.repository import ProcessingRepository
-from app.modules.video_cache.model import VideoCacheObjectModel, utcnow
+from app.modules.video_cache.model import VideoCacheCleanupRunModel, VideoCacheObjectModel, utcnow
 from app.modules.video_cache.playback import schedule_video_playback_prepare
 from app.modules.video_cache.quota import VideoCacheQuota, is_exact_cache_key, is_exact_playback_key
+from app.modules.video_cache.metrics import emit_counter
 
 from app.providers.cloudflare.r2 import R2NotFound, R2ProviderError
 
@@ -29,6 +30,98 @@ class VideoCacheCleanup:
         self.settings = settings
         self.provider = provider
         self.quota = VideoCacheQuota(session_factory, settings, provider)
+
+    def _claim_expired(self):
+        """Claim one ready *cache copy* older than its absolute retention age.
+
+        Access recency is never consulted. The key allowlist and quota lock
+        prevent touching another tenant, Etsy images, or original source media.
+        """
+        owner = str(uuid4())
+        now = utcnow()
+        cutoff = now - timedelta(days=self.settings.R2_VIDEO_CACHE_MAX_AGE_DAYS)
+        with self.quota.transaction() as session:
+            statement = select(VideoCacheObjectModel).where(
+                VideoCacheObjectModel.status == "ready",
+                VideoCacheObjectModel.playback_status != "preparing",
+                or_(VideoCacheObjectModel.cached_at.is_(None),
+                    VideoCacheObjectModel.cached_at <= cutoff),
+            ).order_by(
+                VideoCacheObjectModel.cached_at, VideoCacheObjectModel.id
+            ).limit(self.settings.R2_VIDEO_CACHE_CLEANUP_MAX_ITEMS_PER_RUN)
+            if session.get_bind().dialect.name == "postgresql":
+                statement = statement.with_for_update(skip_locked=True)
+            for row in session.scalars(statement):
+                if not (is_exact_cache_key(row.tenant_id, row.content_hash, row.r2_key)
+                        and is_exact_playback_key(row.tenant_id, row.content_hash,
+                                                  row.playback_r2_key)):
+                    continue
+                bytes_to_free = max(0, row.size_bytes) + max(0, row.playback_size_bytes)
+                row.status = "deleting"
+                row.last_error_code = "age_expired"
+                row.last_error_message = "R2 cache exceeded its absolute retention age"
+                row.cleanup_claimed_by = owner
+                row.cleanup_lease_expires_at = now + timedelta(minutes=5)
+                row.next_attempt_at = None
+                row.updated_at = now
+                session.flush()
+                return row.tenant_id, row.id, owner, bytes_to_free
+        return None
+
+    def _expired_backlog(self):
+        cutoff = utcnow() - timedelta(days=self.settings.R2_VIDEO_CACHE_MAX_AGE_DAYS)
+        with self.session_factory() as session:
+            count, size = session.execute(select(
+                func.count(VideoCacheObjectModel.id),
+                func.coalesce(func.sum(
+                    VideoCacheObjectModel.size_bytes +
+                    VideoCacheObjectModel.playback_size_bytes
+                ), 0),
+            ).where(
+                VideoCacheObjectModel.status == "ready",
+                or_(VideoCacheObjectModel.cached_at.is_(None),
+                    VideoCacheObjectModel.cached_at <= cutoff),
+            )).one()
+        return int(count), int(size)
+
+    def _record_cleanup_run(self, started_at, stats):
+        """Persist aggregate-only metrics; never interrupt physical cleanup."""
+        try:
+            remaining_count, remaining_bytes = self._expired_backlog()
+            finished_at = utcnow()
+            with self.session_factory() as session:
+                session.add(VideoCacheCleanupRunModel(
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    status="partial" if stats["delete_failures"] else "completed",
+                    expired_deleted=stats["expired_deleted"],
+                    expired_bytes_freed=stats["expired_bytes_freed"],
+                    remaining_expired_count=remaining_count,
+                    remaining_expired_bytes=remaining_bytes,
+                    delete_failures=stats["delete_failures"],
+                    capacity_evicted=stats["evicted"],
+                    recovered=stats["recovered"],
+                ))
+                session.execute(delete(VideoCacheCleanupRunModel).where(
+                    VideoCacheCleanupRunModel.finished_at < finished_at - timedelta(days=90)
+                ))
+                session.commit()
+            logging.getLogger("cam.video_cache").info(
+                "video_cache_retention_cleanup_completed",
+                extra={
+                    "metric_name": "video_cache_retention_cleanup_completed",
+                    "expired_deleted": stats["expired_deleted"],
+                    "expired_bytes_freed": stats["expired_bytes_freed"],
+                    "remaining_expired_count": remaining_count,
+                    "remaining_expired_bytes": remaining_bytes,
+                    "delete_failures": stats["delete_failures"],
+                },
+            )
+        except Exception as exc:
+            logging.getLogger("cam.video_cache").error(
+                "video_cache_retention_metrics_failed",
+                extra={"error_code": type(exc).__name__},
+            )
 
     def _claim_abandoned(self):
         owner = str(uuid4())
@@ -187,6 +280,8 @@ class VideoCacheCleanup:
                 select(VideoCacheObjectModel).where(
                     VideoCacheObjectModel.status == "ready",
                     VideoCacheObjectModel.playback_status == "pending",
+                    VideoCacheObjectModel.cached_at > utcnow() - timedelta(
+                        days=self.settings.R2_VIDEO_CACHE_MAX_AGE_DAYS),
                 ).order_by(
                     VideoCacheObjectModel.cached_at,
                     VideoCacheObjectModel.id,
@@ -200,31 +295,56 @@ class VideoCacheCleanup:
 
     async def run_once(self):
         if not self.settings.R2_VIDEO_CACHE_ENABLED:
-            return {"recovered": 0, "deleted": 0, "evicted": 0}
+            return {"recovered": 0, "deleted": 0, "evicted": 0,
+                    "expired_deleted": 0, "expired_bytes_freed": 0,
+                    "delete_failures": 0}
+        started_at = utcnow()
         recovered = deleted = evicted = 0
+        expired_deleted = expired_bytes_freed = delete_failures = 0
         maximum = min(self.settings.R2_VIDEO_CACHE_CLEANUP_BATCH_SIZE,
                       self.settings.R2_VIDEO_CACHE_CLEANUP_MAX_ITEMS_PER_RUN)
         attempted = 0
-        for _ in range(maximum):
+        # Retry already claimed remote deletes first, so a failed R2 operation
+        # cannot be starved by the age backlog. Reserve up to 20% per run.
+        for _ in range(max(1, maximum // 5)):
+            claim = self._claim_due_delete()
+            if claim is None:
+                break
+            attempted += 1
+            done = await self.quota.delete_claimed(*claim)
+            deleted += int(done)
+            delete_failures += int(not done)
+        # Absolute 30-day expiration takes priority even below the 8-GB soft
+        # quota; last_accessed_at must never extend the deadline.
+        for _ in range(maximum - attempted):
+            claim = self._claim_expired()
+            if claim is None:
+                break
+            attempted += 1
+            tenant_id, record_id, owner, size_bytes = claim
+            done = await self.quota.delete_claimed(tenant_id, record_id, owner)
+            deleted += int(done)
+            delete_failures += int(not done)
+            if done:
+                expired_deleted += 1
+                expired_bytes_freed += size_bytes
+                emit_counter("video_cache_expired_deleted_total")
+            else:
+                emit_counter("video_cache_expired_delete_failed_total")
+        for _ in range(maximum - attempted):
             claim = self._claim_abandoned()
             if claim is None:
                 break
             attempted += 1
             recovered += 1
-            deleted += int(await self.quota.delete_claimed(*claim))
-        for _ in range(maximum - attempted):
-            claim = self._claim_due_delete()
-            if claim is None:
-                break
-            attempted += 1
-            deleted += int(await self.quota.delete_claimed(*claim))
+            done = await self.quota.delete_claimed(*claim)
+            deleted += int(done)
+            delete_failures += int(not done)
         # Recover derivative reservations that can no longer make progress
         # before admitting additional backfill work or making LRU decisions.
         recovered += self._recover_playback_preparing()
-
-        # Backfill old READY originals in small durable batches. This is
-        # intentionally outside Public Review request latency and the same
-        # bucket-global quota lock protects every derivative reservation.
+        # Backfill intentionally runs outside Public Review request latency.
+        # Expired originals will never admit a new derived preparation job.
         self._schedule_playback_backfill()
         for _ in range(maximum - attempted):
             with self.quota.transaction() as session:
@@ -234,7 +354,12 @@ class VideoCacheCleanup:
             if not await self.quota.evict_one():
                 break
             evicted += 1
-        return {"recovered": recovered, "deleted": deleted, "evicted": evicted}
+        stats = {"recovered": recovered, "deleted": deleted, "evicted": evicted,
+                 "expired_deleted": expired_deleted,
+                 "expired_bytes_freed": expired_bytes_freed,
+                 "delete_failures": delete_failures}
+        self._record_cleanup_run(started_at, stats)
+        return stats
 
     async def reconcile_ready(self, *, limit: int | None = None):
         """Explicit bounded HEAD audit; never list or delete unknown bucket keys."""

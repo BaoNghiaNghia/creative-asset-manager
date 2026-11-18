@@ -2,6 +2,7 @@ import { cacheKeyFromPath } from "./path";
 import { handleEtsyImageRequest } from "./etsy_image";
 import { parseSingleByteRange } from "./range";
 import { verifyReadPath } from "./signature";
+import { cachedVideoStillValid, internalVideoCacheTtl, videoExpirySeconds } from "./video_retention";
 
 export interface R2ReadObject {
   size: number;
@@ -33,7 +34,6 @@ export interface Env {
 }
 
 const TRUSTED_CACHE_ORIGIN = "https://cam-r2-video-cache.internal";
-const INTERNAL_CACHE_CONTROL = "public, max-age=31536000, immutable";
 const RANGE_CACHE_SEGMENT_BYTES = 2 * 1024 * 1024;
 
 function protectedHeaders(): Headers {
@@ -117,9 +117,15 @@ function cacheSegmentForRange(
   return { start: segmentStart, end: segmentEnd, length: segmentEnd - segmentStart + 1 };
 }
 
-function cacheRepresentation(body: ReadableStream<Uint8Array>, object: R2ReadObject): Response {
+function cacheRepresentation(
+  body: ReadableStream<Uint8Array>, object: R2ReadObject,
+  deadline: number, nowSeconds: number,
+): Response {
   const headers = objectHeaders(object, "MISS");
-  headers.set("Cache-Control", INTERNAL_CACHE_CONTROL);
+  headers.set("Cache-Control", "public, max-age=" + internalVideoCacheTtl(deadline, nowSeconds));
+  // Stored only in trusted internal edge cache. Used to reject old generations
+  // that still have the legacy 365-day TTL after a Worker update.
+  headers.set("X-CAM-Video-Expires-At", String(deadline));
   headers.delete("X-Video-Cache");
   return new Response(body, { status: 200, headers });
 }
@@ -189,14 +195,18 @@ export async function handleRequest(
       const object = await env.VIDEO_CACHE_BUCKET.head(authenticated.key);
       if (object === null) return new Response("Not found", { status: 404, headers: protectedHeaders() });
       if (!Number.isSafeInteger(object.size) || object.size < 0) return unavailable();
+      const deadline = videoExpirySeconds(object.uploaded, nowSeconds);
+      if (deadline === null) return unavailable();
+      if (deadline <= nowSeconds) return new Response("Not found", { status: 404, headers: protectedHeaders() });
       return new Response(null, { status: 200, headers: objectHeaders(object, "BYPASS") });
     }
 
     if (!request.headers.has("Range")) {
       const canonical = cacheRequest(authenticated.pathname);
       const hit = edgeCache ? await edgeCache.match(canonical) : undefined;
-      if (hit) {
+      if (hit && cachedVideoStillValid(hit, nowSeconds)) {
         const headers = new Headers(hit.headers);
+        headers.delete("X-CAM-Video-Expires-At");
         headers.set("Cache-Control", "private, no-store");
         headers.set("X-Content-Type-Options", "nosniff");
         headers.set("Referrer-Policy", "no-referrer");
@@ -207,7 +217,10 @@ export async function handleRequest(
       const object = await env.VIDEO_CACHE_BUCKET.get(authenticated.key);
       if (object === null) return new Response("Not found", { status: 404, headers: protectedHeaders() });
       if (!Number.isSafeInteger(object.size) || object.size < 0 || object.body === undefined) return unavailable();
-      const cacheable = cacheRepresentation(object.body, object);
+      const deadline = videoExpirySeconds(object.uploaded, nowSeconds);
+      if (deadline === null) return unavailable();
+      if (deadline <= nowSeconds) return new Response("Not found", { status: 404, headers: protectedHeaders() });
+      const cacheable = cacheRepresentation(object.body, object, deadline, nowSeconds);
       if (edgeCache) scheduleCachePut(edgeCache, canonical, cacheable.clone(), context);
       return new Response(cacheable.body, { status: 200, headers: objectHeaders(object, "MISS") });
     }
@@ -215,6 +228,9 @@ export async function handleRequest(
     const metadata = await env.VIDEO_CACHE_BUCKET.head(authenticated.key);
     if (metadata === null) return new Response("Not found", { status: 404, headers: protectedHeaders() });
     if (!Number.isSafeInteger(metadata.size) || metadata.size < 0) return unavailable();
+    const deadline = videoExpirySeconds(metadata.uploaded, nowSeconds);
+    if (deadline === null) return unavailable();
+    if (deadline <= nowSeconds) return new Response("Not found", { status: 404, headers: protectedHeaders() });
     const parsed = parseSingleByteRange(request.headers.get("Range"), metadata.size);
     if (parsed.kind !== "valid") {
       const headers = protectedHeaders();
@@ -232,7 +248,7 @@ export async function handleRequest(
     const rangeHit = canonicalRange && edgeCache
       ? await edgeCache.match(canonicalRange)
       : undefined;
-    if (rangeHit && segment) {
+    if (rangeHit && segment && cachedVideoStillValid(rangeHit, nowSeconds)) {
       const segmentBytes = new Uint8Array(await rangeHit.arrayBuffer());
       if (segmentBytes.byteLength !== segment.length) return unavailable();
       const relativeStart = parsed.start - segment.start;
@@ -252,7 +268,8 @@ export async function handleRequest(
       const segmentBytes = new Uint8Array(await new Response(object.body).arrayBuffer());
       if (segmentBytes.byteLength !== segment.length) return unavailable();
       const internalHeaders = objectHeaders({ ...metadata, size: segment.length }, "MISS");
-      internalHeaders.set("Cache-Control", INTERNAL_CACHE_CONTROL);
+      internalHeaders.set("Cache-Control", "public, max-age=" + internalVideoCacheTtl(deadline, nowSeconds));
+      internalHeaders.set("X-CAM-Video-Expires-At", String(deadline));
       internalHeaders.delete("X-Video-Cache");
       scheduleCachePut(
         edgeCache,

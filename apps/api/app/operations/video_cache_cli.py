@@ -7,6 +7,7 @@ from app.core.config import Settings
 from app.core.database import SessionLocal
 from app.modules.video_cache.model import VideoCacheObjectModel
 from app.modules.video_cache.quota import VideoCacheQuota
+from app.modules.video_cache.retention_reporting import retention_status
 
 
 def video_cache_status(session, settings):
@@ -28,6 +29,7 @@ def video_cache_status(session, settings):
         "soft_limit": settings.R2_VIDEO_CACHE_SOFT_LIMIT_BYTES,
         "hard_limit": hard,
         "pressure_percent": round(100 * usage.effective_bytes / hard, 2),
+        "retention": retention_status(session, settings),
     }
 
 

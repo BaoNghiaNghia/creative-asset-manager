@@ -17,6 +17,7 @@ from app.domain.processing.handlers import JobHandlerContext, JobHandlerResult
 from app.modules.processing.repository import ProcessingRepository
 from app.modules.video_cache.model import VideoCacheObjectModel, utcnow
 from app.modules.video_cache.quota import VideoCacheQuota
+from app.modules.video_cache.retention_policy import is_expired
 from app.modules.video_cache.service import video_cache_key, video_playback_key
 from app.providers.cloudflare.r2 import R2Adapter, R2ProviderError
 
@@ -65,7 +66,7 @@ def schedule_video_playback_prepare(
     # PostgreSQL holds this advisory transaction lock through the caller commit.
     with VideoCacheQuota.reservation_lock(session):
         session.refresh(row)
-        if row.status != "ready":
+        if row.status != "ready" or is_expired(row.cached_at, settings.R2_VIDEO_CACHE_MAX_AGE_DAYS):
             return False
         if row.playback_status in {"ready", "preparing", "failed", "skipped"}:
             return False

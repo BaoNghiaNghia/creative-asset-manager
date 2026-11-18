@@ -218,6 +218,8 @@ class Settings(BaseSettings):
     R2_VIDEO_CACHE_MAX_OBJECT_BYTES: int = 1_800_000_000
     R2_VIDEO_CACHE_ACCESS_TOUCH_SECONDS: int = 300
     R2_VIDEO_CACHE_PREPARING_STALE_SECONDS: int = 3600
+    # Absolute R2 video-cache retention: access never extends the deadline.
+    R2_VIDEO_CACHE_MAX_AGE_DAYS: int = 30
     R2_VIDEO_CACHE_CLEANUP_INTERVAL_SECONDS: int = 600
     R2_VIDEO_CACHE_CLEANUP_BATCH_SIZE: int = 25
     R2_VIDEO_CACHE_CLEANUP_MAX_ITEMS_PER_RUN: int = 100
@@ -1183,6 +1185,8 @@ class Settings(BaseSettings):
             raise ValueError("R2_VIDEO_CACHE_ACCESS_TOUCH_SECONDS must be positive")
         if not 300 <= self.R2_VIDEO_CACHE_PREPARING_STALE_SECONDS <= 7 * 24 * 3600:
             raise ValueError("R2_VIDEO_CACHE_PREPARING_STALE_SECONDS is invalid")
+        if not 1 <= self.R2_VIDEO_CACHE_MAX_AGE_DAYS <= 30:
+            raise ValueError("R2_VIDEO_CACHE_MAX_AGE_DAYS must be 1..30")
         if not 60 <= self.R2_VIDEO_CACHE_CLEANUP_INTERVAL_SECONDS <= 24 * 3600:
             raise ValueError("R2_VIDEO_CACHE_CLEANUP_INTERVAL_SECONDS is invalid")
         if not 1 <= self.R2_VIDEO_CACHE_CLEANUP_BATCH_SIZE <= self.R2_VIDEO_CACHE_CLEANUP_MAX_ITEMS_PER_RUN <= 1000:
