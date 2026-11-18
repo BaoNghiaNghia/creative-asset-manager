@@ -1,6 +1,6 @@
 /* Etsy Spy image-only UX: fixed geometry, on-demand IO, and explicit states. */
 /* Keep this scoped to thumbnail columns and the opened Design gallery. */
-.etsy-spy-page :is(.etsy-product-thumbnail-link, .etsy-design-thumb),
+.etsy-spy-page :is(.etsy-product-thumbnail-link, .etsy-design-thumb, .etsy-listing-image-main),
 .etsy-design-gallery :is(.etsy-design-gallery-stage, .etsy-design-gallery-list > button) {
   position: relative;
   isolation: isolate;

@@ -7,6 +7,10 @@
 }
 .etsy-listing-image-primary{width:80px;min-width:0}
 .etsy-listing-image-main{
+  /* Absolute deferred-image skeletons MUST be anchored to this thumbnail.
+     Without a positioned ancestor, inset:3px paints a page-wide overlay that
+     hides every other Etsy Spy cell while the image is loading. */
+  position:relative;isolation:isolate;
   box-sizing:border-box;display:block;width:80px;height:80px;
   padding:0;border:0;border-radius:6px;background:transparent;
   color:inherit;cursor:pointer;overflow:hidden;
