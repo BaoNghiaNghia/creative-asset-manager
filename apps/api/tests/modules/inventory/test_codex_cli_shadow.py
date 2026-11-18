@@ -1,6 +1,7 @@
 """No-network tests for the Codex CLI Inventory shadow-analysis boundary."""
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import date
 import json
 import os
@@ -83,6 +84,18 @@ def test_root_identity_fails_closed_before_running_any_cli(tmp_path, monkeypatch
         shadow.review_inventory_evidence(evidence(), codex_home=str(tmp_path), binary=str(binary))
 
 
+def test_managed_profile_flock_prevents_overlapping_cli_processes(tmp_path):
+    home = tmp_path / "managed-codex"
+    home.mkdir()
+    with shadow._managed_profile_slot(home):
+        with pytest.raises(shadow.InventoryCodexUnavailable, match="inventory_codex_profile_busy"):
+            with shadow._managed_profile_slot(home):
+                pytest.fail("Should never share the existing Codex slot")
+    # No stale lock after context exits.
+    with shadow._managed_profile_slot(home):
+        pass
+
+
 def test_cli_uses_readonly_ephemeral_schema_and_no_application_secrets(tmp_path, monkeypatch):
     binary = tmp_path / "codex"
     binary.write_text("")
@@ -118,12 +131,16 @@ def test_cli_uses_readonly_ephemeral_schema_and_no_application_secrets(tmp_path,
             return b"", b""
 
     monkeypatch.setattr(shadow.subprocess, "Popen", FakeProcess)
+    # Lock correctness is covered separately with a real fcntl round-trip.
+    monkeypatch.setattr(shadow, "_managed_profile_slot", lambda home: nullcontext())
     result = shadow.review_inventory_evidence(evidence(), codex_home=str(home), binary=str(binary))
     args = received["command"]
     assert args[0] == str(binary)
     assert args[-1] == "-"
     assert args[args.index("--sandbox")+1] == "read-only"
     assert "--ephemeral" in args and "--output-schema" in args
+    assert "--ignore-user-config" in args
+    assert "--dangerously-bypass-approvals-and-sandbox" not in args
     assert result["apply_mode"] == "shadow" and result["writes"] == 0
     assert result["verification_status"] == "review_required"
     assert set(received["kwargs"]["env"]).isdisjoint({"DATABASE_URL", "OPENAI_API_KEY", "GOOGLE_API_KEY"})

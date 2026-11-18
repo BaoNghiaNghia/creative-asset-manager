@@ -2,7 +2,58 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from app.operations import inventory_codex_shadow as runner
+
+
+def test_existing_profiles_reuse_cam_codex_home_without_copying_credentials(tmp_path):
+    settings = SimpleNamespace(CODEX_IMAGE_HOME=str(tmp_path / "codex"))
+    assert runner.existing_profile("account-1", settings) == (tmp_path / "codex").resolve()
+    assert runner.existing_profile("account-2", settings) == (tmp_path / "codex-account-2").resolve()
+    with pytest.raises(ValueError, match="inventory_codex_unknown_account"):
+        runner.existing_profile("account-3", settings)
+
+
+def test_smoke_uses_managed_account_one_with_synthetic_evidence(
+    tmp_path, monkeypatch, capsys,
+):
+    import json
+    import sys
+    captured = {}
+    monkeypatch.setattr(
+        runner, "Settings",
+        lambda **kw: SimpleNamespace(
+            CODEX_IMAGE_HOME=str(tmp_path / "codex"),
+            CODEX_IMAGE_BINARY="/usr/bin/codex",
+        ),
+    )
+    monkeypatch.setattr(runner, "preflight", lambda home, binary: {
+        "engine": "codex_cli", "mode": "shadow", "ready": True, "reason": "ready",
+    })
+
+    def fake_review(data, **kwargs):
+        captured["data"] = data
+        captured["kwargs"] = kwargs
+        return {
+            "engine": "codex_cli", "apply_mode": "shadow",
+            "verification_status": "review_required",
+            "review": {"summary": "test", "findings": [], "unresolved": []},
+            "writes": 0,
+        }
+
+    monkeypatch.setattr(runner, "review_inventory_evidence", fake_review)
+    monkeypatch.setattr(sys, "argv", [
+        "inventory_codex_shadow", "smoke", "--account", "account-1",
+    ])
+    assert runner.main() == 0
+    public = json.loads(capsys.readouterr().out)
+    assert public["ready"] is True
+    assert public["account"] == "account-1"
+    assert public["scenario"] == "synthetic_evidence"
+    assert public["writes"] == 0
+    assert captured["kwargs"]["codex_home"].endswith("/codex")
+    assert captured["data"]["cells"][0]["sheet"] == "SYNTHETIC_NO_REAL_DATA"
 
 
 def test_preflight_rejects_root_or_shared_identity(tmp_path, monkeypatch):

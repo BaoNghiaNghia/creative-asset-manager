@@ -9,6 +9,8 @@ never falls back to a paid API key, root's credentials, or Gemini.
 from __future__ import annotations
 
 from datetime import date
+from contextlib import contextmanager
+import fcntl
 import hashlib
 import json
 import math
@@ -16,6 +18,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import stat
 import subprocess
 import tempfile
 from typing import Any, Mapping
@@ -70,6 +73,40 @@ class InventoryCodexUnavailable(RuntimeError):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
+
+
+@contextmanager
+def _managed_profile_slot(home: Path):
+    """Reuse the existing RRUGC Codex worker's slot-0 flock per account.
+
+    If that account is busy, fail closed. Do NOT rotate to the other login:
+    automatic account switching on quota/limits is forbidden.
+    """
+    lock_dir = home / "worker-locks"
+    if lock_dir.is_symlink():
+        raise InventoryCodexUnavailable("inventory_codex_profile_lock_unavailable")
+    try:
+        lock_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if lock_dir.stat().st_uid != os.geteuid():
+            raise InventoryCodexUnavailable("inventory_codex_profile_lock_unavailable")
+        path = lock_dir / "slot-0.lock"
+        fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    except OSError as exc:
+        raise InventoryCodexUnavailable("inventory_codex_profile_lock_unavailable") from exc
+    try:
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()):
+            raise InventoryCodexUnavailable("inventory_codex_profile_lock_unavailable")
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise InventoryCodexUnavailable("inventory_codex_profile_busy") from exc
+        try:
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
 
 
 def _clean_evidence(value: Mapping[str, Any]) -> tuple[dict[str, Any], set[tuple[str, str, str]]]:
@@ -188,6 +225,7 @@ def review_inventory_evidence(
         schema_file.write_text(json.dumps(CODEX_INVENTORY_REVIEW_SCHEMA), encoding="utf-8")
         cmd = [
             str(executable), "exec", "--ephemeral", "--skip-git-repo-check",
+            "--ignore-user-config",
             "--sandbox", "read-only", "--output-schema", str(schema_file),
             "--output-last-message", str(output_file), "-C", str(root),
         ]
@@ -203,23 +241,24 @@ def review_inventory_evidence(
             "NO_COLOR": "1",
         }
         process = None
-        try:
-            process = subprocess.Popen(
-                cmd, cwd=root, env=environment, stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-            process.communicate(prompt.encode("utf-8"), timeout=timeout_seconds)
-        except subprocess.TimeoutExpired as exc:
-            if process is not None:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                process.communicate()
-            raise InventoryCodexUnavailable("inventory_codex_timeout") from exc
-        except OSError as exc:
-            raise InventoryCodexUnavailable("inventory_codex_execution_unavailable") from exc
+        with _managed_profile_slot(home):
+            try:
+                process = subprocess.Popen(
+                    cmd, cwd=root, env=environment, stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                process.communicate(prompt.encode("utf-8"), timeout=timeout_seconds)
+            except subprocess.TimeoutExpired as exc:
+                if process is not None:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.communicate()
+                raise InventoryCodexUnavailable("inventory_codex_timeout") from exc
+            except OSError as exc:
+                raise InventoryCodexUnavailable("inventory_codex_execution_unavailable") from exc
         if process is None or process.returncode != 0:
             raise InventoryCodexUnavailable("inventory_codex_execution_failed")
         if not output_file.is_file() or not 1 <= output_file.stat().st_size <= MAX_OUTPUT_BYTES:

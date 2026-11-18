@@ -147,6 +147,19 @@ print(f"SMOKE_OK path={path} width={width} height={height} bytes={path.stat().st
 PY
 }
 
+# Operator-only Inventory analysis canary. This deliberately executes under
+# creative-assets with Account 01's existing ChatGPT login, never as root.
+# It provides only synthetic cell evidence and cannot write inventory Sheets.
+inventory_smoke() {
+  require_root
+  local api_root="/opt/creative-asset-manager/current/apps/api"
+  local python_bin="$api_root/.venv/bin/python"
+  [[ -x "$python_bin" ]] || die "Production Python runtime is unavailable."
+  codex_as_service_user codex login status >/dev/null || die "Service Codex login unavailable."
+  (cd "$api_root" && codex_as_service_user "$python_bin" \
+    -m app.operations.inventory_codex_shadow smoke --account account-1)
+}
+
 case "${1:-}" in
   prepare) prepare ;;
   login) login ;;
@@ -155,9 +168,10 @@ case "${1:-}" in
   status-2) status_secondary ;;
   prepare-2) prepare_secondary ;;
   smoke) smoke ;;
+  inventory-smoke) inventory_smoke ;;
   *)
     cat >&2 <<'USAGE'
-Usage: sudo scripts/cam-codex-runtime.sh {prepare|login|status|prepare-2|login-2|status-2|smoke}
+Usage: sudo scripts/cam-codex-runtime.sh {prepare|login|status|prepare-2|login-2|status-2|smoke|inventory-smoke}
 USAGE
     exit 2
     ;;
