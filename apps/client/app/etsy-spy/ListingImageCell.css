@@ -108,7 +108,11 @@
 }
 .etsy-listing-image-fullsize img{
   display:block;width:100%;height:100%;object-fit:contain;border-radius:9px;
+  transform-origin:center center;will-change:transform;
+  user-select:none;pointer-events:none;-webkit-user-drag:none;
 }
+.etsy-listing-image-fullsize.is-zoomed{cursor:grab;touch-action:none}
+.etsy-listing-image-fullsize.is-dragging{cursor:grabbing}
 .etsy-listing-image-fullsize:focus-visible{outline:3px solid #327ec4;outline-offset:-3px}
 .etsy-listing-image-open-icon{
   position:absolute;top:10px;right:10px;display:grid;place-items:center;

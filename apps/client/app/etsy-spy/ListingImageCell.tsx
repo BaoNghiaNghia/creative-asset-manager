@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
+import type { PointerEvent as ReactPointerEvent, MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { spyFetch, type Listing, type ListingImageGallery, type ListingImageOutput } from "./api";
 import { EtsyDeferredImage } from "./EtsyDeferredImage";
@@ -12,14 +13,143 @@ type Props = { item: Listing; onPreviewStart?: () => void };
 
 // A missing WebP conversion must not trigger an original 1254px+ PNG fetch.
 // Use the already saved 192px thumbnail as the fail-safe visual fallback.
-function ListingReviewPreview({ image }: { image: ListingImageOutput }) {
+function ListingReviewPreview({ image, transform }: { image: ListingImageOutput; transform?: string }) {
   const [fallback, setFallback] = useState(false);
   const initial = image.previewUrl || image.thumbnailUrl;
   const source = fallback ? image.thumbnailUrl : initial;
   return <img src={source} alt={"Ảnh review " + image.slot + " của Listing Image"}
     data-review-quality={fallback ? "thumbnail" : image.previewUrl ? "webp" : "thumbnail"}
-    decoding="async" loading="eager"
+    decoding="async" loading="eager" draggable={false} style={{ transform }}
     onError={() => { if (!fallback && initial !== image.thumbnailUrl) setFallback(true); }} />;
+}
+
+type ImageZoom = { scale: number; x: number; y: number };
+const FIT_ZOOM: ImageZoom = { scale: 1, x: 0, y: 0 };
+const MAX_ZOOM = 5;
+const constrainOffset = (position: number, scale: number, extent: number) => {
+  const limit = Math.max(0, (scale - 1) * extent / 2);
+  return Math.max(-limit, Math.min(limit, position));
+};
+
+/** Zoom on the preview only: wheel anchors the pixel under the cursor.
+ * The middle mouse button resets to fit; switching images remounts the view.
+ * Using a non-passive native listener avoids Chrome's passive React wheel trap.
+ */
+function ListingZoomPreview({ image, garmentCode }: {
+  image: ListingImageOutput; garmentCode: string;
+}) {
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{
+    pointerId: number; originX: number; originY: number;
+    startX: number; startY: number; moved: boolean;
+  } | null>(null);
+  const suppressClickRef = useRef(false);
+  const [zoom, setZoom] = useState<ImageZoom>(FIT_ZOOM);
+  const [dragging, setDragging] = useState(false);
+  const resetZoom = () => {
+    dragRef.current = null;
+    suppressClickRef.current = false;
+    setDragging(false);
+    setZoom(FIT_ZOOM);
+  };
+
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    const zoomOnWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = frame.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0 || !Number.isFinite(event.deltaY)) return;
+      const delta = event.deltaMode === 1 ? event.deltaY * 16 :
+        event.deltaMode === 2 ? event.deltaY * rect.height : event.deltaY;
+      const cursorX = event.clientX - rect.left - rect.width / 2;
+      const cursorY = event.clientY - rect.top - rect.height / 2;
+      setZoom(previous => {
+        const nextScale = Math.max(1, Math.min(MAX_ZOOM,
+          previous.scale * Math.exp(-delta * 0.0018)));
+        if (nextScale === previous.scale) return previous;
+        if (nextScale <= 1.001) return FIT_ZOOM;
+        const ratio = nextScale / previous.scale;
+        return {
+          scale: nextScale,
+          x: constrainOffset(cursorX - (cursorX - previous.x) * ratio, nextScale, rect.width),
+          y: constrainOffset(cursorY - (cursorY - previous.y) * ratio, nextScale, rect.height),
+        };
+      });
+    };
+    frame.addEventListener("wheel", zoomOnWheel, { passive: false });
+    return () => frame.removeEventListener("wheel", zoomOnWheel);
+  }, []);
+
+  const onPointerDown = (event: ReactPointerEvent<HTMLAnchorElement>) => {
+    if (event.button === 1) {
+      event.preventDefault();
+      resetZoom();
+      return;
+    }
+    if (event.button !== 0 || zoom.scale <= 1) return;
+    event.preventDefault();
+    dragRef.current = {
+      pointerId: event.pointerId, originX: event.clientX, originY: event.clientY,
+      startX: zoom.x, startY: zoom.y, moved: false,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setDragging(true);
+  };
+  const onPointerMove = (event: ReactPointerEvent<HTMLAnchorElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const dx = event.clientX - drag.originX;
+    const dy = event.clientY - drag.originY;
+    if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+    const rect = frameRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setZoom(previous => ({
+      ...previous,
+      x: constrainOffset(drag.startX + dx, previous.scale, rect.width),
+      y: constrainOffset(drag.startY + dy, previous.scale, rect.height),
+    }));
+  };
+  const onPointerEnd = (event: ReactPointerEvent<HTMLAnchorElement>) => {
+    if (!dragRef.current || event.pointerId !== dragRef.current.pointerId) return;
+    suppressClickRef.current = dragRef.current.moved;
+    dragRef.current = null;
+    setDragging(false);
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+  const onAuxClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    if (event.button !== 1) return;
+    event.preventDefault(); // Never open the PNG on middle click.
+    event.stopPropagation();
+    resetZoom();
+  };
+
+  return <div className="etsy-listing-image-review-frame" ref={frameRef}
+    data-zoom-scale={zoom.scale.toFixed(3)}>
+    <a className={"etsy-listing-image-fullsize" +
+      (zoom.scale > 1 ? " is-zoomed" : "") + (dragging ? " is-dragging" : "")}
+      href={image.originalUrl}
+      target="_blank" rel="noopener noreferrer" title="Mở PNG gốc"
+      aria-label={"Mở PNG gốc " + garmentCode + " ảnh " + image.slot}
+      onPointerDown={onPointerDown} onPointerMove={onPointerMove}
+      onPointerUp={onPointerEnd} onPointerCancel={onPointerEnd}
+      onMouseDown={event => { if (event.button === 1) { event.preventDefault(); resetZoom(); } }}
+      onAuxClick={onAuxClick}
+      onDragStart={event => event.preventDefault()}
+      onClick={event => {
+        if (suppressClickRef.current) {
+          event.preventDefault();
+          suppressClickRef.current = false;
+        }
+      }}>
+      <ListingReviewPreview image={image}
+        transform={`translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})`} />
+      <span className="etsy-listing-image-open-icon" aria-hidden="true">↗</span>
+    </a>
+  </div>;
 }
 
 const GALLERY_CACHE_MS = 30_000;
@@ -139,15 +269,8 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
             </div> : <div className={"etsy-listing-image-workspace" +
               (gallery.total <= 2 ? " is-sparse" : "")}>
               <section className="etsy-listing-image-preview" aria-label="Ảnh xem trước">
-                {selected && <div className="etsy-listing-image-review-frame">
-                  <a className="etsy-listing-image-fullsize" href={selected.originalUrl}
-                    target="_blank" rel="noopener noreferrer" title="Mở PNG gốc"
-                    aria-label={"Mở PNG gốc " + (selectedGarment || "") + " ảnh " + selected.slot}>
-                    <ListingReviewPreview key={selected.packId + ":" + selected.sha256}
-                      image={selected} />
-                    <span className="etsy-listing-image-open-icon" aria-hidden="true">↗</span>
-                  </a>
-                </div>}
+                {selected && <ListingZoomPreview key={selected.packId + ":" + selected.sha256}
+                  image={selected} garmentCode={selectedGarment || ""} />}
               </section>
               <aside className="etsy-listing-image-library" aria-label="Danh sách ảnh theo sản phẩm">
                 {gallery.groups.map(group => <section
