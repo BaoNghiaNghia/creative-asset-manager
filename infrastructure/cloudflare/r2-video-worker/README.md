@@ -1,4 +1,49 @@
-# Private R2 video delivery Worker — original + derived playback
+# Shared private R2 delivery Worker — video + Etsy Spy image derivatives
+
+The **existing** `cam-r2-original-video` Worker and private
+`creative-asset-video-cache` bucket are reused for Etsy Spy. **No second
+bucket, Worker, public R2 URL or additional Cloudflare secret is needed.**
+Video routes and ticket signing remain unchanged. The new route
+`/etsy-images/v1/{tenant-hmac}/sp-{pack}/{slot}/{quality}/{sha}.{ext}`
+accepts only PNG thumbnails and WebP 720px previews. Original design and
+Listing PNGs cannot use this route.
+
+CAM verifies principal, tenant and Picked membership before serving any
+image or issuing a signed ticket. The image ticket lasts 45 seconds and uses
+a distinct canonical HMAC message under the already configured
+`R2_VIDEO_MEDIA_SIGNING_SECRET`:
+
+```text
+v1
+etsy-image-read
+/etsy-images/v1/{tenant-hmac}/sp-{pack}/{slot}/{quality}/{sha}.{ext}
+{expiry}
+```
+
+The Worker is **read-only**, with no PUT/DELETE/list endpoints. CAM writes
+derived images under `etsy-images/v1/` using the existing S3 credentials;
+the video prefix `video-cache/` remains untouched. Signed image requests
+are authorized before edge cache lookup, and outgoing responses use
+`Cache-Control: private, no-store`.
+
+**Two independent feature gates:** `CAM_ETSY_IMAGE_SHARED_R2_ENABLED=true`
+with `CAM_ETSY_IMAGE_SHARED_R2_CANARY_TENANTS=boostgame` enables a private
+R2 read-through cache in the authenticated CAM API. It works immediately
+with the *current* video-only Worker. The separate
+`CAM_ETSY_IMAGE_SHARED_WORKER_ENABLED=true` gate enables browser redirects
+**only after** the updated Worker returns 404 to a valid signed synthetic
+image HEAD. The API re-checks this at runtime and falls back to private R2
+if the old Worker still rejects image tickets. Update Nginx CSP `img-src`
+to include the exact existing Worker origin before enabling redirects.
+Never make the bucket public or turn on cache-everything for private API
+paths.
+
+To test the updated Worker locally: `npm ci && npm test && npm run typecheck`.
+Release the updated Worker to **the same** Cloudflare service using its
+existing R2 binding, only when the account has Worker-edit access and the
+video rollback is available. Do not overwrite the Worker remotely with an
+untested version. An unchanged Worker cannot serve images at the edge, but
+the backend R2 cache continues to work.
 
 This Worker accepts a short-lived read ticket and streams an authorized immutable original or derived playback object from a private R2 binding. It does not authorize CAM users or shares; Phase 4B
 performs application authorization before issuing a ticket. Public Review uses

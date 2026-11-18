@@ -208,3 +208,75 @@ def test_gallery_only_counts_saved_outputs_and_enforces_tenant(monkeypatch):
     finally:
         db.close()
         engine.dispose()
+
+
+def test_existing_private_r2_cache_only_after_picked_acl(monkeypatch):
+    """A fast R2 HIT cannot bypass the tenant/Picked check or serve PNG original."""
+    from app.modules.etsy_spy import listing_image_shared_r2 as shared
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False},
+                           poolclass=StaticPool)
+    Base.metadata.create_all(engine, tables=[
+        EtsySpyAgent.__table__, EtsySpyPicked.__table__,
+        EtsySpyListingImage.__table__])
+    db = Session(engine)
+    principal = SimpleNamespace(active_tenant_id="boostgame",
+        effective_permissions=frozenset({"etsy_spy.read"}),
+        platform_admin=False, navigation_modules=frozenset({"etsy-spy"}))
+    app = FastAPI()
+    app.include_router(listing_image_router, prefix="/api/v1/etsy-spy")
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[require_authenticated_principal] = lambda: principal
+    pack = "sp-" + "b" * 40
+    db.add(EtsySpyPicked(tenant_id="boostgame", listing_key="1234567890"))
+    db.add(EtsySpyListingImage(
+        tenant_id="boostgame", listing_key="1234567890",
+        pack_id=pack, slot=1, garment_code="C1717",
+        design_sha256="c" * 64, source_sha256="d" * 64,
+        placement="front_center", output_sha256="e" * 64,
+        thumbnail_sha256="f" * 64,
+        drive_folder_id="privateDriveFolder123",
+        drive_thumbnail_folder_id="privateThumbnailFolder123",
+        drive_file_id="privateDriveFile123",
+        drive_thumbnail_id="privateThumbnailFile123"))
+    db.commit()
+    config = shared.ExistingR2Config(
+        bucket="creative-asset-video-cache",
+        endpoint="https://example.r2.cloudflarestorage.com",
+        access_key="fake", secret_key="fake",
+        signing_secret="StrongTestSecret" * 5)
+    requests = []
+    async def cached_r2(_config, *, tenant_id, pack_id, slot, quality, sha256):
+        requests.append((tenant_id, pack_id, quality))
+        return b"verified-private-preview"
+    async def deny_drive(**kwargs):
+        raise AssertionError("Drive must not be called for a private R2 HIT")
+    monkeypatch.setattr(shared, "config_for_tenant",
+        lambda tenant: config if tenant == "boostgame" else None)
+    monkeypatch.setattr(shared, "read_derivative", cached_r2)
+    monkeypatch.setattr("app.modules.etsy_spy.imagegen_drive.read_design_from_drive",
+                        deny_drive)
+    image_url=f"/api/v1/etsy-spy/listing-images/{pack}/1/preview"
+    try:
+        with TestClient(app) as client:
+            response = client.get(image_url)
+            assert response.status_code == 200
+            assert response.content == b"verified-private-preview"
+            assert response.headers["X-CAM-Image-Cache"] == "R2-HIT"
+            assert response.headers["content-type"].startswith("image/webp")
+            assert requests == [("boostgame", pack, "preview")]
+            assert client.get(image_url, headers={
+                "If-None-Match": response.headers["ETag"]}).status_code == 304
+            assert len(requests) == 1
+            principal.active_tenant_id = "another-tenant"
+            assert client.get(image_url).status_code == 404
+            assert client.get(image_url, headers={
+                "If-None-Match": response.headers["ETag"]}).status_code == 404
+            assert len(requests) == 1
+            principal.active_tenant_id = "boostgame"
+            db.delete(db.get(EtsySpyPicked, ("boostgame", "1234567890")))
+            db.commit()
+            assert client.get(image_url).status_code == 404
+            assert len(requests) == 1
+    finally:
+        db.close()
+        engine.dispose()

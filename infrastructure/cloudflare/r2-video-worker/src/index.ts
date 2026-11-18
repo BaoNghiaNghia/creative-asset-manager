@@ -1,4 +1,5 @@
 import { cacheKeyFromPath } from "./path";
+import { handleEtsyImageRequest } from "./etsy_image";
 import { parseSingleByteRange } from "./range";
 import { verifyReadPath } from "./signature";
 
@@ -169,6 +170,11 @@ export async function handleRequest(
   request: Request, env: Env, nowSeconds = Math.floor(Date.now() / 1000),
   edgeCache?: EdgeCache, context?: ExecutionContext,
 ): Promise<Response> {
+  // Reuse the existing R2 binding and private edge cache for Etsy derivatives.
+  // Video paths and tickets continue through the original handler unchanged.
+  if (new URL(request.url).pathname.startsWith("/etsy-images/")) {
+    return handleEtsyImageRequest(request, env, nowSeconds, edgeCache, context);
+  }
   if (request.method !== "GET" && request.method !== "HEAD") {
     const headers = protectedHeaders();
     headers.set("Allow", "GET, HEAD");

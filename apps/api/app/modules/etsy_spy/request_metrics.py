@@ -30,6 +30,7 @@ _LISTING_IMAGE_PATH = re.compile(
 _IMAGE_LABELS = frozenset({
     "design_thumbnail", "listing_thumbnail", "listing_preview", "listing_original",
     "listing_cdn_thumbnail", "listing_cdn_preview", "listing_cdn_stage",
+    "listing_r2_thumbnail", "listing_r2_preview", "listing_r2_stage",
 })
 _BOUNDS_MS = (50, 100, 250, 500, 1000, 2000, 5000, 10000, 30000)
 

@@ -380,6 +380,16 @@ async def read_listing_output_image(
     # Every ticket is issued only AFTER the same principal/tenant/Picked ACL.
     from .listing_image_cdn import cdn_config, available_cdn_url, stage_derivative
     cdn = cdn_config(tenant_id=tenant) if quality in {"thumbnail", "preview"} else None
+    from .listing_image_shared_r2 import (
+        config_for_tenant as shared_r2_config,
+        read_derivative as read_shared_derivative,
+        object_key as shared_object_key,
+        signed_worker_url as shared_worker_url,
+        worker_ready as shared_worker_ready,
+        stage_derivative as stage_shared_derivative,
+    )
+    shared = (shared_r2_config(tenant)
+              if quality in {"thumbnail", "preview"} and cdn is None else None)
     if cdn is not None:
         # Release the SELECT transaction before even a fast Worker HEAD probe.
         db.rollback()
@@ -394,8 +404,32 @@ async def read_listing_output_image(
                          "Referrer-Policy": "no-referrer",
                          "X-Content-Type-Options": "nosniff"})
 
-    # Release SELECT transaction before Drive or image-processing I/O.
+    # Release SELECT transaction before private R2/Drive network I/O.
     db.rollback()
+    if shared is not None:
+        # Reuse CAM's EXISTING private R2 bucket via its own image namespace.
+        # The currently deployed video Worker is video-only, so edge delivery
+        # remains a separate gate until signed image routes are verified.
+        cached = await read_shared_derivative(
+            shared, tenant_id=tenant, pack_id=pack_id, slot=slot,
+            quality=quality, sha256=sha)
+        if cached is not None:
+            signed = (shared_worker_url(
+                shared, shared_object_key(
+                    shared, tenant_id=tenant, pack_id=pack_id,
+                    slot=slot, quality=quality, sha256=sha))
+                if await shared_worker_ready(shared) else None)
+            if signed:
+                return RedirectResponse(signed, status_code=302, headers={
+                    "Cache-Control": "private, no-store",
+                    "Vary": "Cookie, Authorization",
+                    "Referrer-Policy": "no-referrer",
+                    "X-Content-Type-Options": "nosniff",
+                })
+            return Response(
+                cached,
+                media_type="image/webp" if quality == "preview" else "image/png",
+                headers={**headers, "X-CAM-Image-Cache": "R2-HIT"})
     if quality == "preview":
         from .listing_image_preview import get_listing_preview
         webp = await get_listing_preview(
@@ -404,6 +438,10 @@ async def read_listing_output_image(
         if cdn is not None:
             background_tasks.add_task(
                 stage_derivative, cdn, tenant_id=tenant, pack_id=pack_id,
+                slot=slot, quality=quality, sha256=sha, data=webp)
+        if shared is not None:
+            background_tasks.add_task(
+                stage_shared_derivative, shared, tenant_id=tenant, pack_id=pack_id,
                 slot=slot, quality=quality, sha256=sha, data=webp)
         return Response(webp, media_type="image/webp", headers=headers)
     from .imagegen_drive import read_design_from_drive
@@ -414,5 +452,9 @@ async def read_listing_output_image(
     if cdn is not None:
         background_tasks.add_task(
             stage_derivative, cdn, tenant_id=tenant, pack_id=pack_id,
+            slot=slot, quality=quality, sha256=sha, data=png)
+    if shared is not None:
+        background_tasks.add_task(
+            stage_shared_derivative, shared, tenant_id=tenant, pack_id=pack_id,
             slot=slot, quality=quality, sha256=sha, data=png)
     return Response(png, media_type="image/png", headers=headers)
