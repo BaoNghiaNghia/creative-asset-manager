@@ -45,6 +45,39 @@ video rollback is available. Do not overwrite the Worker remotely with an
 untested version. An unchanged Worker cannot serve images at the edge, but
 the backend R2 cache continues to work.
 
+### Existing Worker guarded rollout (Etsy image canary)
+
+Run from the CAM repository root:
+
+```sh
+python3 -m deploy.tools.etsy_shared_worker_release check
+# Only after Cloudflare authentication AND both signed synthetic routes pass:
+python3 -m deploy.tools.etsy_shared_worker_release deploy
+```
+
+The release tool uses the existing Workers.dev origin, existing Worker name
+`cam-r2-original-video`, private R2 binding, and the production video TTL.
+It refuses missing/mismatched Cloudflare credentials, wrong Worker or bucket,
+unsafe CSP, another tenant in the canary, or an already enabled browser edge
+flag. It probes a nonexistent **video** object using the existing HMAC
+contract before deploying and expects 404, not 403; a 403 might indicate a
+secret mismatch, unsupported deployed Worker, or another denial. Diagnose that
+first rather than replacing the live video Worker blindly.
+
+After checking local tests, typecheck and dry-run, the deployment path first
+verifies that the existing remote Worker can be listed. It uses Wrangler
+`--strict --keep-vars` and does not create a second Worker/bucket.
+After upload, the tool requires a signed missing-image HEAD 404 and a
+continued signed missing-video HEAD 404. On failure, it leaves browser
+redirects OFF and attempts Wrangler rollback. A passing deployment still
+**does not set** `CAM_ETSY_IMAGE_SHARED_WORKER_ENABLED`; that production
+gate can be switched on for `boostgame` only after the edge checks are
+confirmed and the API fallback/health checks remain healthy.
+
+Cloudflare login/Worker edit permission must be supplied via a secure
+operator workflow (`wrangler login` or a protected API token). Do not
+place secrets in repository files, logs, command-line arguments or chat.
+
 This Worker accepts a short-lived read ticket and streams an authorized immutable original or derived playback object from a private R2 binding. It does not authorize CAM users or shares; Phase 4B
 performs application authorization before issuing a ticket. Public Review uses
 the Worker only when the persisted runtime delivery gate is effective.
