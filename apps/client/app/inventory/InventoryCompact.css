@@ -1,0 +1,297 @@
+/* Inventory Operations v2 — progressive disclosure, not a wall of KPI cards.
+   Scoped to /inventory to avoid affecting the shared AI Operations components. */
+.inventory-workspace .inventory-workspace-content {
+  display: grid;
+  gap: 12px;
+  padding: 14px clamp(12px, 1.7vw, 26px) 32px;
+}
+.inventory-workspace .inventory-workspace-content > * + * { margin-top: 0; }
+.inventory-workspace .ops-inventory-summary--compact {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  overflow: hidden;
+  margin-top: 12px;
+  border: 1px solid #e1e7f0;
+  border-radius: 11px;
+  background: #fff;
+}
+.inventory-workspace .ops-inventory-summary--compact .ops-inventory-summary-card {
+  min-height: 77px;
+  padding: 12px 17px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.inventory-workspace .ops-inventory-summary--compact .ops-inventory-summary-card:not(:last-child) { border-right: 1px solid #e9edf3; }
+.inventory-workspace .ops-inventory-summary--compact .ops-inventory-summary-card:before {
+  top: 14px;
+  right: auto;
+  bottom: 14px;
+  left: 0;
+  width: 3px;
+  height: auto;
+  border-radius: 4px;
+}
+.inventory-workspace .ops-inventory-summary--compact .ops-inventory-summary-card:first-child:before { display: none; }
+.inventory-workspace .ops-inventory-summary--compact .ops-inventory-summary-card strong {
+  margin-top: 5px;
+  color: #182b46;
+  font-size: clamp(15px,1.15vw,19px);
+  line-height: 1.25;
+}
+.inventory-workspace .ops-inventory-summary--compact .ops-inventory-summary-card small {
+  overflow: hidden;
+  padding-top: 4px;
+  color: #6d7c91;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inventory-workspace .ops-inventory-health {
+  padding: 4px 9px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.inventory-workspace .ops-inventory-timeline {
+  min-width: 0;
+  margin-top: 10px;
+  border: 1px solid #e1e7f0;
+  border-radius: 11px;
+  background: #fff;
+}
+.inventory-workspace .ops-inventory-timeline-heading {
+  display: flex;
+  min-height: 39px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 14px;
+  border-bottom: 1px solid #edf0f5;
+  background: #fcfdff;
+}
+.inventory-workspace .ops-inventory-timeline-heading h3 {
+  margin: 0;
+  color: #2a3a50;
+  font-size: 12px;
+}
+.inventory-workspace .ops-inventory-timeline-heading span {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 600;
+}
+.inventory-workspace .ops-inventory-timeline-heading span.is-warning { color: #a65e20; }
+.inventory-workspace .ops-inventory-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+}
+.inventory-workspace .ops-inventory-step {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 15px 13px;
+}
+.inventory-workspace .ops-inventory-step + .ops-inventory-step { border-left: 1px solid #e9edf3; }
+.inventory-workspace .ops-inventory-step-number {
+  display: grid;
+  flex: 0 0 27px;
+  height: 27px;
+  place-items: center;
+  border: 1px solid #dbe2ee;
+  border-radius: 50%;
+  background: #f5f7fb;
+  color: #68788e;
+  font-size: 10px;
+  font-weight: 800;
+}
+.inventory-workspace .ops-inventory-step.completed .ops-inventory-step-number { border-color: #cae9d7; background: #e9f7ee; color: #28764e; }
+.inventory-workspace .ops-inventory-step.running .ops-inventory-step-number { border-color: #bcd4fa; background: #edf4ff; color: #2c60b2; }
+.inventory-workspace .ops-inventory-step:is(.failed,.blocked,.review_required,.stale) .ops-inventory-step-number { border-color: #f6d4c6; background: #fff0eb; color: #ba493e; }
+.inventory-workspace .ops-inventory-step-body { min-width: 0; flex: 1; }
+.inventory-workspace .ops-inventory-step-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+}
+.inventory-workspace .ops-inventory-step-title h4 {
+  overflow: hidden;
+  margin: 0;
+  color: #22354b;
+  font-size: 12px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+}
+.inventory-workspace .ops-inventory-step-title .ops-inventory-card-status {
+  flex-shrink: 0;
+  padding: 4px 7px;
+}
+.inventory-workspace .ops-inventory-step-body > p {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+  color: #75849a;
+  font-size: 10px;
+  line-height: 1.45;
+}
+.inventory-workspace .ops-inventory-step-body > details { margin-top: 7px; }
+.inventory-workspace .ops-inventory-step-body > details > summary {
+  width: max-content;
+  color: #3766af;
+  font-size: 10px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.inventory-workspace .ops-inventory-step dl { margin: 9px 0 0; }
+.inventory-workspace .ops-inventory-step dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid #eef2f5;
+  font-size: 10px;
+}
+.inventory-workspace .ops-inventory-step dt { color: #75849a; }
+.inventory-workspace .ops-inventory-step dd { margin: 0; overflow-wrap: anywhere; color: #33445a; font-weight: 650; text-align: right; }
+.inventory-workspace .ops-inventory-step-links { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 7px; }
+.inventory-workspace .ops-inventory-step-links a { color: #2865bf; font-size: 10px; font-weight: 650; text-decoration: none; }
+.inventory-workspace .ops-inventory-blockers,
+.inventory-workspace .ops-inventory-clear,
+.inventory-workspace .ops-inventory-automation-note {
+  margin-top: 10px;
+  padding: 9px 13px;
+  border-radius: 9px;
+  box-shadow: none;
+  font-size: 11px;
+}
+.inventory-workspace .ops-inventory-blockers { background: #fffbf4; }
+.inventory-workspace .ops-inventory-blockers h3 { margin-bottom: 3px; font-size: 12px; }
+.inventory-workspace .ops-inventory-blockers > p { font-size: 10px; }
+.inventory-workspace .ops-inventory-human-actions { margin-top: 10px; padding: 10px 13px; border-radius: 9px; }
+.inventory-workspace .ops-inventory-human-actions > summary { font-size: 11px; }
+.inventory-workspace .inventory-pipeline { gap: 8px; }
+.inventory-workspace .inventory-pipeline > header { padding: 12px 15px; align-items: center; }
+.inventory-workspace .inventory-pipeline > header h2 { font-size: 16px; line-height: 1.3; }
+.inventory-workspace .inventory-pipeline > header span { font-size: 9px; }
+.inventory-workspace .inventory-daily-health-inline {
+  margin-top: 5px !important;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #6c7b8f !important;
+  font-size: 10px !important;
+  line-height: 1.4;
+}
+.inventory-workspace .inventory-pipeline th { padding: 10px 12px; font-size: 10px; }
+.inventory-workspace .inventory-pipeline td { padding: 10px 12px; font-size: 11px; }
+.inventory-workspace .inventory-pipeline tbody tr:focus-visible { outline: 2px solid #326ec4; outline-offset: -3px; }
+.inventory-workspace .inventory-pipeline table { min-width: 860px; }
+.inventory-workspace .inventory-pipeline-files { display: flex; flex-wrap: wrap; gap: 4px 9px; }
+.inventory-workspace .inventory-pipeline-files a { font-size: 10px; }
+.inventory-workspace .inventory-pipeline-files span { font-size: 10px; }
+.inventory-workspace .inventory-pipeline-flow { min-width: 0; }
+.inventory-workspace .inventory-pipeline-node { min-width: 62px; }
+.inventory-workspace .inventory-pipeline-stage { width: 52px; }
+.inventory-workspace .inventory-pipeline-stage > span { width: 22px; height: 22px; }
+.inventory-workspace .inventory-pipeline-node i { width: 8px; margin-top: 11px; }
+.inventory-workspace .inventory-pipeline footer { padding: 0 2px; }
+.inventory-workspace .inventory-history-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+.inventory-workspace .inventory-history-controls select {
+  min-height: 32px;
+  padding: 6px 9px;
+  border: 1px solid #d2dae8;
+  border-radius: 7px;
+  background: #fff;
+  color: #40516a;
+  font-size: 11px;
+}
+.inventory-workspace .inventory-history-more {
+  align-self: center;
+  min-height: 32px;
+  padding: 6px 13px;
+  border: 1px solid #d2dae8;
+  border-radius: 7px;
+  background: #fff;
+  color: #2b5fad;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.inventory-workspace .inventory-history-cards { display: none; }
+.inventory-workspace .inventory-extra-workflows {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.inventory-workspace .inventory-extra-section {
+  overflow: hidden;
+  border: 1px solid #e1e7f0;
+  border-radius: 9px;
+  background: #fff;
+}
+.inventory-workspace .inventory-extra-section > summary {
+  padding: 11px 14px;
+  color: #344962;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.inventory-workspace .inventory-extra-section[open] > summary {
+  border-bottom: 1px solid #e6edf5;
+  background: #f9fbfe;
+}
+.inventory-workspace .inventory-extra-section-content { min-width: 0; padding: 13px; }
+.inventory-workspace .inventory-extra-section-content > * { margin: 0; }
+@media (max-width: 1100px) {
+  .inventory-workspace .ops-inventory-steps { grid-template-columns: 1fr; }
+  .inventory-workspace .ops-inventory-step + .ops-inventory-step { border-top: 1px solid #e9edf3; border-left: 0; }
+  .inventory-workspace .ops-inventory-step { padding: 10px 13px; }
+  .inventory-workspace .inventory-pipeline > header { flex-wrap: wrap; }
+}
+@media (max-width: 760px) {
+  .inventory-workspace .inventory-workspace-content { padding: 10px 12px 25px; }
+  .inventory-workspace .ops-inventory-summary--compact { grid-template-columns: 1fr; }
+  .inventory-workspace .ops-inventory-summary--compact .ops-inventory-summary-card {
+    min-height: 0;
+    padding: 10px 13px;
+  }
+  .inventory-workspace .ops-inventory-summary--compact .ops-inventory-summary-card + .ops-inventory-summary-card {
+    border-top: 1px solid #e9edf3;
+    border-right: 0;
+  }
+  .inventory-workspace .ops-inventory-summary--compact .ops-inventory-summary-card small { white-space: normal; }
+  .inventory-workspace .ops-inventory-timeline-heading { align-items: start; flex-direction: column; gap: 2px; }
+  .inventory-workspace .inventory-pipeline-scroll { display: none; }
+  .inventory-workspace .inventory-history-cards { display: grid; gap: 8px; }
+  .inventory-workspace .inventory-history-card {
+    display: grid;
+    gap: 7px;
+    padding: 12px;
+    border: 1px solid #e1e7f0;
+    border-radius: 9px;
+    background: #fff;
+  }
+  .inventory-workspace .inventory-history-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .inventory-workspace .inventory-history-card-heading strong { font-size: 12px; }
+  .inventory-workspace .inventory-history-card .inventory-pipeline-flow { overflow-x: auto; }
+  .inventory-workspace .inventory-history-card .inventory-pipeline-files { display: flex; }
+  .inventory-workspace .inventory-history-card > button {
+    justify-self: start;
+    padding: 7px 11px;
+    border: 1px solid #cbd8e9;
+    border-radius: 7px;
+    background: #f7faff;
+    color: #285cb4;
+    font-size: 11px;
+    font-weight: 700;
+  }
+}

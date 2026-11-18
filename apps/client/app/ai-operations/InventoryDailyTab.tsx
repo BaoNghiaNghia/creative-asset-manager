@@ -45,7 +45,7 @@ const dateTime = (value: string | null | undefined) => value
 const number = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value.toLocaleString("vi-VN") : "—";
 
 const operationalLabel = (value: InventoryDailySheetStatus["operational_state"]) => ({
-  healthy: "Hoạt động bình thường",
+  healthy: "Hạ tầng sẵn sàng",
   degraded: "Cần kiểm tra",
   disabled: "Đang tắt",
 }[value]);
@@ -153,7 +153,7 @@ export function InventoryDailyOverview({ status, run, refreshError = "", onRefre
   const v4Started = [lifecycle.morning_reset.status, lifecycle.afternoon_snapshot.status, lifecycle.evening_reconcile.status]
     .some(stage => !["pending", "scheduled"].includes(stage));
   const runLabel = run?.finalized ? "Đã chốt" : run?.ready ? "Sẵn sàng" : run ? "Cần xử lý" : usesV4Slots ? (v4Completed ? "Đã hoàn tất" : v4NeedsRecovery ? "Cần recovery" : v4Started ? "Đang xử lý" : "Chưa chạy") : "Chưa tạo";
-  const runTone = run?.finalized || run?.ready || (usesV4Slots && v4Completed) ? "success" : run || (usesV4Slots && v4Started) ? "warning" : "warning";
+  const runTone = run?.finalized || run?.ready || (usesV4Slots && v4Completed) ? "success" : hasExceptions ? "warning" : v4Started ? "running" : "muted";
 
   useEffect(() => {
     if (!modalPage) return;
@@ -167,7 +167,7 @@ export function InventoryDailyOverview({ status, run, refreshError = "", onRefre
   return <div className="ops-content ops-inventory-daily">
     <WorkspacePageHeader route="inventory" title="Tổng quan kiểm kê tự động" eyebrow="Inventory · Operations"
       className="cam-header-v18 cam-inventory-header-v18"
-      description={<>Theo dõi chu kỳ kiểm kê tại {status.timezone}; tiến trình chạy nền không cần mở trang này.</>}
+      description={<>Trạng thái chu kỳ, các bước chạy nền và việc cần xử lý · {status.timezone}</>}
       titleAddon={<span className={"ops-inventory-health " + (healthy ? "healthy" : status.operational_state)}>{operationalLabel(status.operational_state)}</span>}
       actions={<div className="ops-inventory-heading-actions">
         {status.working_spreadsheet_url ? <a className="ops-inventory-source-link" href={status.working_spreadsheet_url} target="_blank" rel="noreferrer"><QuickActionIcon name="sheet" />Mở bảng kiểm kho</a> : null}
@@ -180,16 +180,16 @@ export function InventoryDailyOverview({ status, run, refreshError = "", onRefre
       <button type="button" onClick={onRefresh}>Thử lại</button>
     </div>}
 
-    <section className="ops-inventory-summary" aria-label="Tóm tắt Inventory hằng ngày">
+    <section className="ops-inventory-summary ops-inventory-summary--compact" aria-label="Tóm tắt Inventory hằng ngày">
       <article className="ops-inventory-summary-card processing-date">
         <span>Ngày kiểm kê</span>
         <strong><time dateTime={status.working_business_date}>{businessDate(status.working_business_date)}</time></strong>
-        <small>Hôm nay {businessDate(status.current_local_date)} · tự động theo lịch</small>
+        <small>Giờ {status.timezone} · hôm nay {businessDate(status.current_local_date)}</small>
       </article>
       <article className={"ops-inventory-summary-card run " + runTone}>
         <span>Trạng thái chu kỳ</span>
         <strong>{runLabel}</strong>
-        <small>{run ? "Ngày " + businessDate(run.business_date) + " · " + processStatusLabel(run.status) : usesV4Slots ? "V4.1 · " + (v4Started ? "hai bước được theo dõi bằng scheduler slot" : "chưa có slot cho ngày ") + businessDate(status.working_business_date) : "Chưa có daily run cho ngày " + businessDate(status.working_business_date)}</small>
+        <small>{run ? "Ngày " + businessDate(run.business_date) + " · " + processStatusLabel(run.status) : usesV4Slots ? "Theo dõi chu kỳ " + businessDate(status.working_business_date) : "Chưa có daily run cho ngày " + businessDate(status.working_business_date)}</small>
       </article>
       <article className={"ops-inventory-summary-card result " + (reconciliationVerified ? "success" : reconciliation ? "warning" : "muted")}>
         <span>Đối soát gần nhất</span>
@@ -198,32 +198,58 @@ export function InventoryDailyOverview({ status, run, refreshError = "", onRefre
       </article>
     </section>
 
-    <div className="ops-inventory-grid">
-      <article className="ops-inventory-card">
-        <header><div><span className="ops-inventory-card-kicker">BƯỚC 1</span><h3>Reset đầu ngày</h3></div><span className={"ops-inventory-card-status " + (lifecycle.morning_reset.status === "completed" ? "success" : "muted")}>{processStatusLabel(lifecycle.morning_reset.status)}</span></header>
-        <p>Chuyển tồn đã xác minh sang ngày mới khi đủ điều kiện.</p>
-        <dl><div><dt>Lịch chạy</dt><dd>{lifecycle.morning_reset.scheduled_time}</dd></div><div><dt>Nguồn</dt><dd>{businessDate(lifecycle.morning_reset.source_business_date)}</dd></div><div><dt>Lỗi</dt><dd>{status.carry_forward?.error_code || "Không có"}</dd></div></dl>
-      </article>
-      <article className="ops-inventory-card">
-        <header><div><span className="ops-inventory-card-kicker">BƯỚC 2</span><h3>Snapshot buổi chiều</h3></div><span className={"ops-inventory-card-status " + (snapshot?.status === "completed" ? "success" : "muted")}>{processStatusLabel(snapshot?.status)}</span></header>
-        <p>Tạo bản sao dữ liệu phục vụ đối soát, không sửa nguồn.</p>
-        <dl><div><dt>Ngày dữ liệu</dt><dd>{businessDate(snapshot?.business_date)}</dd></div><div><dt>Hoàn thành lúc</dt><dd>{dateTime(snapshot?.completed_at)}</dd></div><div><dt>Lỗi</dt><dd>{snapshot?.error_code || "Không có"}</dd></div></dl>
-        {snapshot?.snapshot_url ? <a href={snapshot.snapshot_url} target="_blank" rel="noreferrer">Mở original snapshot ↗</a> : null}
-        {snapshot?.gemini_url ? <a href={snapshot.gemini_url} target="_blank" rel="noreferrer">Mở Gemini working copy ↗</a> : null}
-      </article>
-      <article className="ops-inventory-card">
-        <header><div><span className="ops-inventory-card-kicker">BƯỚC 3</span><h3>Đối soát Gemini buổi tối</h3></div><span className={"ops-inventory-card-status " + (lifecycle.evening_reconcile.verified ? "success" : "muted")}>{processStatusLabel(lifecycle.evening_reconcile.status)}</span></header>
-        <p>Đối soát và xác minh kết quả trước khi sử dụng.</p>
-        <dl><div><dt>Lịch chạy</dt><dd>{lifecycle.evening_reconcile.scheduled_time}</dd></div><div><dt>Đã xác minh</dt><dd>{lifecycle.evening_reconcile.verified ? "Có" : "Chưa"}</dd></div><div><dt>Plan</dt><dd>{lifecycle.evening_reconcile.plan_hash?.slice(0, 12) || "—"}</dd></div></dl>
-      </article>
-    </div>
-
-    <section className="ops-inventory-automation-note" role="status">
-      <strong>{status.enabled && status.configured && status.operational_state !== "disabled" ? "Theo dõi tự động đang bật" : "Chưa bật đủ cấu hình tự động"}</strong>
-      <span>{status.enabled && status.configured && status.operational_state !== "disabled"
-        ? "Các bước đã cấu hình được scheduler xử lý ở nền. Không cần giữ trang mở hoặc bấm chạy từng bước."
-        : "Lịch xử lý đang tắt hoặc thiếu cấu hình. Hệ thống không được coi là đã chạy tự động; hãy kiểm tra cảnh báo với quản trị viên."}</span>
-      {v4NeedsRecovery || !healthy ? <small>Đang có cảnh báo cần kiểm tra. Chỉ xác nhận hoặc can thiệp khi có chứng cứ cụ thể; không tự ép chốt tồn.</small> : null}
+    <section className="ops-inventory-timeline" aria-label="Ba bước xử lý Inventory">
+      <header className="ops-inventory-timeline-heading">
+        <h3>Quy trình trong ngày</h3>
+        <span className={automationReady ? "is-ready" : "is-warning"}>
+          {automationReady ? "Lịch chạy nền đã cấu hình · không cần mở trang" : "Lịch xử lý đang tắt hoặc chưa đủ cấu hình"}
+        </span>
+      </header>
+      <div className="ops-inventory-steps">
+        <article className={"ops-inventory-step " + lifecycle.morning_reset.status}>
+          <span className="ops-inventory-step-number" aria-hidden="true">01</span>
+          <div className="ops-inventory-step-body">
+            <div className="ops-inventory-step-title">
+              <h4>Reset đầu ngày</h4>
+              <span className={"ops-inventory-card-status " + (lifecycle.morning_reset.status === "completed" ? "success" : "muted")}>{processStatusLabel(lifecycle.morning_reset.status)}</span>
+            </div>
+            <p><time>{lifecycle.morning_reset.scheduled_time || "—"}</time> · Chuyển tồn đã xác minh từ ngày trước</p>
+            <details><summary>Xem chi tiết</summary>
+              <dl><div><dt>Ngày nguồn</dt><dd>{businessDate(lifecycle.morning_reset.source_business_date)}</dd></div><div><dt>Lỗi</dt><dd>{lifecycle.morning_reset.error_code || status.carry_forward?.error_code || "Không có"}</dd></div></dl>
+            </details>
+          </div>
+        </article>
+        <article className={"ops-inventory-step " + lifecycle.afternoon_snapshot.status}>
+          <span className="ops-inventory-step-number" aria-hidden="true">02</span>
+          <div className="ops-inventory-step-body">
+            <div className="ops-inventory-step-title">
+              <h4>Snapshot buổi chiều</h4>
+              <span className={"ops-inventory-card-status " + (lifecycle.afternoon_snapshot.status === "completed" ? "success" : "muted")}>{processStatusLabel(lifecycle.afternoon_snapshot.status)}</span>
+            </div>
+            <p><time>{lifecycle.afternoon_snapshot.scheduled_time || status.snapshot_time || "—"}</time> · Lưu bản sao dữ liệu không sửa nguồn</p>
+            <details><summary>Xem chi tiết</summary>
+              <dl><div><dt>Ngày dữ liệu</dt><dd>{businessDate(snapshot?.business_date)}</dd></div><div><dt>Hoàn thành</dt><dd>{dateTime(snapshot?.completed_at)}</dd></div><div><dt>Lỗi</dt><dd>{lifecycle.afternoon_snapshot.error_code || snapshot?.error_code || "Không có"}</dd></div></dl>
+              <div className="ops-inventory-step-links">
+                {snapshot?.snapshot_url ? <a href={snapshot.snapshot_url} target="_blank" rel="noreferrer">Bản Snapshot ↗</a> : null}
+                {snapshot?.gemini_url ? <a href={snapshot.gemini_url} target="_blank" rel="noreferrer">Bản làm việc Gemini ↗</a> : null}
+              </div>
+            </details>
+          </div>
+        </article>
+        <article className={"ops-inventory-step " + lifecycle.evening_reconcile.status}>
+          <span className="ops-inventory-step-number" aria-hidden="true">03</span>
+          <div className="ops-inventory-step-body">
+            <div className="ops-inventory-step-title">
+              <h4>Đối soát Gemini buổi tối</h4>
+              <span className={"ops-inventory-card-status " + (lifecycle.evening_reconcile.status === "completed" && lifecycle.evening_reconcile.verified ? "success" : "muted")}>{processStatusLabel(lifecycle.evening_reconcile.status)}</span>
+            </div>
+            <p><time>{lifecycle.evening_reconcile.scheduled_time || status.reconcile_time || "—"}</time> · {lifecycle.evening_reconcile.verified ? "Đã xác minh kết quả" : "Chưa xác minh kết quả"}</p>
+            <details><summary>Xem chi tiết</summary>
+              <dl><div><dt>Xác minh</dt><dd>{lifecycle.evening_reconcile.verified ? "Đã xác minh" : "Chưa xác minh"}</dd></div><div><dt>Plan</dt><dd>{lifecycle.evening_reconcile.plan_hash?.slice(0,12) || "—"}</dd></div><div><dt>Lỗi</dt><dd>{lifecycle.evening_reconcile.error_code || "Không có"}</dd></div></dl>
+            </details>
+          </div>
+        </article>
+      </div>
     </section>
 
     {hasExceptions ? <section className="ops-inventory-blockers">

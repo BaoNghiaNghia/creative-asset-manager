@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { InventoryApiError, inventoryLifecycleApi, type InventoryHistoricalReplayResult } from "./api";
-import { inventoryDailyHealth, isManualRecoveryError, isMaterialRecoveryError, morningResetRecoveryAction, previousInventoryBusinessDate, retryFreshHistoricalReplay, sourceVerifiedForRecovery, parseInventoryDiagnosticDates, isCurrentInventoryBusinessDate, inventoryMorningRecoveryGateMessage, isApprovedHistoricalSandboxCandidate, APPROVED_HISTORICAL_SANDBOX_DATES } from "./InventoryDailyPipeline";
+import { filterInventoryHistory, inventoryDailyHealth, isManualRecoveryError, isMaterialRecoveryError, morningResetRecoveryAction, previousInventoryBusinessDate, retryFreshHistoricalReplay, sourceVerifiedForRecovery, parseInventoryDiagnosticDates, isCurrentInventoryBusinessDate, inventoryMorningRecoveryGateMessage, isApprovedHistoricalSandboxCandidate, APPROVED_HISTORICAL_SANDBOX_DATES } from "./InventoryDailyPipeline";
 
 const replayResult: InventoryHistoricalReplayResult = {
   run_id: "replay-3",
@@ -129,6 +129,17 @@ describe("Inventory lifecycle monitoring and paginated recovery safety", () => {
     const current = { ...createItem("2026-10-15", "failed", false, "previous_day_gemini_not_verified"), previous_day_verified: true };
     expect(sourceVerifiedForRecovery(current, [current])).toBe(true);
     expect(sourceVerifiedForRecovery({ ...current, previous_day_verified: false }, [current])).toBe(false);
+  });
+
+  it("filters only the current server page and counts action-required days consistently", () => {
+    const pending = { ...createItem("2026-10-20", "completed", false), overall_status: "scheduled", action_required: null };
+    const attention = createItem("2026-10-19", "failed", false, "previous_day_gemini_not_verified");
+    const done = createItem("2026-10-18", "completed", true);
+    const rows = [pending, attention, done] as import("./api").InventoryLifecycleHistoryItem[];
+    expect(filterInventoryHistory(rows, "all")).toHaveLength(3);
+    expect(filterInventoryHistory(rows, "attention").map(item => item.business_date)).toEqual(["2026-10-19"]);
+    expect(filterInventoryHistory(rows, "completed").map(item => item.business_date)).toEqual(["2026-10-18"]);
+    expect(inventoryDailyHealth(rows).attention).toBe(filterInventoryHistory(rows, "attention").length);
   });
 
   it("shows blocked and unverified days separately from successfully verified days", () => {

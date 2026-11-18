@@ -53,6 +53,22 @@ describe("Inventory overview evidence states", () => {
     },
   );
 
+  it("separates scheduler readiness from completion and progressively discloses step details", () => {
+    const value = status();
+    value.lifecycle!.morning_reset.status = "scheduled";
+    value.lifecycle!.afternoon_snapshot.status = "scheduled";
+    value.lifecycle!.evening_reconcile.status = "scheduled";
+    value.lifecycle!.evening_reconcile.verified = false;
+    const html = render(value);
+    expect(html).toContain("Hạ tầng sẵn sàng");
+    expect(html).toContain("Chưa chạy");
+    expect(html).toContain("ops-inventory-summary--compact");
+    expect(html).toContain("ops-inventory-timeline");
+    expect(html.match(/<summary>Xem chi tiết<\/summary>/g)).toHaveLength(3);
+    expect(html).not.toContain("ops-inventory-grid");
+    expect(html).not.toContain("<strong>Đã hoàn tất</strong>");
+  });
+
   it("does not claim zero invalid rows when reconciliation has no evidence", () => {
     const html = render(status());
     expect(html).toContain("Chưa có dữ liệu");
