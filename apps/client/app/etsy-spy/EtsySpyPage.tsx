@@ -32,9 +32,8 @@ const TABS: { id: SpyTab; title: string; subtitle: string }[] = [
   { id: "trademarks", title: "Trademark", subtitle: "Cached TM evidence" },
   { id: "logs", title: "System Logs", subtitle: "Agent diagnostics" },
 ];
-// UI-only removal: keep legacy keyword / trademark deep links and their APIs,
-// but exclude them from visible navigation, keyboard cycling and KPI cards.
-const VISIBLE_TABS = TABS.filter(item => item.id === "products" || item.id === "logs");
+// Products is the only navigation surface. Legacy keyword / trademark deep links
+// and all underlying Scout APIs remain available without a visible tab strip.
 const SORTS: Record<SpyTab, readonly { id: string; text: string }[]> = {
   products: [
     { id: "pageTitle", text: "Product / Etsy" }, { id: "keywordSms", text: "Keyword SMS" },
@@ -105,7 +104,9 @@ const baseOptions: Options = {
 function fromLocation(): Options {
   if (typeof window === "undefined") return baseOptions;
   const p = new URLSearchParams(window.location.search);
-  const tab = TABS.find(t => t.id === p.get("tab"))?.id || "products";
+  // Old System Logs bookmarks now land on Products. Other legacy deep links stay intact.
+  const wasLogsTab = p.get("tab") === "logs";
+  const tab = wasLogsTab ? "products" : TABS.find(t => t.id === p.get("tab"))?.id || "products";
   return {
     ...baseOptions, tab,
     pickState: p.get("pick_state") === "picked" ? "picked"
@@ -119,11 +120,11 @@ function fromLocation(): Options {
     group: (p.get("group") || "").slice(0,40),
     page: Math.max(1, Math.min(100000, Number(p.get("page")) || 1)),
     pageSize: [50, 100, 200].includes(Number(p.get("page_size"))) ? Number(p.get("page_size")) : 50,
-    q: p.get("q") || "", sessionId: p.get("session_id") || "",
+    q: wasLogsTab ? "" : p.get("q") || "", sessionId: p.get("session_id") || "",
     source: p.get("source") || "", badge: p.get("badge") || "",
     tm: p.get("tm") || "", status: p.get("status") || "",
     level: p.get("level") || "", phase: p.get("phase") || "",
-    sort: p.get("sort") || (tab === "products" ? "observedAt" : tab === "logs" ? "at" : "updatedAt"),
+    sort: wasLogsTab ? "observedAt" : p.get("sort") || (tab === "products" ? "observedAt" : "updatedAt"),
     dir: p.get("dir") === "asc" ? "asc" : "desc",
   };
 }
@@ -1311,44 +1312,19 @@ export function EtsySpyPage() {
       <button type="button" className="etsy-btn etsy-refresh" onClick={() => setRefresh(n => n + 1)}><span aria-hidden="true">↻</span> Refresh</button>
       <WorkspaceBackToAssets />
     </>} />
-    <div className="etsy-stage-nav">
-      <nav role="tablist" aria-label="Etsy Spy sections" className="etsy-tabs">
-        {VISIBLE_TABS.map((item, index) => <button key={item.id} type="button" role="tab"
-          id={"etsy-tab-" + item.id} aria-controls="etsy-spy-tabpanel"
-          tabIndex={activeTab === item.id || (index === 0 &&
-            !VISIBLE_TABS.some(tab => tab.id === activeTab)) ? 0 : -1}
-          aria-selected={activeTab === item.id} className={activeTab === item.id ? "active" : ""}
-          onClick={() => selectTab(item.id)}
-          onKeyDown={event => {
-            const next = event.key === "ArrowRight" ? (index + 1) % VISIBLE_TABS.length
-              : event.key === "ArrowLeft" ? (index - 1 + VISIBLE_TABS.length) % VISIBLE_TABS.length
-              : event.key === "Home" ? 0 : event.key === "End" ? VISIBLE_TABS.length - 1 : -1;
-            if (next < 0) return;
-            event.preventDefault();
-            selectTab(VISIBLE_TABS[next].id);
-            const tabs = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
-            tabs?.[next]?.focus();
-          }}>
-          <span className="etsy-tab-number" aria-hidden="true">{index + 1}</span>
-          <span className="etsy-tab-copy"><strong>{item.title}</strong><small>{item.subtitle}</small></span>
-        </button>)}
-      </nav>
+
     </div>
-    </div>
-    <section id="etsy-spy-tabpanel" role="tabpanel"
-      aria-labelledby={VISIBLE_TABS.some(item => item.id === activeTab)
-        ? "etsy-tab-" + activeTab : undefined}
+    <section id="etsy-spy-workspace"
       className="etsy-stage-canvas" aria-label="Etsy Spy workspace">
       <div className="etsy-stage-card">
         <div className="etsy-stage-heading-row">
           <div className="etsy-stage-heading">
             <span className="etsy-stage-kicker">ETSY SPY · MARKET INTELLIGENCE</span>
             <h2>{activeTab === "products" ? "Product Intelligence" : TABS.find(item => item.id === activeTab)?.title}</h2>
-            <p>{activeTab === "products"
-              ? "Explore verified Etsy product demand and trademark evidence from the Windows Scout."
-              : activeTab === "keywords" ? "Follow discovered keyword branches, priorities and source evidence."
+            {activeTab !== "products" && <p>{activeTab === "keywords"
+              ? "Follow discovered keyword branches, priorities and source evidence."
               : activeTab === "trademarks" ? "Review cached trademark results and attached USPTO evidence."
-              : "Monitor Windows Scout synchronization, warnings and processing errors."}</p>
+              : "Monitor Windows Scout synchronization, warnings and processing errors."}</p>}
           </div>
           <div className="etsy-stage-heading-actions">
             {activeTab === "products" && !isWinKeywordsView && <form className="etsy-blacklist-form"

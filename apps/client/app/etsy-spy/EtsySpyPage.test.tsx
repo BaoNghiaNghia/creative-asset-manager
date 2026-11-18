@@ -564,16 +564,16 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelector(".etsy-stat-picked[aria-pressed='true']")).toBeTruthy();
   });
 
-  it("cancels a pending search debounce when switching from Products to another tab", async () => {
-    await start({initialUrl: "/etsy-spy?tab=products&q=Santa&observed_day=all"});
-    await act(async () => {
-      container?.querySelector<HTMLButtonElement>("#etsy-tab-logs")?.click();
-      await new Promise(resolve => setTimeout(resolve, 450));
-    });
+  it("redirects old System Logs URLs to Products without retaining log-only search or sort", async () => {
+    await start({initialUrl: "/etsy-spy?tab=logs&q=failed&sort=at&observed_day=all"});
     const params = new URLSearchParams(window.location.search);
-    expect(params.get("tab")).toBe("logs");
+    expect(params.get("tab")).toBe("products");
     expect(params.get("q")).toBeNull();
+    expect(params.get("sort")).toBe("observedAt");
     expect(container?.querySelector<HTMLInputElement>('input[aria-label="Search Spy records"]')?.value).toBe("");
+    expect(container?.querySelector(".etsy-data-table.is-products")).toBeTruthy();
+    expect(observed.some(url => url.includes("/listings?"))).toBe(true);
+    expect(observed.some(url => url.includes("/logs?"))).toBe(false);
   });
 
   it("shows the current Eligible day as a filter with a keyboard-accessible clear action", async () => {
@@ -804,7 +804,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(cards[2].classList.contains("etsy-stat-later")).toBe(true);
     expect(cards[3].classList.contains("etsy-stat-blacklist")).toBe(true);
     expect(container?.querySelector(".etsy-blacklist-chips")).toBeNull();
-    expect(container?.querySelectorAll(".etsy-stage-nav [role='tab']")).toHaveLength(2);
+    expect(container?.querySelectorAll(".etsy-stage-nav [role='tab']")).toHaveLength(0);
     expect(container?.querySelector(".etsy-stage-card .etsy-stage-heading h2")?.textContent).toBe("Product Intelligence");
     expect(container?.querySelector(".etsy-stat-total[aria-pressed='true']")).toBeTruthy();
     expect(container?.querySelectorAll(".etsy-observed-day")).toHaveLength(28);
@@ -967,10 +967,8 @@ describe("Etsy Spy native CAM dashboard", () => {
     await act(async () => {sort.click(); await new Promise(resolve => setTimeout(resolve, 30));});
     expect(observed.some(url => /\/listings\?.*sort=inCarts/.test(url))).toBe(true);
     expect(new URLSearchParams(window.location.search).get("sort")).toBe("inCarts");
-    const logs = Array.from(container?.querySelectorAll("[role='tab']") || [])
-      .find(el => el.textContent?.includes("System Logs")) as HTMLButtonElement;
-    await act(async () => {logs.click(); await new Promise(resolve => setTimeout(resolve, 30));});
-    expect(observed.some(url => url.includes("/logs?"))).toBe(true);
+    expect(container?.querySelector(".etsy-stage-nav")).toBeNull();
+    expect(observed.some(url => url.includes("/logs?"))).toBe(false);
   });
   it("shows twenty-eight compact 06:00 observation buckets and filters Eligible listings by date", async () => {
     await start();
@@ -1335,28 +1333,21 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.textContent).not.toContain("Windows Agent will apply this priority");
   });
 
-  it("keeps compact tabs keyboard-navigable with one active tab", async () => {
+  it("opens Products directly without tab navigation or the Windows Scout description", async () => {
     await start();
     const headerShell = container?.querySelector(".etsy-header-shell");
     expect(headerShell?.querySelector("header")).toBeTruthy();
-    expect(headerShell?.querySelector(".etsy-stage-nav")).toBeTruthy();
-    expect(headerShell?.querySelectorAll('[role="tab"]')).toHaveLength(2);
-    const tabs = Array.from(container?.querySelectorAll<HTMLButtonElement>(".etsy-stage-nav [role='tab']") || []);
-    expect(tabs).toHaveLength(2);
-    expect(tabs.map(tab => tab.querySelector("strong")?.textContent)).toEqual([
-      "Products", "System Logs",
-    ]);
-    expect(tabs[0].tabIndex).toBe(0);
-    expect(tabs[1].tabIndex).toBe(-1);
-    await act(async () => {
-      tabs[0].focus();
-      tabs[0].dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
-      await new Promise(resolve => setTimeout(resolve, 35));
-    });
-    expect(tabs[1].getAttribute("aria-selected")).toBe("true");
-    expect(tabs[0].tabIndex).toBe(-1);
-    expect(tabs[1].tabIndex).toBe(0);
-    expect(document.activeElement).toBe(tabs[1]);
+    expect(headerShell?.querySelector(".etsy-stage-nav")).toBeNull();
+    expect(container?.querySelector('[role="tablist"]')).toBeNull();
+    expect(container?.querySelector('[role="tabpanel"]')).toBeNull();
+    expect(container?.querySelector("#etsy-spy-workspace")).toBeTruthy();
+    expect(container?.querySelector(".etsy-stage-heading h2")?.textContent).toBe("Product Intelligence");
+    expect(container?.textContent).not.toContain(
+      "Explore verified Etsy product demand and trademark evidence from the Windows Scout.");
+    expect(container?.querySelector(".etsy-data-table.is-products")).toBeTruthy();
+    expect(container?.querySelector(".etsy-stat-picked")).toBeTruthy();
+    expect(container?.querySelector(".etsy-stat-later")).toBeTruthy();
+    expect(new URLSearchParams(window.location.search).get("tab")).toBe("products");
   });
 
   it("adds and removes persistent blacklist phrases using Enter", async () => {
