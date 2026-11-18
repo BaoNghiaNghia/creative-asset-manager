@@ -120,92 +120,64 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
         onMouseDown={event => { if (event.target === event.currentTarget) setOpen(false); }}>
         <section role="dialog" aria-modal="true"
           aria-label={"Listing Image đã lưu cho " + item.pageTitle}
-          className="etsy-listing-image-dialog">
+          className={"etsy-listing-image-dialog" + (gallery && gallery.total <= 2 ? " is-sparse" : "")}>
           <header className="etsy-listing-image-dialog-head">
-            <div>
-              <span className="etsy-listing-image-kicker">CAM Image Extension / Saved outputs</span>
-              <h2>Listing Image <span>#{item.listingKey}</span></h2>
-              <p title={item.pageTitle}>{item.pageTitle}</p>
-            </div>
+            <h2>Listing Image</h2>
             <button type="button" className="etsy-listing-image-close"
               onClick={() => setOpen(false)} aria-label="Đóng Listing Image">×</button>
           </header>
-          {!gallery && !error && <div className="etsy-listing-image-notice" role="status">Đang tải danh sách PNG đã lưu…</div>}
+          {!gallery && !error && <div className="etsy-listing-image-notice" role="status">Đang tải ảnh…</div>}
           {error && <div className="etsy-listing-image-notice is-error" role="alert">
             {error} <button type="button" onClick={() => {
-            galleryCache.current = null;
-            setRetryKey(value => value + 1);
-          }}>Thử lại</button>
+              galleryCache.current = null;
+              setRetryKey(value => value + 1);
+            }}>Thử lại</button>
           </div>}
           {gallery && <div className="etsy-listing-image-body">
             {gallery.total === 0 ? <div className="etsy-listing-image-notice">
-              Chưa có ảnh output hoàn tất được Extension đồng bộ. Các ảnh đang chờ tạo không được tính.
-            </div> : <div className="etsy-listing-image-workspace">
+              Chưa có ảnh đã lưu.
+            </div> : <div className={"etsy-listing-image-workspace" +
+              (gallery.total <= 2 ? " is-sparse" : "")}>
               <section className="etsy-listing-image-preview" aria-label="Ảnh xem trước">
-                <div className="etsy-listing-image-pane-heading">
-                  <strong>Ảnh xem trước</strong>
-                  {selected && <span>{selectedGarment ? selectedGarment + " · " : ""}
-                    Ảnh {String(selected.slot).padStart(2, "0")}</span>}
-                </div>
-                {selected && <div className="etsy-listing-image-large">
-                  <div className="etsy-listing-image-review-frame">
+                {selected && <div className="etsy-listing-image-review-frame">
+                  <a className="etsy-listing-image-fullsize" href={selected.originalUrl}
+                    target="_blank" rel="noopener noreferrer" title="Mở PNG gốc"
+                    aria-label={"Mở PNG gốc " + (selectedGarment || "") + " ảnh " + selected.slot}>
                     <ListingReviewPreview key={selected.packId + ":" + selected.sha256}
                       image={selected} />
-                  </div>
-                  <div className="etsy-listing-image-preview-meta">
-                    <div>
-                      <strong>{selectedGarment ? selectedGarment + " · " : ""}
-                        Ảnh {String(selected.slot).padStart(2, "0")}</strong>
-                      <small>{selected.width || "—"} × {selected.height || "—"} px</small>
-                    </div>
-                    <a href={selected.originalUrl} target="_blank" rel="noopener noreferrer">
-                      Xem PNG gốc ↗
-                    </a>
-                  </div>
+                    <span className="etsy-listing-image-open-icon" aria-hidden="true">↗</span>
+                  </a>
                 </div>}
               </section>
-              <div className="etsy-listing-image-library" aria-label="Danh sách ảnh theo sản phẩm">
-                <div className="etsy-listing-image-library-heading">
-                  <strong>Ảnh theo sản phẩm</strong>
-                  <span>{gallery.total} ảnh đã lưu</span>
-                </div>
+              <aside className="etsy-listing-image-library" aria-label="Danh sách ảnh theo sản phẩm">
                 {gallery.groups.map(group => <section
                   className="etsy-listing-image-group" key={group.garmentCode}>
-                  <div className="etsy-listing-image-group-heading">
-                    <h3>{group.garmentCode}</h3>
-                    <span>{group.count} ảnh</span>
-                  </div>
+                  <h3 className="etsy-listing-image-group-heading">{group.garmentCode}</h3>
                   {Array.from(new Set(group.images.map(image => image.packId))).map(packId => {
                     const designImages = group.images.filter(image => image.packId === packId)
                       .sort((a, b) => a.slot - b.slot);
-                    const design = designImages[0];
                     return <div className="etsy-listing-image-design" key={packId}>
-                      <div className="etsy-listing-image-design-title">
-                        <strong>Design {(design.designSha256 || design.packId || "ImageGen").slice(0,10)}</strong>
-                        <small>{(design.placement || "unknown").replaceAll("_"," ")} · {designImages.length}/10
-                          {design.manifestReady ? " · Đã lưu đủ" : " · Đang bổ sung"}</small>
-                      </div>
                       <div className="etsy-listing-image-grid">
                         {designImages.map(image => <button type="button"
                           className={"etsy-listing-image-tile" +
                             (selected?.packId === image.packId && selected?.sha256 === image.sha256 ? " is-selected" : "")}
                           key={image.packId + "-" + image.slot}
+                          title={group.garmentCode + " · Ảnh " + String(image.slot).padStart(2, "0")}
                           aria-label={"Xem ảnh " + image.slot + " / " + group.garmentCode}
                           aria-pressed={selected?.packId === image.packId && selected?.sha256 === image.sha256}
                           onClick={() => setSelected(image)}>
                           <EtsyDeferredImage src={image.thumbnailUrl} alt="" />
-                          <span>Ảnh {String(image.slot).padStart(2,"0")}</span>
+                          <span className="etsy-listing-image-slot" aria-hidden="true">
+                            {String(image.slot).padStart(2, "0")}
+                          </span>
                         </button>)}
                       </div>
                     </div>;
                   })}
                 </section>)}
-              </div>
+              </aside>
             </div>}
           </div>}
-          <footer className="etsy-listing-image-foot">
-            Chỉ hiển thị ảnh PNG đã đồng bộ; không tính ảnh Etsy gốc hoặc slot đang chờ.
-          </footer>
         </section>
       </div>, document.body
     )}

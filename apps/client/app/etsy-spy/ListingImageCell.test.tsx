@@ -102,9 +102,14 @@ describe("Listing Image saved output badges",()=>{
     expect(workspace?.children).toHaveLength(2);
     expect(workspace?.firstElementChild?.classList.contains("etsy-listing-image-preview")).toBe(true);
     expect(workspace?.lastElementChild?.classList.contains("etsy-listing-image-library")).toBe(true);
-    expect(dialog?.textContent).toContain("Ảnh xem trước");
-    expect(dialog?.textContent).toContain("Ảnh theo sản phẩm");
-    expect(dialog?.textContent).toContain("2 ảnh đã lưu");
+    expect(dialog?.querySelector(".etsy-listing-image-dialog-head h2")?.textContent).toBe("Listing Image");
+    expect(dialog?.textContent).not.toContain("Ảnh xem trước");
+    expect(dialog?.textContent).not.toContain("Ảnh theo sản phẩm");
+    expect(dialog?.textContent).not.toContain("ảnh đã lưu");
+    expect(dialog?.textContent).not.toContain("Design");
+    expect(dialog?.textContent).not.toContain(item.pageTitle);
+    expect(dialog?.querySelector(".etsy-listing-image-foot")).toBeNull();
+    expect(dialog?.querySelector(".etsy-listing-image-design-title")).toBeNull();
     expect(dialog?.querySelectorAll(".etsy-listing-image-group")).toHaveLength(1);
     expect(dialog?.querySelector(".etsy-listing-image-group-heading")?.textContent).toContain("C1717");
     const tiles = Array.from(dialog?.querySelectorAll<HTMLButtonElement>(".etsy-listing-image-tile") || []);
@@ -119,8 +124,11 @@ describe("Listing Image saved output badges",()=>{
     expect(previewImage()?.getAttribute("src")).toContain("/2/preview");
     expect(tiles[1]?.getAttribute("aria-pressed")).toBe("true");
     expect(tiles[0]?.getAttribute("aria-pressed")).toBe("false");
-    expect(dialog?.querySelector<HTMLAnchorElement>(".etsy-listing-image-preview-meta a")?.href)
+    expect(dialog?.querySelector<HTMLAnchorElement>(".etsy-listing-image-fullsize")?.href)
       .toContain("/2/original");
+    expect(dialog?.querySelector<HTMLAnchorElement>(".etsy-listing-image-fullsize")?.getAttribute("title"))
+      .toBe("Mở PNG gốc");
+    expect(dialog?.querySelectorAll('img[src*="/original"]')).toHaveLength(0);
     expect(spy).toHaveBeenCalledTimes(1);
     act(()=>window.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true})));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
@@ -147,11 +155,11 @@ describe("Listing Image saved output badges",()=>{
     expect(groups).toHaveLength(2);
     expect(groups.map(node=>node.querySelector("h3")?.textContent)).toEqual(["C1717","G180"]);
     const garmentTiles=Array.from(groups[1].querySelectorAll<HTMLButtonElement>(".etsy-listing-image-tile"));
-    expect(garmentTiles.map(tile=>tile.textContent?.trim())).toEqual(["Ảnh 03","Ảnh 10"]);
+    expect(garmentTiles.map(tile=>tile.textContent?.trim())).toEqual(["03","10"]);
     await act(async()=>{garmentTiles[1].click();});
     expect(dialog?.querySelector<HTMLImageElement>(".etsy-listing-image-review-frame img")?.getAttribute("src"))
       .toBe("/g180/10/preview");
-    expect(dialog?.querySelector(".etsy-listing-image-pane-heading")?.textContent)
+    expect(dialog?.querySelector(".etsy-listing-image-fullsize")?.getAttribute("aria-label"))
       .toContain("G180");
     expect(garmentTiles[1].getAttribute("aria-pressed")).toBe("true");
     expect(groups[0].querySelector(".etsy-listing-image-tile.is-selected")).toBeNull();
