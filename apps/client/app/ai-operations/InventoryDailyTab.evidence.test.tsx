@@ -35,7 +35,7 @@ describe("Inventory overview evidence states", () => {
     expect(html).toContain("Đang giữ dữ liệu gần nhất");
     expect(html).toContain("Network timeout");
     expect(html).toContain("Reset đầu ngày");
-    expect(html).toContain("Đối soát Gemini buổi tối");
+    expect(html).toContain("Đối soát AI");
     expect(html).toContain("Thử lại");
     expect(html).not.toContain("Không thể tải Inventory");
   });

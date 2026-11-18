@@ -12,7 +12,7 @@ describe("Inventory routes and API boundary", () => {
     expect(markup).toContain("<button");
     expect(markup).toContain("Inventory dashboard");
     expect(markup).toContain("Nguyên vật liệu");
-    expect(markup).toContain("Gemini Prompts");
+    expect(markup).toContain("Prompt phân tích AI");
     expect(markup).toContain("C\u1ea5u h\u00ecnh");
     expect(markup).not.toContain(">Inbox<");
     expect(markup).not.toContain(">Reports<");

@@ -133,7 +133,7 @@ export function InventoryDailyOverview({ status, run, refreshError = "", onRefre
   const lifecycleStages = [
     { label: "Reset đầu ngày", ...lifecycle.morning_reset },
     { label: "Snapshot buổi chiều", ...lifecycle.afternoon_snapshot },
-    { label: "Đối soát Gemini buổi tối", ...lifecycle.evening_reconcile },
+    { label: "Đối soát AI", ...lifecycle.evening_reconcile },
   ];
   const lifecycleIssues = usesV4Slots ? lifecycleStages.filter(stage =>
     ["failed", "blocked", "review_required", "stale", "retryable_failure", "permanent_failure", "terminal_failure"].includes(stage.status)
@@ -231,7 +231,7 @@ export function InventoryDailyOverview({ status, run, refreshError = "", onRefre
               <dl><div><dt>Ngày dữ liệu</dt><dd>{businessDate(snapshot?.business_date)}</dd></div><div><dt>Hoàn thành</dt><dd>{dateTime(snapshot?.completed_at)}</dd></div><div><dt>Lỗi</dt><dd>{lifecycle.afternoon_snapshot.error_code || snapshot?.error_code || "Không có"}</dd></div></dl>
               <div className="ops-inventory-step-links">
                 {snapshot?.snapshot_url ? <a href={snapshot.snapshot_url} target="_blank" rel="noreferrer">Bản Snapshot ↗</a> : null}
-                {snapshot?.gemini_url ? <a href={snapshot.gemini_url} target="_blank" rel="noreferrer">Bản làm việc Gemini ↗</a> : null}
+                {snapshot?.gemini_url ? <a href={snapshot.gemini_url} target="_blank" rel="noreferrer">Bản đối soát ↗</a> : null}
               </div>
             </details>
           </div>
@@ -240,7 +240,7 @@ export function InventoryDailyOverview({ status, run, refreshError = "", onRefre
           <span className="ops-inventory-step-number" aria-hidden="true">03</span>
           <div className="ops-inventory-step-body">
             <div className="ops-inventory-step-title">
-              <h4>Đối soát Gemini buổi tối</h4>
+              <h4>Đối soát AI</h4>
               <span className={"ops-inventory-card-status " + (lifecycle.evening_reconcile.status === "completed" && lifecycle.evening_reconcile.verified ? "success" : "muted")}>{processStatusLabel(lifecycle.evening_reconcile.status)}</span>
             </div>
             <p><time>{lifecycle.evening_reconcile.scheduled_time || status.reconcile_time || "—"}</time> · {lifecycle.evening_reconcile.verified ? "Đã xác minh kết quả" : "Chưa xác minh kết quả"}</p>
