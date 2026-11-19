@@ -1,5 +1,61 @@
 # Implementation Roadmap
 
+## 2026-11-14 — CAM Agent Harness V2 Phase 4C.3G: staged source capture outside SQL locks
+
+- [x] Retire the prior single-session HTTPS capture entrypoint with explicit fail-closed `staged_capture_required`.
+- [x] Introduce a default-OFF, fresh-Session-factory three-stage protocol: short claim/fence planning transaction; bounded HTTPS and content-addressed fsync **without any SQL Session**; short authoritative claim/slot/source recheck and signed manifest commit.
+- [x] Add nonblocking process-local fetch capacity gate (2), strict source format checks even for test stubs, crash-safe orphan semantics, and no signed proof after cancellation/URL mutation/attempt changes.
+- [x] Add PostgreSQL 12/16 `FOR UPDATE NOWAIT` test inside mocked network fetch, midway cancellation/reclaim tests, rollback/retry test and capacity/invalid-image coverage.
+- [ ] Obtain green CI on exact PR head. Leave 0209/0210, API, Windows, dispatch and provider/browser features OFF. Proof of real off-host backup restore and output lineage remain release blockers.
+- Design: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4C3G_STAGED_SOURCE_CAPTURE_20261114.md`.
+
+
+## 2026-11-14 — CAM Agent Harness V2 Phase 4C.3F: source capture + pinned review reader (inert)
+
+- [x] Build a default-OFF server-owned source capture primitive: strict allowlisted HTTPS, public IP DNS validation and pinned TLS/SNI, no redirects/proxies, hard limits on bytes/image size/read duration, content-addressed disk and signed manifest bound to the existing 0209 claim fence.
+- [x] Build descriptor-pinned no-follow immutable source/PNG I/O, then provide a default-OFF tenant-bound read-only `accepted` receipt viewer adapter that returns checked PNG bytes instead of a mutable storage path.
+- [x] Add fake-network SSRF/redirect/TLS-safety tests, symlink/hash/conflict tests and PostgreSQL 12/16 capture/replay/crash/tenant preview tests in the existing CI matrix.
+- [ ] Obtain green CI and separately validate off-host real production backup restore. Keep PR #166 Draft, 0209/0210 unmigrated and current production endpoints untouched.
+- [ ] Refactor network capture outside PostgreSQL row locks before any live use; add independent browser/provider proof, read viewer auth integration and human reconciliation. No automatic multi-agent dispatch or producer calls yet.
+- Design: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4C3F_SOURCE_CAPTURE_VIEWER_20261114.md`.
+
+
+## 2026-11-14 — CAM Agent Harness V2 Phase 4C.3E: independent source gate and receipt reconciliation
+
+- [x] Add default-OFF, read-only tenant-scoped inspector of 0209/0210 and content-addressed storage (waiting / recoverable / stale epoch / accepted verified / missing or corrupt), with NO cleanup, dispatch, commit or auto-accept.
+- [x] Add default-OFF server-signed source snapshot verifier bound to exact tenant, job, device, claim, allowlisted Etsy source URL, captured byte hash, immutable local snapshot and bounded timestamp. A valid source-only proof explicitly does NOT verify browser or provider execution and does NOT permit output acceptance.
+- [x] Add deterministic unit tests for state classification, provenance tampering, wrong origin/attempt, revoked source and symlinked/missing bytes; run PostgreSQL 12/16 read-only inspection in existing CI.
+- [ ] Independently capture server-side source bytes and browser/provider execution proof. Only then review an authenticated API cutover to 0210 and no-follow viewer, along with a human recovery queue. Keep default OFF.
+- [ ] Independently verify restore of a real production backup off-host before any 0209/0210 production migration; keep PR #166 Draft and preserve current + rollback.
+- Design: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4C3E_READONLY_CUTOVER_GATE_20261114.md`.
+
+
+## 2026-11-14 — CAM Agent Harness V2 Phase 4C.3D: crash-recoverable fenced PNG receipt (inert)
+
+- [x] Add additive empty 0210 image output receipt ledger linked to exact job, active paired agent, attempt/claimed_at, fencing token, digest, source digest and engine; fail closed on mismatched retries.
+- [x] Implement default-OFF prepare / accept helpers with PostgreSQL locks, fsynced content-addressed immutable PNG, and job + accepted-receipt in the same DB transaction; keep incomplete/orphan artifacts unreleased and recoverable.
+- [x] Add SQLite/default-OFF/schema tests and PostgreSQL 12/16 concurrency, interruption/retry, stale-claim, corrupted-bytes, storage-unavailable and replay cases in existing CI matrix.
+- [ ] Obtain green hosted CI, off-host production backup restoration and exact migration/rollback release evidence before activating 0209/0210. Keep PR Draft.
+- [ ] Separately wire authenticated source/provider browser evidence and a reviewed immutable receipt contract to `/result`, add human reconciliation for stale prepared results, then canary before any dispatch.
+- Design: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4C3D_FENCED_OUTPUT_RECEIPTS_20261114.md`.
+
+
+## 2026-11-14 — CAM Agent Harness V2 Phase 4C.3C: CI repair and cross-agent safety
+
+- [x] Fix failing PostgreSQL 12/16 reclaim test by modeling the exact new claim timestamp and slot expiry, without loosening future-skew validation.
+- [x] Block other-agent takeover of an unresolved job-bound slot without unique-key exception, and fail closed when a live slot outlives a shortened source lease.
+- [x] Add PostgreSQL 12/16 negative-path tests for cross-device handoff, non-monotonic attempts, and shortened leases; merge current main into isolated candidate.
+- [ ] Obtain green hosted PostgreSQL CI on candidate and document merge/release readiness. Migration 0209, dispatch, result wiring and Windows activation remain OFF pending independently verified off-host restore and approved canary.
+
+## 2026-11-14 — CAM Agent Harness V2 Phase 4C.3B: claim-epoch fenced slots (code-only)
+
+- [x] Bind each durable executor slot to `processing_jobs` job ID, claimed attempt count, and claim start timestamp; increment PostgreSQL bigint fencing tokens on authorized newer claim epochs.
+- [x] Add default-OFF transactional reserve/renew/release and inert output-fence validation; prohibit stale token reuse and renewal by an expired prior attempt.
+- [x] Extend existing PostgreSQL 12/16 CI matrix with concurrency, replay, recovery and tenant/security guards; no extra VPS test environments or provider calls.
+- [ ] Obtain green hosted PostgreSQL CI, independently verified off-host production restore and release gates; **do not** activate or migrate 0209 on production before these checks.
+- [ ] Integrate output-boundary fencing into the image-result handler and Windows relay behind a separate reviewed opt-in, with an idempotent receipt and actual browser/provider evidence; then consider controlled canary.
+- Design: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4C3A_FENCED_SLOTS_20261114.md`.
+
 ## 2026-11-14 — Etsy Spy: 22 named garment preview backgrounds
 
 - [x] Add 22 requested swatches, preserve checkerboard and four original non-duplicate extras.

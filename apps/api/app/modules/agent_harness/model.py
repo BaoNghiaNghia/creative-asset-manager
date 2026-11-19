@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKeyConstraint, Index, Integer, JSON, String, UniqueConstraint, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Float, ForeignKeyConstraint, Index, Integer, JSON, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -280,3 +280,127 @@ class AgentTrialArtworkSnapshotModel(Base):
         server_default=text("CURRENT_TIMESTAMP"),
     )
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AgentExecutorSlotModel(Base):
+    """One durable, tenant-scoped Image Agent slot with monotonic fencing.
+
+    No live dispatcher imports this model. The single row per device is locked
+    inside an existing-job transaction; a previous token can never own a later
+    reservation. A NULL job denotes a free row, not proven browser readiness.
+    """
+
+    __tablename__ = "cam_agent_executor_slots"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["agent_id"], ["etsy_spy_agents.id"],
+            name="fk_cam_executor_slot_agent", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["job_id"], ["processing_jobs.id"],
+            name="fk_cam_executor_slot_job", ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "tenant_id", "job_id", name="uq_cam_executor_slot_tenant_job",
+        ),
+        CheckConstraint(
+            "fencing_token >= 0", name="ck_cam_executor_slot_fence",
+        ),
+        CheckConstraint(
+            "(job_id IS NULL AND lease_expires_at IS NULL AND "
+            "claim_attempt_count IS NULL AND claim_started_at IS NULL) OR "
+            "(job_id IS NOT NULL AND lease_expires_at IS NOT NULL AND "
+            "claim_attempt_count IS NOT NULL AND claim_attempt_count > 0 AND "
+            "claim_started_at IS NOT NULL)",
+            name="ck_cam_executor_slot_pair",
+        ),
+        Index("ix_cam_executor_slot_expiry", "lease_expires_at"),
+    )
+
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    agent_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    job_id: Mapped[str | None] = mapped_column(String(36))
+    claim_attempt_count: Mapped[int | None] = mapped_column(Integer)
+    claim_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    fencing_token: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default=text("0"),
+    )
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow,
+        server_default=text("CURRENT_TIMESTAMP"), onupdate=utcnow,
+    )
+
+
+class AgentImageOutputReceiptModel(Base):
+    """Inert, tenant-bound durable receipt for an exact fenced PNG claim.
+
+    One job can have at most one prepared/accepted result across *all* claim
+    attempts. A prepared old epoch is never silently replaced or promoted.
+    No live result endpoint imports or writes this model.
+    """
+
+    __tablename__ = "cam_agent_image_output_receipts"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["job_id"], ["processing_jobs.id"],
+            name="fk_cam_agent_output_receipt_job", ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["agent_id"], ["etsy_spy_agents.id"],
+            name="fk_cam_agent_output_receipt_agent", ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "tenant_id", "receipt_id", name="uq_cam_agent_output_receipt_id",
+        ),
+        CheckConstraint(
+            "claim_attempt_count > 0 AND fencing_token > 0",
+            name="ck_cam_agent_output_receipt_epoch",
+        ),
+        CheckConstraint(
+            "output_bytes > 0 AND output_bytes <= 22000000",
+            name="ck_cam_agent_output_receipt_size",
+        ),
+        CheckConstraint(
+            "length(output_sha256) = 64 AND length(source_sha256) = 64",
+            name="ck_cam_agent_output_receipt_digest",
+        ),
+        CheckConstraint(
+            "engine IN ('chatgpt_assisted', 'fast_cpu')",
+            name="ck_cam_agent_output_receipt_engine",
+        ),
+        CheckConstraint(
+            "(status = 'prepared' AND accepted_at IS NULL) OR "
+            "(status = 'accepted' AND accepted_at IS NOT NULL)",
+            name="ck_cam_agent_output_receipt_status",
+        ),
+        Index(
+            "ix_cam_agent_output_receipt_state", "tenant_id", "status",
+            "prepared_at",
+        ),
+    )
+
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    job_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    agent_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    claim_attempt_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    claim_started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+    )
+    fencing_token: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    receipt_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    output_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    engine: Mapped[str] = mapped_column(String(32), nullable=False)
+    output_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="prepared",
+        server_default=text("'prepared'"),
+    )
+    prepared_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+    )
