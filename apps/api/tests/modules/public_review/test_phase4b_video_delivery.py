@@ -99,6 +99,7 @@ def setup():
             mime_type="video/mp4",
             status="ready",
             size_bytes=100,
+            cached_at=datetime.now(timezone.utc),
         ))
         session.commit()
     return engine, factory
