@@ -207,6 +207,28 @@ def _lease_token(agent: EtsySpyAgent, job: ProcessingJobModel) -> str:
     return hmac.new(bytes.fromhex(agent.token_hash), message, "sha256").hexdigest()
 
 
+def _serialize_image_claim(db: Session, tenant_id: str) -> None:
+    """Serialize *all* Image Agent claims for a tenant in existing PostgreSQL.
+
+    PostgreSQL's transaction advisory lock closes the gap between checking an
+    agent's unresolved lease, the shared 200/day cap and claiming a new row.
+    Locking an EtsySpyAgent *row* here would deadlock with /check-job and
+    /result, which lock the job first and then update the agent last_seen_at.
+    No schema change, auxiliary queue, table, or persistent reservation.
+    """
+    dialect = db.get_bind().dialect.name
+    if dialect == "sqlite":
+        # In-memory unit tests only. SQLite is not a production claim backend.
+        return
+    if dialect != "postgresql":
+        raise HTTPException(503, "Image Agent claim requires PostgreSQL")
+    digest = hashlib.sha256(
+        ("cam:image-claim:v1:" + tenant_id).encode("utf-8")
+    ).digest()
+    lock_key = int.from_bytes(digest[:8], byteorder="big", signed=True)
+    db.scalar(select(func.pg_advisory_xact_lock(lock_key)))
+
+
 class IdleImageAgentReportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     protocol: Literal["cam-image-idle-report-v1"]
@@ -508,25 +530,47 @@ def claim_image_job(
 ):
     agent = _authenticate(db, agent_id, authorization)
     _enabled()
+    # Advisory transaction lock, NOT the agent row: /result and /check-job
+    # update that row after locking a job, so reversing row-lock order could
+    # otherwise deadlock active workers. No new DB table or instance.
+    _serialize_image_claim(db, agent.tenant_id)
+    # Re-check an already authenticated credential after a concurrent
+    # revocation/rotation committed while this claim waited for the lock.
+    authorized = db.scalar(select(EtsySpyAgent.id).where(
+        EtsySpyAgent.id == agent.id,
+        EtsySpyAgent.tenant_id == agent.tenant_id,
+        EtsySpyAgent.active.is_(True),
+        EtsySpyAgent.token_hash == agent.token_hash,
+        EtsySpyAgent.name.startswith(IMAGE_AGENT_NAME_PREFIX),
+    ).limit(1))
+    if authorized is None:
+        raise HTTPException(401, "Image Agent credential was revoked")
     requested_orchestrator = x_cam_image_worker == "orchestrator-v1"
     worker = "etsy-image:" + agent.id
     now = utcnow()
-    # If HTTP response was lost, return the same task + lease. Never create a
-    # second attempt or claim a new task while the original remains unresolved.
-    active = db.scalar(select(ProcessingJobModel).where(
+    # Even an expired processing lease is unresolved until /check-job or a
+    # fenced reclaim. Returning another task here strands the first one.
+    owned = list(db.scalars(select(ProcessingJobModel).where(
         ProcessingJobModel.tenant_id == agent.tenant_id,
         ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
         ProcessingJobModel.claimed_by == worker,
         ProcessingJobModel.status == "processing",
-        ProcessingJobModel.lease_expires_at > now,
         ProcessingJobModel.cancellation_requested.is_(False),
-    ).order_by(ProcessingJobModel.claimed_at.desc()).limit(1))
-    if active is not None:
-        mode = ((active.payload_json or {}).get("execution_mode")
-                if isinstance(active.payload_json, dict) else None)
-        if (mode == "orchestrator_v1") != requested_orchestrator:
+    ).order_by(ProcessingJobModel.claimed_at.desc(),
+               ProcessingJobModel.id.desc()).limit(2)))
+    if len(owned) > 1:
+        return {"task": None, "pause_reason": "conflicting_processing_claims"}
+    previous = owned[0] if owned else None
+    if previous is not None:
+        payload = previous.payload_json if isinstance(previous.payload_json, dict) else {}
+        if (payload.get("execution_mode") == "orchestrator_v1") != requested_orchestrator:
             return {"task": None, "pause_reason": "existing_mode_task_requires_completion"}
-        return _task(active, agent)
+        expires = previous.lease_expires_at
+        if expires is None:
+            return {"task": None, "pause_reason": "existing_lease_missing"}
+        expires = expires.replace(tzinfo=timezone.utc) if expires.tzinfo is None else expires.astimezone(timezone.utc)
+        if expires > now:
+            return _task(previous, agent)
     if requested_orchestrator and not orchestrator_enabled():
         return {"task": None, "pause_reason": "orchestrator_not_enabled"}
     if orchestrator_enabled() and not requested_orchestrator:
@@ -542,28 +586,53 @@ def claim_image_job(
         agent.last_seen_at = now
         db.commit()
         return {"task": None, "pause_reason": capacity["reason"]}
-    job = db.scalar(select(ProcessingJobModel).where(
-        ProcessingJobModel.tenant_id == agent.tenant_id,
-        ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
-        ProcessingJobModel.provider_key == EXTRACTION_ENGINE,
-        or_(
-            and_(
-                ProcessingJobModel.status.in_(("pending", "retry")),
-                ProcessingJobModel.next_attempt_at <= now,
-            ),
-            and_(
-                ProcessingJobModel.status == "processing",
-                ProcessingJobModel.lease_expires_at <= now,
-            ),
-        ),
-        ProcessingJobModel.cancellation_requested.is_(False),
-        ProcessingJobModel.attempt_count < ProcessingJobModel.max_attempts,
-        select(EtsySpyPicked.listing_key).where(
-            EtsySpyPicked.tenant_id == agent.tenant_id,
-            EtsySpyPicked.listing_key == ProcessingJobModel.entity_id,
-        ).exists(),
-    ).order_by(desc(ProcessingJobModel.priority), ProcessingJobModel.created_at)
-        .with_for_update(skip_locked=True).limit(1))
+    if previous is not None:
+        # Prioritize the device's expired job before any new queue work.
+        # FOR UPDATE SKIP LOCKED fences cross-device recovery; if another
+        # worker is reclaiming the row, retry rather than claim two jobs.
+        job = db.scalar(select(ProcessingJobModel).where(
+            ProcessingJobModel.id == previous.id,
+            ProcessingJobModel.tenant_id == agent.tenant_id,
+            ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
+            ProcessingJobModel.claimed_by == worker,
+            ProcessingJobModel.status == "processing",
+            ProcessingJobModel.lease_expires_at <= now,
+            ProcessingJobModel.cancellation_requested.is_(False),
+            ProcessingJobModel.attempt_count < ProcessingJobModel.max_attempts,
+            select(EtsySpyPicked.listing_key).where(
+                EtsySpyPicked.tenant_id == agent.tenant_id,
+                EtsySpyPicked.listing_key == ProcessingJobModel.entity_id,
+            ).exists(),
+        ).with_for_update(skip_locked=True).limit(1))
+        if job is None:
+            return {"task": None, "pause_reason": "existing_lease_not_reclaimable"}
+    else:
+        job = db.scalar(
+            select(ProcessingJobModel)
+            .where(
+                ProcessingJobModel.tenant_id == agent.tenant_id,
+                ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
+                ProcessingJobModel.provider_key == EXTRACTION_ENGINE,
+                or_(
+                    and_(
+                        ProcessingJobModel.status.in_(("pending", "retry")),
+                        ProcessingJobModel.next_attempt_at <= now,
+                    ),
+                    and_(
+                        ProcessingJobModel.status == "processing",
+                        ProcessingJobModel.lease_expires_at <= now,
+                    ),
+                ),
+                ProcessingJobModel.cancellation_requested.is_(False),
+                ProcessingJobModel.attempt_count < ProcessingJobModel.max_attempts,
+                select(EtsySpyPicked.listing_key).where(
+                    EtsySpyPicked.tenant_id == agent.tenant_id,
+                    EtsySpyPicked.listing_key == ProcessingJobModel.entity_id,
+                ).exists(),
+            )
+            .order_by(desc(ProcessingJobModel.priority), ProcessingJobModel.created_at)
+            .with_for_update(skip_locked=True).limit(1)
+        )
     if job is None:
         agent.last_seen_at = utcnow()
         db.commit()

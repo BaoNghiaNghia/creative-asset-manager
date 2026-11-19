@@ -120,7 +120,8 @@ def test_heartbeat_ack_is_signed_and_does_not_renew_or_dispatch(setup):
     assert body["dispatch_allowed"] is False
     assert body["executor_slot_reserved"] is False
     s.db.refresh(s.job)
-    assert s.job.lease_expires_at == before_lease
+    # SQLite test fixtures drop tzinfo; compare normalized UTC instants.
+    assert s.job.lease_expires_at.replace(tzinfo=timezone.utc) == before_lease.replace(tzinfo=timezone.utc)
     assert s.job.attempt_count == before_attempts
     assert s.job.claimed_by == "etsy-image:" + s.agent.id
     assert s.db.query(ProcessingJobModel).count() == 1
@@ -384,6 +385,10 @@ def test_reject_untrusted_payloads(setup, changes, code):
 def test_job_state_is_fenced(setup, change, reason):
     s = setup
     original = payload(s)
+    # Param values are evaluated at import/collection, so a +1s lease can
+    # expire long before this parametrized case executes.
+    if reason == "job_lease_near_expiry":
+        change = {"lease_expires_at": datetime.now(timezone.utc) + timedelta(seconds=4)}
     for k, v in change.items():
         setattr(s.job, k, v)
     s.db.commit()

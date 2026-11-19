@@ -62,6 +62,40 @@ available and under 90% used), not permission to deploy or allocate a
 browser slot. Real agent dispatch still requires a separately verified,
 transactional capacity reservation bound to a ProcessingJob lease.
 
+## Phase 4C incremental hardening: shared Image Agent claim fencing
+
+Updated the *existing* `POST /api/v1/etsy-spy/image-agents/{agent_id}/claim`
+without creating a second queue, database, schema table or stored reservation:
+
+- PostgreSQL's stable tenant-scoped `pg_advisory_xact_lock(bigint)` now serializes
+  the check of outstanding Image Agent leases, per-tenant daily claim quota,
+  and assignment of a new ProcessingJob. The lock ends at transaction commit
+  or rollback. SQLite remains an in-memory test-only exception.
+- Do **not** use an EtsySpyAgent row lock for this purpose: other endpoints
+  lock ProcessingJob first and update EtsySpyAgent second, and the reverse
+  lock order risks a deadlock.
+- More than one unresolved processing job owned by the same paired device
+  produces `pause_reason=conflicting_processing_claims` and no new assignment.
+  The operator must reconcile old duplicate claims before continuing.
+- An expired owned job is reclaimed first with `FOR UPDATE SKIP LOCKED`,
+  a new attempt and new per-attempt token. If it is no longer eligible,
+  the device pauses instead of silently accepting a second job.
+- The already-active lease replay contract, cancellation, tenant scope,
+  agent credential revocation and immutable result receipts remain intact.
+- The historical evidence verifier now imports its required UTC timedelta;
+  timestamp tests normalize SQLite's stripped timezone, and expiring-lease
+  cases obtain a new future deadline at execution rather than collection.
+- Regression: Etsy Spy 76/76, Harness/heartbeat 85/85, mocked Drive 8/8,
+  local cleanup/disk tests 5/5. No production data or provider calls
+  were used for this verification.
+- Real concurrent PostgreSQL load testing remains an explicit outstanding
+  gate; compilation and SQLite fixtures do not prove the deployment's
+  parallel throughput or eliminate all possible race conditions.
+
+This strengthens the **existing** Image Agent queue. It does not enable new
+Agent Harness auto-dispatch, independent browser-idle attestation or learning
+promotion. All those flags remain independent and fail-closed.
+
 ## Next safe increment
 
 Implement the Phase 4C executor slot reservation and acknowledgment protocol

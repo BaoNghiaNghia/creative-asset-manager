@@ -1749,6 +1749,142 @@ def test_picked_without_verified_source_never_invents_an_image(scenario, monkeyp
     assert db.get(EtsySpyPicked, ("boostgame", "1234567890")) is not None
 
 
+def test_image_agent_claim_fences_expired_own_job_before_new_work(
+    scenario, monkeypatch, tmp_path,
+):
+    """Two tabs on one device cannot silently orphan an expired first job."""
+    from app.modules.etsy_spy.extraction import EXTRACTION_ENGINE, EXTRACTION_JOB_TYPE
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    client, db, _ = scenario
+    paired = client.post("/api/v1/etsy-spy/image-agents",
+                         json={"name": "Claim Fencing Device"}).json()
+    root = "/api/v1/etsy-spy/image-agents/" + paired["agent_id"]
+    auth = {"Authorization": "Bearer " + paired["token"]}
+
+    db.add(EtsySpyPicked(tenant_id="boostgame", listing_key="item-first"))
+    first = ProcessingJobModel(
+        tenant_id="boostgame", job_type=EXTRACTION_JOB_TYPE,
+        entity_type="etsy_listing", entity_id="item-first",
+        idempotency_key="claim-fencing-first", provider_key=EXTRACTION_ENGINE,
+        status="pending", priority=1, payload_json={"source": {"type": "etsy_cdn"}},
+    )
+    db.add(first)
+    db.commit()
+    initial = client.post(root + "/claim", headers=auth)
+    assert initial.status_code == 200, initial.text
+    one = initial.json()
+    assert one["task"]["id"] == first.id
+    assert one["task"]["attempt_count"] == 1
+
+    db.add(EtsySpyPicked(tenant_id="boostgame", listing_key="item-second"))
+    second = ProcessingJobModel(
+        tenant_id="boostgame", job_type=EXTRACTION_JOB_TYPE,
+        entity_type="etsy_listing", entity_id="item-second",
+        idempotency_key="claim-fencing-second", provider_key=EXTRACTION_ENGINE,
+        status="pending", priority=100, payload_json={"source": {"type": "etsy_cdn"}},
+    )
+    db.add(second)
+    db.commit()
+    repeat = client.post(root + "/claim", headers=auth).json()
+    assert repeat["task"]["id"] == first.id
+    assert repeat["lease_token"] == one["lease_token"]
+
+    db.refresh(first)
+    first.lease_expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    db.commit()
+    recovered = client.post(root + "/claim", headers=auth)
+    assert recovered.status_code == 200, recovered.text
+    reissued = recovered.json()
+    assert reissued["task"]["id"] == first.id
+    assert reissued["task"]["attempt_count"] == 2
+    assert reissued["lease_token"] != one["lease_token"]
+    db.refresh(second)
+    assert second.status == "pending"
+
+    stale = client.post(root + "/result", headers=auth, json={
+        "job_id": first.id, "lease_token": one["lease_token"],
+        "status": "needs_ai", "engine": "ai_review",
+    })
+    assert stale.status_code == 403
+    valid = client.post(root + "/check-job", headers=auth, json={
+        "job_id": first.id, "lease_token": reissued["lease_token"],
+    })
+    assert valid.status_code == 200
+    assert valid.json()["attempt_count"] == 2
+    done = client.post(root + "/result", headers=auth, json={
+        "job_id": first.id, "lease_token": reissued["lease_token"],
+        "status": "needs_ai", "engine": "ai_review",
+    })
+    assert done.status_code == 200, done.text
+    next_job = client.post(root + "/claim", headers=auth).json()
+    assert next_job["task"]["id"] == second.id
+
+
+def test_image_agent_conflicting_owned_claims_block_new_dispatch(scenario, monkeypatch, tmp_path):
+    from app.modules.etsy_spy.extraction import EXTRACTION_ENGINE, EXTRACTION_JOB_TYPE
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    client, db, _ = scenario
+    paired = client.post("/api/v1/etsy-spy/image-agents",
+                         json={"name": "Conflicting Claims Device"}).json()
+    owner = "etsy-image:" + paired["agent_id"]
+    root = "/api/v1/etsy-spy/image-agents/" + paired["agent_id"]
+    now = datetime.now(timezone.utc)
+    for idx in range(2):
+        key = f"item-{idx}"
+        db.add(EtsySpyPicked(tenant_id="boostgame", listing_key=key))
+        db.add(ProcessingJobModel(
+            tenant_id="boostgame", job_type=EXTRACTION_JOB_TYPE,
+            entity_type="etsy_listing", entity_id=key,
+            idempotency_key=f"legacy-duplicate-claim-{idx}",
+            provider_key=EXTRACTION_ENGINE,
+            status="processing", claimed_by=owner,
+            claimed_at=now, lease_expires_at=now + timedelta(minutes=10),
+            attempt_count=1, max_attempts=5,
+            payload_json={"source": {"type": "etsy_cdn"}},
+        ))
+    db.commit()
+    response = client.post(root + "/claim", headers={
+        "Authorization": "Bearer " + paired["token"],
+    })
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "task": None, "pause_reason": "conflicting_processing_claims",
+    }
+    assert db.query(ProcessingJobModel).filter_by(status="processing").count() == 2
+
+
+def test_image_agent_claim_lock_uses_one_postgres_transaction_scope():
+    """Use no extra real database: prove the production SQL lock contract."""
+    from sqlalchemy.dialects import postgresql
+    from app.modules.etsy_spy.image_agent import _serialize_image_claim
+
+    class PostgreSQLSessionStub:
+        def __init__(self):
+            self.queries = []
+
+        def get_bind(self):
+            return SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+        def scalar(self, statement):
+            self.queries.append(statement)
+            return None
+
+    fake = PostgreSQLSessionStub()
+    _serialize_image_claim(fake, "boostgame")
+    _serialize_image_claim(fake, "boostgame")
+    _serialize_image_claim(fake, "another-tenant")
+    assert len(fake.queries) == 3
+    for statement in fake.queries:
+        sql = str(statement.compile(dialect=postgresql.dialect()))
+        assert "pg_advisory_xact_lock" in sql
+    keys = [list(query.compile(dialect=postgresql.dialect()).params.values())[0]
+            for query in fake.queries]
+    assert keys[0] == keys[1] and keys[0] != keys[2]
+    assert all(-(2 ** 63) <= key < 2 ** 63 for key in keys)
+
+
 def test_image_agent_dedicated_token_claim_and_receipt_idempotency(scenario, monkeypatch, tmp_path):
     monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
     monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
@@ -2396,6 +2532,38 @@ def test_multiple_designs_are_mapped_by_position_to_one_picked_listing(
     monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
     monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
     monkeypatch.setenv("CAM_ETSY_EXTRACTION_DAILY_CAP", "1")
+    # This historical test predates Drive-only mapped PNG storage. Simulate
+    # the currently supported remote media contract entirely in memory.
+    from app.modules.etsy_spy import imagegen_drive as drive_module
+    stored = {}
+
+    async def fake_store_design_to_drive(*, tenant_id, job_id, asset_id,
+                                         digest, png, native_master):
+        assert tenant_id == "boostgame"
+        assert hashing.sha256(png).hexdigest() == digest
+        original_id, thumbnail_id = "test-original-" + asset_id, "test-thumb-" + asset_id
+        stored[original_id] = png
+        stored[thumbnail_id] = png
+        return {
+            "storage_provider": "google_drive_managed",
+            "drive_file_id": original_id,
+            "drive_thumbnail_id": thumbnail_id,
+            "thumbnail_sha256": digest,
+            "storage_folder_id": "test-private-folder",
+            "storage_size_bytes": len(png),
+            "artwork_kind": "print_png_v1",
+        }
+
+    async def fake_read_design_from_drive(*, tenant_id, asset_id, remote_id,
+                                          sha256, max_bytes):
+        assert tenant_id == "boostgame" and asset_id
+        body = stored[remote_id]
+        assert len(body) <= max_bytes
+        assert hashing.sha256(body).hexdigest() == sha256
+        return body
+
+    monkeypatch.setattr(drive_module, "store_design_to_drive", fake_store_design_to_drive)
+    monkeypatch.setattr(drive_module, "read_design_from_drive", fake_read_design_from_drive)
     client, db, principal = scenario
     scout, scout_auth = pair(client, db)
     incoming = batch("multi-design-sample")
@@ -2470,7 +2638,7 @@ def test_multiple_designs_are_mapped_by_position_to_one_picked_listing(
     assert image.status_code == 200 and image.content == png
     thumb = client.get(designs[0]["thumbnail_url"])
     assert thumb.status_code == 200 and thumb.content.startswith(b"\x89PNG")
-    assert thumb.headers["cache-control"] == "private, no-store"
+    assert thumb.headers["cache-control"] == "private, max-age=300, must-revalidate"
     assert client.get(listing + "/extraction").json()["status"] == "needs_ai"
     db.refresh(db.get(ProcessingJobModel, job_id))
     assert db.get(ProcessingJobModel, job_id).payload_json["result"]["status"] == "needs_ai"
@@ -2601,6 +2769,10 @@ def test_queue_only_backfill_preserves_pilot_claim_cap_and_existing_jobs(
     assert db.query(ProcessingJobModel).filter_by(job_type="etsy_design_extract").count() == 2
 
 def test_orchestrator_v1_opt_in_and_isolated_chatgpt_receipt(scenario, monkeypatch, tmp_path):
+    from app.modules.etsy_spy import image_agent as image_agent_module
+    # No live Google Drive or production uploads in the in-memory SQLite test.
+    monkeypatch.setattr(image_agent_module, "design_storage_capacity",
+                        lambda: {"ready": True, "reason": "test_drive_configured"})
     import base64
     import binascii
     import hashlib
@@ -2668,6 +2840,9 @@ def test_orchestrator_v1_opt_in_and_isolated_chatgpt_receipt(scenario, monkeypat
 
 def test_orchestrator_claim_opt_in_and_legacy_receipt_isolation(scenario, monkeypatch, tmp_path):
     """Legacy workers never accidentally claim a v1 job or spoof ImageGen output."""
+    from app.modules.etsy_spy import image_agent as image_agent_module
+    monkeypatch.setattr(image_agent_module, "design_storage_capacity",
+                        lambda: {"ready": True, "reason": "test_drive_configured"})
     import base64
     import binascii
     import hashlib
