@@ -109,6 +109,7 @@ export type TikTokListingView = {
 export type ListingImageBadge = {
   garmentCode: string; count: number; reviewCount?: number;
   mainThumbnailUrl?: string; mainPackId?: string;
+  previewThumbnailUrl?: string; previewPackId?: string; previewSlot?: number;
 };
 export type ListingImageOutput = {
   packId: string; slot: number; sha256: string;
