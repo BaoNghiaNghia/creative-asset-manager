@@ -1,5 +1,13 @@
 # Implementation Roadmap
 
+## 2026-11-19 — CAM Agent Harness V2 Phase 4C.2B session fence
+
+- [x] Add a default-OFF, per-attempt, tenant-bound executor-session digest to existing Image Agent processing claims; reuse current PostgreSQL rows and fencing token.
+- [x] Reject competing tab sessions for an active claim, and fence check-job, result and signed heartbeat; retain legacy unbound job compatibility.
+- [ ] Enable only after Windows extension supplies stable UUIDv4 from the existing journal, then verify a real one-tab canary and independent slot challenge. Until then automatic dispatch stays disabled.
+- No migration, database, backup, new queue, runtime dependency, or browser restart. Reference: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4C2B_EXECUTOR_SESSION_FENCE.md`.
+
+
 ## 2026-11-14 — Etsy Spy: 22 named garment preview backgrounds
 
 - [x] Add 22 requested swatches, preserve checkerboard and four original non-duplicate extras.

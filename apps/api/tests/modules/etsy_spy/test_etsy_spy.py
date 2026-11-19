@@ -3247,3 +3247,138 @@ def test_tiktok_manual_pilot_does_not_auto_enqueue_and_can_retry(scenario, monke
     assert db.get(ProcessingJobModel, job.id).payload_json["manual_retry_count"] == 1
     assert client.post("/api/v1/etsy-spy/tiktok-listings/backfill",
                        json={"limit": 6, "dry_run": False}).status_code == 422
+
+def _session_fenced_orchestrator_job(scenario, monkeypatch, tmp_path):
+    """Use only existing in-memory scenario tables; never touch production DB."""
+    from uuid import uuid4
+    from app.modules.etsy_spy import image_agent as image_module
+
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_IMAGE_ORCHESTRATOR_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    monkeypatch.setenv("CAM_AGENT_HARNESS_EXECUTOR_SESSION_FENCE_ENABLED", "1")
+    monkeypatch.setattr(image_module, "design_storage_capacity",
+                        lambda: {"ready": True, "reason": "test_drive"})
+    client, db, _ = scenario
+    scout, scout_auth = pair(client, db)
+    sample = batch("image-session-fence")
+    sample["records"]["listings"][0]["fullImageUrl"] = (
+        "https://i.etsystatic.com/123/il_fullxfull.art.jpg"
+    )
+    assert sync(client, scout, scout_auth, sample).status_code == 200
+    assert client.put("/api/v1/etsy-spy/listings/1234567890/pick",
+                      json={"picked": True}).status_code == 200
+    paired = client.post("/api/v1/etsy-spy/image-agents",
+                         json={"name": "Session Bound Device"}).json()
+    root = "/api/v1/etsy-spy/image-agents/" + paired["agent_id"]
+    base_headers = {
+        "Authorization": "Bearer " + paired["token"],
+        "X-CAM-Image-Worker": "orchestrator-v1",
+    }
+    first_session, other_session = str(uuid4()), str(uuid4())
+    return (
+        client, db, root, base_headers,
+        {**base_headers, "X-CAM-Executor-Session": first_session},
+        {**base_headers, "X-CAM-Executor-Session": other_session},
+        first_session,
+    )
+
+
+def test_session_fenced_claim_blocks_other_tab_and_result_replay(
+    scenario, monkeypatch, tmp_path,
+):
+    from app.modules.agent_harness.executor_session_fence import SESSION_FENCE_FIELD
+
+    client, db, root, base, a, b, session_id = _session_fenced_orchestrator_job(
+        scenario, monkeypatch, tmp_path,
+    )
+    probe = client.get(root + "/probe", headers=base)
+    assert probe.status_code == 200
+    assert probe.json()["harness_executor_session_fence_ready"] is True
+    assert client.post(root + "/claim", headers=base).status_code == 422
+    assert client.post(root + "/claim", headers={
+        **base, "X-CAM-Executor-Session": "not-a-uuid",
+    }).status_code == 422
+    assert db.query(ProcessingJobModel).filter_by(status="processing").count() == 0
+
+    first_response = client.post(root + "/claim", headers=a)
+    assert first_response.status_code == 200, first_response.text
+    first = first_response.json()
+    assert first["task"] and first["task"]["attempt_count"] == 1
+    job = db.get(ProcessingJobModel, first["task"]["id"])
+    assert SESSION_FENCE_FIELD in job.payload_json
+    assert session_id not in str(job.payload_json)
+    assert client.post(root + "/claim", headers=a).json()["lease_token"] == first["lease_token"]
+    assert client.post(root + "/claim", headers=b).json() == {
+        "task": None, "pause_reason": "executor_session_conflict",
+    }
+
+    request = {"job_id": job.id, "lease_token": first["lease_token"]}
+    assert client.post(root + "/check-job", headers=b, json=request).status_code == 409
+    assert client.post(root + "/check-job", headers=base, json=request).status_code == 409
+    assert client.post(root + "/result", headers=b, json={
+        **request, "status": "needs_ai", "engine": "ai_review",
+    }).status_code == 409
+
+    monkeypatch.setenv("CAM_AGENT_HARNESS_EXTERNAL_HEARTBEAT_ENABLED", "1")
+    monkeypatch.setenv("CAM_AGENT_HARNESS_EXTERNAL_HEARTBEAT_SIGNING_KEY", "a" * 64)
+    heartbeat = {
+        "protocol": "cam-agent-external-hb-v1",
+        **request, "attempt_count": 1,
+    }
+    assert client.post(root + "/harness-heartbeat",
+                       headers=b, json=heartbeat).status_code == 409
+    assert client.post(root + "/harness-heartbeat",
+                       headers=a, json=heartbeat).status_code == 200
+    assert client.post(root + "/check-job", headers=a, json=request).json()["status"] == "processing"
+    good = client.post(root + "/result", headers=a, json={
+        **request, "status": "needs_ai", "engine": "ai_review",
+    })
+    assert good.status_code == 200, good.text
+    assert client.post(root + "/result", headers=b, json={
+        **request, "status": "needs_ai", "engine": "ai_review",
+    }).status_code == 409
+    assert db.query(ProcessingJobModel).filter_by(status="completed").count() == 1
+
+
+def test_expired_fenced_attempt_reclaims_with_new_session_and_token(
+    scenario, monkeypatch, tmp_path,
+):
+    from app.modules.agent_harness.executor_session_fence import SESSION_FENCE_FIELD
+
+    client, db, root, base, a, b, _ = _session_fenced_orchestrator_job(
+        scenario, monkeypatch, tmp_path,
+    )
+    first = client.post(root + "/claim", headers=a).json()
+    job = db.get(ProcessingJobModel, first["task"]["id"])
+    old_digest = job.payload_json[SESSION_FENCE_FIELD]["session_digest"]
+    job.lease_expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    db.commit()
+
+    second_response = client.post(root + "/claim", headers=b)
+    assert second_response.status_code == 200, second_response.text
+    second = second_response.json()
+    assert second["task"]["id"] == job.id
+    assert second["task"]["attempt_count"] == 2
+    assert second["lease_token"] != first["lease_token"]
+    db.refresh(job)
+    assert job.payload_json[SESSION_FENCE_FIELD]["session_digest"] != old_digest
+    assert db.query(ProcessingJobModel).count() == 1
+    assert client.post(root + "/check-job", headers=a, json={
+        "job_id": job.id, "lease_token": second["lease_token"],
+    }).status_code == 409
+    assert client.post(root + "/check-job", headers=a, json={
+        "job_id": job.id, "lease_token": first["lease_token"],
+    }).status_code == 409
+    assert client.post(root + "/check-job", headers=b, json={
+        "job_id": job.id, "lease_token": second["lease_token"],
+    }).json()["status"] == "processing"
+
+    # Turning the rollout flag off cannot bypass an already-bound live lease.
+    monkeypatch.delenv("CAM_AGENT_HARNESS_EXECUTOR_SESSION_FENCE_ENABLED")
+    assert client.post(root + "/claim", headers=base).json()["pause_reason"] == (
+        "executor_session_conflict"
+    )
+    assert client.post(root + "/check-job", headers=base, json={
+        "job_id": job.id, "lease_token": second["lease_token"],
+    }).status_code == 409
