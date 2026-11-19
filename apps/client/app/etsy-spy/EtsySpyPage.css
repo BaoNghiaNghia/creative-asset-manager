@@ -1676,6 +1676,56 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   font-weight: 800;
 }
 .etsy-design-gallery-header-meta span { padding: 0 3px; color: #a2b0c1; }
+.etsy-design-gallery-extraction-retry {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 39px;
+  padding: 8px 11px;
+  border: 1px solid #b6d0f5;
+  border-radius: 9px;
+  background: #ecf4ff;
+  color: #235aa5;
+  font-size: 12px;
+  font-weight: 760;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.etsy-design-gallery-extraction-retry:hover:not(:disabled) {
+  background: #dceaff;
+  border-color: #7ca8e8;
+}
+.etsy-design-gallery-extraction-retry:disabled {
+  opacity: .68;
+  cursor: progress;
+}
+.etsy-design-gallery-extraction-retry > span:first-child {
+  font-size: 19px;
+  font-weight: 750;
+  line-height: 1;
+}
+.etsy-design-gallery-extraction-retry .is-spinning {
+  display: inline-block;
+  animation: etsy-design-gallery-spin .8s linear infinite;
+}
+.etsy-design-gallery-retry-feedback {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 8px 20px;
+  background: #eef5ff;
+  border-bottom: 1px solid #dbe9fb;
+  color: #255587;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+.etsy-design-gallery-retry-feedback.is-error {
+  background: #fff1f0;
+  border-color: #f6d0ce;
+  color: #a13936;
+}
 .etsy-design-gallery-close {
   display: grid;
   flex: 0 0 40px;
@@ -1688,6 +1738,10 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   background: #fff;
   color: #314864;
   cursor: pointer;
+}
+@media (max-width: 390px) {
+  .etsy-design-gallery-extraction-retry > span:last-child { max-width: 74px; white-space: normal; line-height: 1.1; }
+  .etsy-design-gallery-header { gap: 6px; }
 }
 .etsy-design-gallery-close:hover { background: #f0f5fb; border-color: #b6cae7; }
 .etsy-design-gallery-close svg,
@@ -2262,6 +2316,13 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-design-gallery-heading h2 { font-size: 16px; }
   .etsy-design-gallery-heading p { font-size: 11px; max-width: calc(100vw - 118px); }
   .etsy-design-gallery-header-meta { display: none; }
+  .etsy-design-gallery-extraction-retry {
+    min-height: 38px;
+    gap: 4px;
+    padding: 7px 8px;
+    font-size: 11px;
+  }
+  .etsy-design-gallery-retry-feedback { padding: 8px 12px; }
   .etsy-design-gallery-close { margin-left: auto; }
   .etsy-design-gallery-main {
     grid-template-columns: minmax(0, 1fr);

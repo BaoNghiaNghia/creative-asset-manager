@@ -41,7 +41,7 @@ from .auto_later_keywords import (keywords_for_tenant, batch_auto_later_labels,
                                   title_occasion_sql, other_occasion_sql)
 from .groups import (CATEGORY_GROUPS, GROUP_LABELS, GROUP_RANKS, OTHER_GROUP_KEY,
                      category_rank_expression)
-from .extraction import (EXTRACTION_JOB_TYPE, create_extraction_on_pick, latest_extraction_job, cancel_pending_extractions, extraction_enabled)
+from .extraction import (EXTRACTION_JOB_TYPE, create_extraction_on_pick, create_extraction_retry, latest_extraction_job, cancel_pending_extractions, extraction_enabled)
 from .design_artifacts import project_design_assets, MAX_DESIGNS_PER_JOB
 from .tiktok_skill import (
     JOB_TYPE as TIKTOK_LISTING_JOB_TYPE,
@@ -1019,12 +1019,22 @@ def listings(
             ProcessingJobModel.entity_id.in_(ids),
         ).order_by(desc(ProcessingJobModel.created_at),
                    desc(ProcessingJobModel.id))).all()
+        replaced_designs: set[str] = set()
         for job in jobs:
             if job.cancellation_requested:
                 continue
-            mapped = designs_by_key.setdefault(job.entity_id, [])
-            if len(mapped) < MAX_DESIGNS_PER_JOB + 2:
-                mapped.extend(project_design_assets(job)[:MAX_DESIGNS_PER_JOB + 2 - len(mapped)])
+            if job.entity_id not in replaced_designs:
+                mapped = designs_by_key.setdefault(job.entity_id, [])
+                new_assets = project_design_assets(job)
+                if new_assets and len(mapped) < MAX_DESIGNS_PER_JOB + 2:
+                    mapped.extend(new_assets[:MAX_DESIGNS_PER_JOB + 2 - len(mapped)])
+                    # An accepted retry supplies a NEW listing-level generation.
+                    # During pending/failed retries, keep previously saved PNGs.
+                    # Once its first reviewed PNG exists, hide superseded designs
+                    # in the Picked projection; old immutable jobs remain intact.
+                    detail = job.payload_json if isinstance(job.payload_json, dict) else {}
+                    if isinstance(detail.get("retry"), dict):
+                        replaced_designs.add(job.entity_id)
             if job.entity_id in extraction_by_key:
                 continue
             detail = job.payload_json if isinstance(job.payload_json, dict) else {}
@@ -1348,6 +1358,100 @@ async def backfill_picked_extractions(
     return {"ok": True, "dry_run": preview, "queue_only": queue_only,
             **results, "limit": max_jobs, "manual_qa_required": True,
             "rights_status": "unverified"}
+
+@router.post("/listings/{listing_key}/extraction/retry")
+async def retry_picked_design_extraction(
+    listing_key: str, request: Request,
+    principal: CurrentPrincipal = Depends(MANAGE),
+    db: Session = Depends(get_db),
+):
+    """Retry from an already saved design with the current Windows/Image Agent flow.
+
+    The old SHA-bound PNG is never changed. Replays while pending return the
+    same job; another in-flight extraction cannot be silently superseded.
+    """
+    if not re.fullmatch(r"[0-9]{5,20}", listing_key):
+        raise HTTPException(422, "Invalid Etsy Listing ID")
+    try:
+        body = await request.json()
+    except ValueError:
+        raise HTTPException(422, "JSON object required") from None
+    if (not isinstance(body, dict) or
+        set(body) != {"job_id", "asset_id", "output_sha256"} or
+        not isinstance(body["job_id"], str) or
+        not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", body["job_id"]) or
+        not isinstance(body["asset_id"], str) or
+        not re.fullmatch(r"(?:fast|candidate|[0-9a-f]{24})", body["asset_id"]) or
+        not isinstance(body["output_sha256"], str) or
+        not re.fullmatch(r"[0-9a-f]{64}", body["output_sha256"])):
+        raise HTTPException(422, "Valid saved Design identity required")
+    if not extraction_enabled():
+        raise HTTPException(503, "Windows Image Agent extraction is disabled")
+    from .image_agent import (
+        orchestrator_enabled, design_storage_capacity, storage_capacity,
+    )
+    storage = (design_storage_capacity() if orchestrator_enabled()
+               else storage_capacity())
+    if not storage["ready"]:
+        raise HTTPException(503, "Design extraction storage is not ready")
+
+    tenant = principal.active_tenant_id
+    # One Picked lock serializes concurrent retry clicks across API processes.
+    picked = db.scalar(select(Picked).where(
+        Picked.tenant_id == tenant, Picked.listing_key == listing_key,
+    ).with_for_update())
+    if picked is None:
+        raise HTTPException(404, "Picked listing not found")
+    old = db.scalar(select(ProcessingJobModel).where(
+        ProcessingJobModel.id == body["job_id"],
+        ProcessingJobModel.tenant_id == tenant,
+        ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
+        ProcessingJobModel.entity_type == "etsy_listing",
+        ProcessingJobModel.entity_id == listing_key,
+        ProcessingJobModel.status == "completed",
+        ProcessingJobModel.cancellation_requested.is_(False),
+    ).limit(1))
+    if old is None:
+        raise HTTPException(404, "Saved Design source job not found")
+    selected = next((asset for asset in project_design_assets(old)
+                     if asset["id"] == body["asset_id"] and
+                     asset["output_sha256"] == body["output_sha256"]), None)
+    if selected is None:
+        raise HTTPException(409, "Design image has changed; refresh the gallery")
+    previous_payload = old.payload_json if isinstance(old.payload_json, dict) else {}
+    source = previous_payload.get("source")
+    source_url = verified_image_url(
+        source.get("url") if isinstance(source, dict) else None)
+    if not source_url:
+        raise HTTPException(409, "Original Etsy image source is unavailable")
+    active = db.scalar(select(ProcessingJobModel).where(
+        ProcessingJobModel.tenant_id == tenant,
+        ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
+        ProcessingJobModel.entity_type == "etsy_listing",
+        ProcessingJobModel.entity_id == listing_key,
+        ProcessingJobModel.cancellation_requested.is_(False),
+        ProcessingJobModel.status.in_(("pending", "retry", "processing")),
+    ).order_by(ProcessingJobModel.created_at.desc(),
+               ProcessingJobModel.id.desc()).limit(1))
+    retry_identity = {"source_job_id": old.id, "asset_id": selected["id"],
+                      "output_sha256": selected["output_sha256"]}
+    if active:
+        details = active.payload_json if isinstance(active.payload_json, dict) else {}
+        previous_retry = details.get("retry")
+        if isinstance(previous_retry, dict) and all(
+            previous_retry.get(key) == value
+            for key, value in retry_identity.items()
+        ):
+            return {"ok": True, "already_queued": True,
+                    "job_id": active.id, "status": active.status,
+                    "manual_qa_required": True}
+        raise HTTPException(409, "An extraction for this listing is already running")
+    job = create_extraction_retry(db, tenant, listing_key, old, selected, source_url)
+    db.commit()
+    return {"ok": True, "already_queued": False,
+            "job_id": job.id, "status": job.status,
+            "manual_qa_required": True}
+
 
 @router.get("/listings/{listing_key}/extraction")
 def listing_extraction_status(

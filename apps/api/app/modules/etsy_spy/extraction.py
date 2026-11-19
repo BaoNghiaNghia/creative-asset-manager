@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 from datetime import datetime, timezone
+from uuid import uuid4
 import os
 
 from sqlalchemy import select
@@ -106,6 +107,53 @@ def create_extraction_on_pick(
         if prior is None:
             raise
         return prior
+    return job
+
+
+def create_extraction_retry(
+    db: Session, tenant_id: str, listing_key: str,
+    source_job: ProcessingJobModel, selected_asset: dict,
+    source_url: str,
+) -> ProcessingJobModel:
+    """Queue a new immutable generation through the SAME current Image Agent.
+
+    No old output, worker lease, or commercial QA status is overwritten.
+    The selected asset is provenance for this listing-level re-extraction;
+    the active Orchestrator decides how many positions the source contains.
+    The caller locks the Picked row and checks active jobs before calling.
+    """
+    source_hash = sha256(source_url.encode("utf-8")).hexdigest()
+    key = (f"etsy-extract:{EXTRACTION_VERSION}:manual-retry:"
+           f"{listing_key}:{uuid4().hex}")
+    payload = {
+        "schema": "cam-etsy-extraction-v1",
+        "listing_key": listing_key,
+        "listing_title": str(source_job.payload_json.get("listing_title") or "")[:500],
+        "source": {"type": "etsy_cdn", "url": source_url},
+        "source_url_sha256": source_hash,
+        "pick_generation": uuid4().hex[:24],
+        "engine": "auto",
+        "fallback": "ai_review",
+        "rights_status": "unverified",
+        "print_ready": False,
+        "manual_qa_required": True,
+        "retry": {
+            "source_job_id": source_job.id,
+            "asset_id": selected_asset["id"],
+            "output_sha256": selected_asset["output_sha256"],
+            "position": selected_asset["position"],
+            "variant": selected_asset["variant"],
+        },
+    }
+    job = ProcessingJobModel(
+        tenant_id=tenant_id, job_type=EXTRACTION_JOB_TYPE,
+        entity_type="etsy_listing", entity_id=listing_key,
+        idempotency_key=key, payload_json=payload,
+        provider_key=EXTRACTION_ENGINE, provider_scope="external",
+        priority=30, max_attempts=3, status="pending",
+    )
+    db.add(job)
+    db.flush()
     return job
 
 
