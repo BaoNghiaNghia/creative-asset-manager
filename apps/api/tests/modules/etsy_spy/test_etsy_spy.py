@@ -1735,6 +1735,99 @@ def test_picked_enqueues_external_image_agent_only_and_preserves_codex(scenario,
     assert client.get(endpoint + "/extraction").json()["status"] == "not_picked"
 
 
+def test_design_retry_uses_current_image_agent_and_preserves_old_png(
+    scenario, monkeypatch, tmp_path,
+):
+    client, db, principal = scenario
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    monkeypatch.setenv("CAM_ETSY_IMAGE_ORCHESTRATOR_ENABLED", "1")
+    monkeypatch.setattr(
+        "app.modules.etsy_spy.image_agent.design_storage_capacity",
+        lambda: {"ready": True, "reason": "test_connected"},
+    )
+    agent, headers = pair(client, db)
+    source = batch("retry-design-from-verified-original")
+    source["records"]["listings"][0]["fullImageUrl"] = (
+        "https://i.etsystatic.com/123/il_fullxfull.retryoriginal.jpg")
+    assert sync(client, agent, headers, source).status_code == 200
+    endpoint = "/api/v1/etsy-spy/listings/1234567890"
+    assert client.put(endpoint + "/pick", json={"picked": True}).status_code == 200
+    original = db.query(ProcessingJobModel).filter_by(
+        job_type="etsy_design_extract").one()
+    old_payload = dict(original.payload_json)
+    old_payload["result"] = {"status": "needs_review", "output_sha256": "a"*64}
+    original.payload_json = old_payload
+    original.status = "completed"
+    db.commit()
+    route = endpoint + "/extraction/retry"
+    body = {"job_id": original.id, "asset_id": "fast",
+            "output_sha256": "a"*64}
+
+    assert client.post(route, json={"job_id": original.id}).status_code == 422
+    assert client.post(route, json={**body, "unexpected": 1}).status_code == 422
+    assert client.post(route, json={**body, "output_sha256": "b"*64}).status_code == 409
+    assert client.post(route, json={**body, "asset_id": "candidate"}).status_code == 409
+    principal.active_tenant_id = "other-tenant"
+    assert client.post(route, json=body).status_code == 404
+    principal.active_tenant_id = "boostgame"
+    created = client.post(route, json=body)
+    assert created.status_code == 200, created.text
+    assert created.json()["status"] == "pending"
+    assert created.json()["already_queued"] is False
+    retry_id = created.json()["job_id"]
+    assert retry_id != original.id
+    again = client.post(route, json=body)
+    assert again.status_code == 200 and again.json()["already_queued"] is True
+    assert again.json()["job_id"] == retry_id
+    assert db.query(ProcessingJobModel).filter_by(
+        job_type="etsy_design_extract").count() == 2
+    retry = db.get(ProcessingJobModel, retry_id)
+    assert retry.provider_key == "windows_image_agent"
+    assert retry.priority == 30
+    assert retry.payload_json["engine"] == "auto"
+    assert retry.payload_json["source"] == old_payload["source"]
+    assert retry.payload_json["retry"] == {
+        "source_job_id": original.id, "asset_id": "fast",
+        "output_sha256": "a"*64, "position": "unknown", "variant": 1,
+    }
+    assert retry.payload_json["rights_status"] == "unverified"
+    assert retry.payload_json["manual_qa_required"] is True
+    assert retry.payload_json["print_ready"] is False
+
+    def visible():
+        response = client.get("/api/v1/etsy-spy/listings",
+                              params={"pick_state": "picked"})
+        assert response.status_code == 200
+        return response.json()["items"][0]
+    during = visible()
+    assert during["extraction"]["job_id"] == retry_id
+    assert during["designs"][0]["job_id"] == original.id
+    assert during["designs"][0]["output_sha256"] == "a"*64
+
+    # The new verified result takes over the Picked gallery without deleting
+    # the immutable original, and old uploads remain tenant-scoped.
+    retry.status = "completed"
+    retry.payload_json = {
+        **retry.payload_json,
+        "result": {"status": "needs_review", "output_sha256": "b"*64},
+    }
+    db.commit()
+    updated = visible()
+    assert updated["designs"][0]["job_id"] == retry_id
+    assert updated["designs"][0]["output_sha256"] == "b"*64
+    assert len(updated["designs"]) == 1
+    assert db.get(ProcessingJobModel, original.id).payload_json["result"]["output_sha256"] == "a"*64
+
+    # A subsequent user retry is a fresh generation, not a mutation of the
+    # completed job; idempotency only deduplicates in-flight retries.
+    newer = client.post(route, json={
+        "job_id": retry_id, "asset_id": "fast", "output_sha256": "b"*64})
+    assert newer.status_code == 200 and newer.json()["job_id"] != retry_id
+    assert client.put(endpoint + "/pick", json={"picked": False}).status_code == 200
+    assert client.post(route, json=body).status_code == 404
+
+
 def test_backfill_previously_picked_is_preview_first_and_idempotent(
     scenario, monkeypatch, tmp_path,
 ):

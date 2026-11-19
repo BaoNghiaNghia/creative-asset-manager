@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import type { Listing } from "./api";
+import { spyFetch, type Listing } from "./api";
 import { sharedGarmentColors } from "./productColorMatch";
 import { EtsyDeferredImage } from "./EtsyDeferredImage";
 import { DesignZoomStage } from "./DesignZoomStage";
@@ -111,8 +111,9 @@ function variantLabel(value: number, ordinal: number) {
   return Number.isInteger(value) && value > 0 ? `Mẫu ${value}` : `Mẫu ${ordinal}`;
 }
 
-export function DesignCell({ item, onPreviewStart }: {
+export function DesignCell({ item, onPreviewStart, canRetry = false, onRetryQueued }: {
   item: Listing; onPreviewStart?: () => void;
+  canRetry?: boolean; onRetryQueued?: () => void;
 }) {
   const designs = Array.isArray(item.designs) ? item.designs : [];
   const [active, setActive] = useState<number | null>(null);
@@ -122,6 +123,12 @@ export function DesignCell({ item, onPreviewStart }: {
   const [colorOverrides, setColorOverrides] = useState<Record<string, DesignBackground>>({});
   const [productScope, setProductScope] = useState(false);
   const [productColor, setProductColor] = useState<DesignBackground | null>(null);
+  const retryLockRef = useRef(false);
+  const [retryBusy, setRetryBusy] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const [retryQueued, setRetryQueued] = useState<{
+    jobId: string; position: string; variant: number;
+  } | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const galleryRef = useRef<HTMLElement | null>(null);
   const returnFocusRef = useRef<HTMLButtonElement | null>(null);
@@ -173,6 +180,20 @@ export function DesignCell({ item, onPreviewStart }: {
     if (designs.length === 0) setActive(null);
   }, [designs.length]);
 
+  // Keep the dialog open while Picked polls and switch to the first result
+  // for the originally selected print position when the new job has outputs.
+  useEffect(() => {
+    if (active === null || !retryQueued) return;
+    const newPosition = designs.findIndex(asset =>
+      asset.job_id === retryQueued.jobId &&
+      positionKey(asset.position) === retryQueued.position &&
+      asset.variant === retryQueued.variant);
+    const firstNew = newPosition >= 0 ? newPosition
+      : designs.findIndex(asset => asset.job_id === retryQueued.jobId);
+    if (firstNew >= 0 && designs[active]?.job_id !== retryQueued.jobId)
+      setActive(firstNew);
+  }, [active, designs, retryQueued]);
+
   // Match the Etsy thumbnail preview: viewport-anchored, bottom-left, with
   // original Design PNG loaded only when hovered/focused. Touch opens gallery.
   useEffect(() => {
@@ -199,6 +220,42 @@ export function DesignCell({ item, onPreviewStart }: {
 
   const selected = active === null ? 0 : Math.min(active, designs.length - 1);
   const preview = designs[selected];
+  const retryHasNewDesign = !!retryQueued &&
+    designs.some(design => design.job_id === retryQueued.jobId);
+  const remoteBusy = ["pending", "retry", "processing"]
+    .includes(item.extraction?.status ?? "");
+  const retryAwaiting = remoteBusy || (!!retryQueued && !retryHasNewDesign &&
+    item.extraction?.job_id !== retryQueued.jobId);
+  const retryFailed = !!retryQueued && !retryAwaiting && !retryHasNewDesign;
+  const retryDesign = async () => {
+    if (!canRetry || retryLockRef.current || retryAwaiting) return;
+    retryLockRef.current = true;
+    setRetryBusy(true);
+    setRetryError(null);
+    try {
+      const response = await spyFetch<{
+        job_id: string; status: string; already_queued: boolean;
+      }>("/listings/" + encodeURIComponent(item.listingKey) + "/extraction/retry", {
+        method: "POST",
+        body: JSON.stringify({
+          job_id: preview.job_id,
+          asset_id: preview.id,
+          output_sha256: preview.output_sha256,
+        }),
+      });
+      setRetryQueued({
+        jobId: response.job_id,
+        position: positionKey(preview.position),
+        variant: preview.variant,
+      });
+      onRetryQueued?.();
+    } catch (error) {
+      setRetryError(error instanceof Error ? error.message : "Không thể gửi job mới");
+    } finally {
+      retryLockRef.current = false;
+      setRetryBusy(false);
+    }
+  };
   const hoveredDesign = hovered === null ? null : designs[hovered];
   const grouped = new Map<string, {
     key: string; label: string;
@@ -353,6 +410,16 @@ export function DesignCell({ item, onPreviewStart }: {
               <span aria-hidden="true">·</span>
               <strong>{positions.length}</strong> vị trí
             </div>
+            {canRetry && <button type="button"
+              className="etsy-design-gallery-extraction-retry"
+              onClick={() => { void retryDesign(); }}
+              disabled={retryBusy || retryAwaiting}
+              title="Tách lại design từ ảnh Etsy gốc bằng luồng Image Agent hiện tại; không xóa ảnh cũ"
+              aria-label="Tạo lại design từ ảnh gốc">
+              <span aria-hidden="true" className={retryBusy ? "is-spinning" : ""}>↻</span>
+              <span>{retryBusy ? "Đang gửi…" :
+                retryAwaiting ? "Đang tách lại" : "Tạo lại design"}</span>
+            </button>}
             <button ref={closeRef} className="etsy-design-gallery-close" type="button"
               onClick={() => setActive(null)} aria-label="Đóng">
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -360,6 +427,17 @@ export function DesignCell({ item, onPreviewStart }: {
               </svg>
             </button>
           </header>
+          {retryError && <p className="etsy-design-gallery-retry-feedback is-error" role="alert">
+            Không thể tạo lại design: {retryError}. Ảnh hiện tại vẫn được giữ nguyên.
+          </p>}
+          {!retryError && retryQueued && <p className="etsy-design-gallery-retry-feedback"
+            role="status" aria-live="polite">
+            {retryHasNewDesign
+              ? "Đã nhận design mới từ Image Agent · cần kiểm tra trước khi in"
+              : retryFailed
+                ? "Lần tách mới chưa có ảnh hợp lệ · ảnh cũ vẫn được giữ"
+                : "Đã xếp hàng tách design bằng Image Agent · ảnh cũ vẫn hiển thị"}
+          </p>}
           <div className="etsy-design-gallery-main">
             <div className="etsy-design-gallery-viewer">
               <DesignZoomStage key={preview.job_id + ":" + preview.id + ":" + preview.output_sha256}

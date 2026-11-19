@@ -435,6 +435,7 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
       </div>
     </td>
     {item.picked && <td className="etsy-design-cell"><DesignCell item={item}
+      canRetry={canPick} onRetryQueued={onListingQueued}
       onPreviewStart={() => setImagePreview(null)} /></td>}
     {item.picked && <TikTokListingCell item={item} canManage={canPick}
       optimizerEnabled={optimizerEnabled} onQueued={onListingQueued} />}
