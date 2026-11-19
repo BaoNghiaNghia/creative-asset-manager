@@ -35,6 +35,9 @@ from .executor_readiness import (
 from .model import AgentExperienceModel, AgentHoldoutStudyModel, AgentHoldoutAssignmentModel
 from .job_lease_preview import observe_processing_lease
 from .external_capacity import preview_image_agent_capacity
+from .operational_readiness import (
+    collect_processing_queue_counts, disk_headroom, summarize_readiness,
+)
 from .idle_attestation import idle_attestation_enabled, verify_idle_attestation
 from .external_heartbeat import (
     EVIDENCE_FIELD, external_heartbeat_enabled,
@@ -831,6 +834,27 @@ def verify_reported_idle_attestation(
         agent_active=authorized_role, unresolved_claims=unresolved,
     )
     return {"tenant_id": tenant_id, **verified}
+
+
+@router.get("/{tenant_id}/operational-readiness")
+def read_agent_harness_operational_readiness(
+    tenant_id: str,
+    principal: CurrentPrincipal = Depends(READ_CONFIGURE),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Tenant-bound Agent Harness baseline; strictly diagnostic and read-only.
+
+    It does NOT certify browser capacity, dispatch a job, apply policies,
+    create a DB/backup, or change any feature flag.
+    """
+    _require_read_flag()
+    require_tenant_scope(principal, tenant_id)
+    return summarize_readiness(
+        tenant_id=tenant_id,
+        settings=get_settings(),
+        open_jobs=collect_processing_queue_counts(db, tenant_id=tenant_id),
+        disk=disk_headroom(),
+    )
 
 
 @router.get("/{tenant_id}/external-executors/etsy-image/capacity-preview")

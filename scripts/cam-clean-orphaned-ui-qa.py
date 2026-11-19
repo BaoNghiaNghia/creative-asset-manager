@@ -9,7 +9,7 @@ import subprocess
 import time
 
 
-def orphaned_vite_servers(min_age_seconds: int = 600, *, report: str | None = None) -> list[int]:
+def orphaned_vite_servers(min_age_seconds: int = 48 * 3600, *, report: str | None = None) -> list[int]:
     if report is None:
         report = subprocess.check_output(
             ["ps", "-eo", "pid=,ppid=,etimes=,args="], text=True
@@ -20,14 +20,28 @@ def orphaned_vite_servers(min_age_seconds: int = 600, *, report: str | None = No
         if len(fields) != 4:
             continue
         pid_text, ppid_text, age_text, command = fields
+        if not (pid_text.isdecimal() and ppid_text.isdecimal()
+                and age_text.isdecimal()):
+            continue
+        # The old scanner only recognized PNPM's internal vite.js path. CAM's
+        # week-old QA previews also use npm's node_modules/.bin/vite launcher.
+        # Strictly require a detached, loopback-only, explicit-port process
+        # from a named CAM task worktree. Never touch live nginx/API/Chrome.
+        vite_executable = (
+            "node_modules/.bin/vite" in command
+            or ("node_modules/.pnpm/vite@" in command
+                and "vite/bin/vite.js" in command)
+        )
         if (
             ppid_text != "1"
             or int(age_text) < min_age_seconds
-            or "node_modules/.pnpm/vite@" not in command
-            or "vite/bin/vite.js" not in command
+            or not command.startswith("node ")
+            or not vite_executable
+            or ".cam-" not in command
+            or "apps/client/node_modules/" not in command
             or "--host 127.0.0.1" not in command
             or "--port " not in command
-            or not command.startswith("node ")
+            or "--strictPort" not in command
         ):
             continue
         matches.append(int(pid_text))
