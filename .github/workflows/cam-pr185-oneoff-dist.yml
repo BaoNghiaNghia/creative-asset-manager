@@ -1,0 +1,43 @@
+name: PR185 one-off tracked frontend build
+on:
+  push:
+    branches: ["fix/etsy-imagegen-saved-output-visibility-20261120"]
+permissions:
+  contents: write
+concurrency:
+  group: pr185-oneoff-dist
+  cancel-in-progress: false
+jobs:
+  build:
+    if: github.repository == 'BaoNghiaNghia/creative-asset-manager'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22.23.3"
+          cache: npm
+          cache-dependency-path: apps/client/package-lock.json
+      - name: Regenerate only tracked frontend build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd apps/client
+          npm ci --no-audit --no-fund
+          test -f dist/build-info.json
+          export BUILD_COMMIT="$(node -e 'const x=require("./dist/build-info.json");process.stdout.write(x.build_commit)')"
+          export BUILD_UTC_TIMESTAMP="$(node -e 'const x=require("./dist/build-info.json");process.stdout.write(x.build_utc_timestamp)')"
+          npm run build
+          cd ../..
+          git add -- apps/client/dist
+          if git diff --cached --quiet; then
+            echo 'Tracked dist already up-to-date'
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'build(client): refresh tracked Etsy ImageGen preview assets'
+            git push origin HEAD:refs/heads/fix/etsy-imagegen-saved-output-visibility-20261120
+          fi
