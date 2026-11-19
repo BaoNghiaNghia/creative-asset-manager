@@ -148,6 +148,10 @@ function ListingZoomPreview({ image, garmentCode }: {
       <ListingReviewPreview image={image}
         transform={`translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})`} />
       <span className="etsy-listing-image-open-icon" aria-hidden="true">↗</span>
+      {image.previewOnly && <span className="etsy-listing-image-review-notice"
+        role="status" title="Ảnh preview chưa đạt tiêu chuẩn native 2000px, cần QA trước khi sử dụng">
+        Cần QA · {image.width}×{image.height}
+      </span>}
     </a>
   </div>;
 }
@@ -172,7 +176,8 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
   const mainC1717Url = badges.find(b => b.garmentCode === "C1717" &&
     typeof b.mainThumbnailUrl === "string")?.mainThumbnailUrl;
   const galleryIdentity = item.listingKey + "|" + badges.map(b =>
-    b.garmentCode + ":" + b.count + ":" + (b.mainThumbnailUrl || "")).join("|");
+    b.garmentCode + ":" + b.count + ":" + (b.reviewCount || 0) +
+    ":" + (b.mainThumbnailUrl || "")).join("|");
   const selectedGarment = gallery?.groups.find(group => group.images.some(image =>
     image.packId === selected?.packId && image.sha256 === selected?.sha256))?.garmentCode;
 
@@ -236,10 +241,13 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
           aria-label="Ảnh đã lưu theo mã áo">
           {badges.map(b => <button type="button"
             className="etsy-listing-image-badge" key={b.garmentCode}
-            title={b.count + " ảnh " + b.garmentCode + " đã lưu từ CAM Image Extension"}
+            title={b.count + " ảnh " + b.garmentCode + " đã lưu từ CAM Image Extension" +
+              (b.reviewCount ? " · " + b.reviewCount + " ảnh cần QA" : "")}
             aria-label={"Xem " + b.count + " ảnh Listing Image mẫu " + b.garmentCode}
             onClick={openGallery}>
             <span>{b.count}</span> {b.garmentCode}
+            {!!b.reviewCount && <span className="etsy-listing-image-review-badge"
+              aria-label={b.reviewCount + " ảnh cần QA"}>QA</span>}
           </button>)}
         </div>}
       </div>
@@ -293,6 +301,8 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
                           <span className="etsy-listing-image-slot" aria-hidden="true">
                             {String(image.slot).padStart(2, "0")}
                           </span>
+                          {image.previewOnly && <span className="etsy-listing-image-tile-review"
+                            title="Ảnh preview cần QA">QA</span>}
                         </button>)}
                       </div>
                     </div>;

@@ -42,6 +42,10 @@
   cursor:pointer;line-height:1.2;
 }
 .etsy-listing-image-badge span{font-variant-numeric:tabular-nums;font-weight:850}
+.etsy-listing-image-review-badge{
+  margin-left:auto;padding:2px 3px;border-radius:4px;background:#fff2df;
+  color:#91510c;font-size:9px;font-weight:800;line-height:1;
+}
 .etsy-listing-image-badge:hover,.etsy-listing-image-badge:focus-visible{
   background:#dbeeff;border-color:#6dabe1;
 }
@@ -114,6 +118,13 @@
 .etsy-listing-image-fullsize.is-zoomed{cursor:grab;touch-action:none}
 .etsy-listing-image-fullsize.is-dragging{cursor:grabbing}
 .etsy-listing-image-fullsize:focus-visible{outline:3px solid #327ec4;outline-offset:-3px}
+.etsy-listing-image-review-notice{
+  position:absolute;left:10px;bottom:10px;z-index:2;
+  padding:5px 8px;border:1px solid rgba(240,182,101,.65);
+  border-radius:6px;background:rgba(48,36,19,.83);
+  color:#fff2d8;font-size:11px;font-weight:750;line-height:1.15;
+  pointer-events:none;
+}
 .etsy-listing-image-open-icon{
   position:absolute;top:10px;right:10px;display:grid;place-items:center;
   width:28px;height:28px;border:1px solid rgba(255,255,255,.45);
@@ -166,6 +177,12 @@
   padding:4px 5px;border-radius:5px;background:rgba(20,34,56,.73);
   color:#fff;font-size:10px;font-weight:750;line-height:1;
   font-variant-numeric:tabular-nums;pointer-events:none;
+}
+.etsy-listing-image-tile-review{
+  position:absolute;right:7px;bottom:7px;z-index:1;
+  padding:4px 5px;border-radius:5px;background:rgba(122,68,18,.86);
+  color:#fff1d7;font-size:9px;font-weight:800;line-height:1;
+  pointer-events:none;
 }
 .etsy-listing-image-notice{padding:26px;color:#64768d;text-align:center;font-size:13px}
 .etsy-listing-image-notice.is-error{color:#a33441}
