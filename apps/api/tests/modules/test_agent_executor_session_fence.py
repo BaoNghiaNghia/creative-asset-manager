@@ -6,6 +6,7 @@ import pytest
 from app.modules.agent_harness.executor_session_fence import (
     SESSION_FENCE_FIELD, bind_session_fence, executor_session_fence_enabled,
     issue_session_fence, normalized_executor_session, session_fence_matches,
+    session_fence_shape,
 )
 
 
@@ -75,6 +76,38 @@ def test_malformed_binding_fails_closed_and_rebind_clears_old():
         session_id=None,
     )
     assert SESSION_FENCE_FIELD not in next_payload
+
+
+def test_read_only_session_fence_shape_never_authenticates_or_exposes_uuid():
+    owner = str(uuid4())
+    fence = issue_session_fence(
+        tenant_id="boostgame", agent_id="agent-a", job_id="job-a",
+        attempt_count=2, session_id=owner,
+    )
+    payload = {SESSION_FENCE_FIELD: fence}
+    assert session_fence_shape(payload, attempt_count=2) == "structurally_bound"
+    assert session_fence_shape({}, attempt_count=2) == "legacy_unbound"
+    assert session_fence_shape(None, attempt_count=2) == "malformed"
+    assert session_fence_shape(payload, attempt_count=3) == "attempt_mismatch"
+    assert session_fence_shape({SESSION_FENCE_FIELD: None}, attempt_count=2) == "malformed"
+    assert session_fence_shape(
+        {SESSION_FENCE_FIELD: {**fence, "session_digest": "a"*63}},
+        attempt_count=2,
+    ) == "malformed"
+    assert session_fence_shape(
+        {SESSION_FENCE_FIELD: {**fence, "session_digest": "A"*64}},
+        attempt_count=2,
+    ) == "malformed"
+    assert session_fence_shape(
+        {SESSION_FENCE_FIELD: {**fence, "attempt_count": True}},
+        attempt_count=2,
+    ) == "malformed"
+    assert session_fence_shape(
+        {SESSION_FENCE_FIELD: {**fence, "untrusted": 1}},
+        attempt_count=2,
+    ) == "malformed"
+    assert owner not in str(session_fence_shape(payload, attempt_count=2))
+    assert fence["session_digest"] not in str(session_fence_shape(payload, attempt_count=2))
 
 
 def test_bad_issue_contract_raises_without_writing():
