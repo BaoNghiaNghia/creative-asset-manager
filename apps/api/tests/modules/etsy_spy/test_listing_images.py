@@ -180,9 +180,9 @@ def test_gallery_only_counts_saved_outputs_and_enforces_tenant(monkeypatch):
             assert len(sends) == 2
             assert client.post(upload_url,json=body,
                 headers={"Authorization":"Bearer "+secret}).status_code == 409
-            # Multiple completed designs can share one Picked row: select
-            # the thumbnail SHA from the SAME lexicographic Main pack.
-            earlier = "sp-" + "0" * 40
+            # Multiple completed packs share a Picked row. Prefer the
+            # newly saved Main even if its ID sorts after the older pack.
+            earlier = "sp-" + "f" * 40
             db.add(EtsySpyListingImage(
                 tenant_id="boostgame", listing_key="1234567890",
                 pack_id=earlier, slot=1, garment_code="C1717",

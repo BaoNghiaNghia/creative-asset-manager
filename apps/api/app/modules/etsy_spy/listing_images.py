@@ -286,38 +286,41 @@ def listing_badges(db: Session, tenant_id: str, listing_keys: set[str]):
     if not listing_keys:
         return {}
     counts = defaultdict(dict)
-    # Select pack ID and SHA as ONE sorted value. Independent MIN() calls
-    # could pick different packs, leaving the preview cache stale after CAS.
+    # Two bounded page-level queries avoid N+1 and show newest saved Main.
     review_case = case((or_(
         ListingImage.native_width.is_(None),
         ListingImage.native_height.is_(None),
         ListingImage.native_width < 2000,
         ListingImage.native_height < 2000,
     ), 1), else_=0)
-    main_asset = func.min(case(
-        (ListingImage.slot == 1,
-         ListingImage.pack_id + "|" + ListingImage.thumbnail_sha256),
-        else_=None,
-    )).label("main_asset")
     rows = db.execute(select(
         ListingImage.listing_key, ListingImage.garment_code,
-        func.count(), main_asset, func.sum(review_case),
+        func.count(), func.sum(review_case),
     ).where(ListingImage.tenant_id == tenant_id,
             ListingImage.listing_key.in_(listing_keys))
       .group_by(ListingImage.listing_key, ListingImage.garment_code))
-    for listing_key, garment, quantity, first_main_asset, review_quantity in rows:
-        badge = {"garmentCode": garment, "count": int(quantity),
-                 "reviewCount": int(review_quantity or 0)}
-        if first_main_asset:
-            first_main, sep, first_sha = first_main_asset.partition("|")
-            if not sep or not _PACK.fullmatch(first_main) or not _SHA.fullmatch(first_sha):
-                raise HTTPException(409, "Invalid saved Main preview identity")
-            badge["mainThumbnailUrl"] = (
-                f"/api/v1/etsy-spy/listing-images/{first_main}/1/thumbnail"
-                f"?v={first_sha[:12]}"
-            )
-            badge["mainPackId"] = first_main
-        counts[listing_key][garment] = badge
+    for listing_key, garment, quantity, review_quantity in rows:
+        counts[listing_key][garment] = {
+            "garmentCode": garment, "count": int(quantity),
+            "reviewCount": int(review_quantity or 0)}
+    mains = db.execute(select(
+        ListingImage.listing_key, ListingImage.garment_code,
+        ListingImage.pack_id, ListingImage.thumbnail_sha256,
+    ).where(ListingImage.tenant_id == tenant_id,
+            ListingImage.listing_key.in_(listing_keys),
+            ListingImage.slot == 1)
+      .order_by(ListingImage.created_at.desc(), ListingImage.pack_id.desc()))
+    for listing_key, garment, pack_id, thumbnail_sha in mains:
+        badge = counts.get(listing_key, {}).get(garment)
+        if not badge or "mainPackId" in badge:
+            continue
+        if not _PACK.fullmatch(pack_id) or not _SHA.fullmatch(thumbnail_sha):
+            raise HTTPException(409, "Invalid saved Main preview identity")
+        badge["mainThumbnailUrl"] = (
+            f"/api/v1/etsy-spy/listing-images/{pack_id}/1/thumbnail"
+            f"?v={thumbnail_sha[:12]}"
+        )
+        badge["mainPackId"] = pack_id
     return {key: [group[garment] for garment in sorted(
                 group, key=lambda code: (code != "C1717", code))]
             for key, group in counts.items()}
