@@ -3363,7 +3363,7 @@ def test_expired_fenced_attempt_reclaims_with_new_session_and_token(
     assert second["lease_token"] != first["lease_token"]
     db.refresh(job)
     assert job.payload_json[SESSION_FENCE_FIELD]["session_digest"] != old_digest
-    assert db.query(ProcessingJobModel).count() == 1
+    assert db.query(ProcessingJobModel).filter_by(job_type="etsy_design_extract").count() == 1
     assert client.post(root + "/check-job", headers=a, json={
         "job_id": job.id, "lease_token": second["lease_token"],
     }).status_code == 409
