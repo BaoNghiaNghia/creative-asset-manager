@@ -107,12 +107,13 @@ export type TikTokListingView = {
   result?: TikTokListingDraft;
 };
 export type ListingImageBadge = {
-  garmentCode: string; count: number;
+  garmentCode: string; count: number; reviewCount?: number;
   mainThumbnailUrl?: string; mainPackId?: string;
 };
 export type ListingImageOutput = {
   packId: string; slot: number; sha256: string;
   designSha256: string; placement: string; manifestReady: boolean;
+  previewOnly?: boolean;
   width: number | null; height: number | null; savedAt: string | null;
   thumbnailUrl: string; previewUrl?: string; originalUrl: string;
 };

@@ -15,7 +15,7 @@ from collections import defaultdict
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select, func, case, update
+from sqlalchemy import select, func, case, update, or_
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -33,6 +33,11 @@ _DRIVE_ROOT = "1JdCzemUBcLhfro5IbOq5jPze7rdDIJMl"
 _GARMENTS = frozenset({"C1717", "G500", "G180", "G185"})
 _MAX_BODY = 112 * 1024 * 1024
 _MAX_PNG = 80 * 1024 * 1024
+
+
+def listing_preview_requires_review(width: int | None, height: int | None) -> bool:
+    """Native output below 2000px is an internal preview, not final listing QA."""
+    return width is None or height is None or width < 2000 or height < 2000
 
 
 def verified_identity(listing_key: str, pack_id: str, slot: int, garment: str | None = None):
@@ -84,6 +89,12 @@ async def _ensure_pack_manifest(
         for r in rows
     ):
         raise HTTPException(409, "ImageGen pack source identity changed")
+    # Completed 10-role generation is not equivalent to a listing-approved pack.
+    # Save individual native previews for internal review, but do not write a
+    # final Drive pack manifest if any role remains below native 2000px.
+    if any(listing_preview_requires_review(r.native_width, r.native_height)
+           for r in rows):
+        return None
     remote_ids = {r.drive_manifest_id for r in rows if r.drive_manifest_id}
     if len(remote_ids) > 1:
         raise HTTPException(409, "Conflicting ImageGen Drive manifest identities")
@@ -174,6 +185,8 @@ async def save_listing_output(
                     "garment_code": garment, "pack_id": pack, "slot": slot,
                     "sha256": sha, "design_sha256": design_sha,
                     "placement": placement, "storage_root_folder_id": _DRIVE_ROOT,
+                    "preview_only": listing_preview_requires_review(
+                        previous.native_width, previous.native_height),
                     "drive_manifest_id": manifest}
     elif replace_sha is not None:
         raise HTTPException(409, "Main replacement requires existing slot")
@@ -192,6 +205,12 @@ async def save_listing_output(
     height = int.from_bytes(png[20:24], "big")
     if not 256 <= width <= 8192 or not 256 <= height <= 8192:
         raise HTTPException(422, "Invalid ImageGen output dimensions")
+    review_only = listing_preview_requires_review(width, height)
+    declared_review = payload.get("preview_only")
+    if declared_review is not None and type(declared_review) is not bool:
+        raise HTTPException(422, "Invalid Listing Image preview-only flag")
+    if declared_review is True and not review_only:
+        raise HTTPException(422, "Preview-only PNG must retain actual native dimensions")
     source_job = str(payload.get("source_job_id") or "")
     if source_job and not re.fullmatch(r"[A-Za-z0-9_-]{4,128}", source_job):
         raise HTTPException(422, "Invalid source ImageGen job ID")
@@ -258,6 +277,7 @@ async def save_listing_output(
             "garment_code": garment, "pack_id": pack, "slot": slot,
             "sha256": sha, "design_sha256": design_sha,
             "placement": placement, "storage_root_folder_id": _DRIVE_ROOT,
+            "preview_only": review_only,
             "drive_manifest_id": manifest}
 
 
@@ -266,31 +286,41 @@ def listing_badges(db: Session, tenant_id: str, listing_keys: set[str]):
     if not listing_keys:
         return {}
     counts = defaultdict(dict)
-    # Select pack ID and SHA as ONE sorted value. Independent MIN() calls
-    # could pick different packs, leaving the preview cache stale after CAS.
-    main_asset = func.min(case(
-        (ListingImage.slot == 1,
-         ListingImage.pack_id + "|" + ListingImage.thumbnail_sha256),
-        else_=None,
-    )).label("main_asset")
+    # Two bounded page-level queries avoid N+1 and show newest saved Main.
+    review_case = case((or_(
+        ListingImage.native_width.is_(None),
+        ListingImage.native_height.is_(None),
+        ListingImage.native_width < 2000,
+        ListingImage.native_height < 2000,
+    ), 1), else_=0)
     rows = db.execute(select(
         ListingImage.listing_key, ListingImage.garment_code,
-        func.count(), main_asset,
+        func.count(), func.sum(review_case),
     ).where(ListingImage.tenant_id == tenant_id,
             ListingImage.listing_key.in_(listing_keys))
       .group_by(ListingImage.listing_key, ListingImage.garment_code))
-    for listing_key, garment, quantity, first_main_asset in rows:
-        badge = {"garmentCode": garment, "count": int(quantity)}
-        if first_main_asset:
-            first_main, sep, first_sha = first_main_asset.partition("|")
-            if not sep or not _PACK.fullmatch(first_main) or not _SHA.fullmatch(first_sha):
-                raise HTTPException(409, "Invalid saved Main preview identity")
-            badge["mainThumbnailUrl"] = (
-                f"/api/v1/etsy-spy/listing-images/{first_main}/1/thumbnail"
-                f"?v={first_sha[:12]}"
-            )
-            badge["mainPackId"] = first_main
-        counts[listing_key][garment] = badge
+    for listing_key, garment, quantity, review_quantity in rows:
+        counts[listing_key][garment] = {
+            "garmentCode": garment, "count": int(quantity),
+            "reviewCount": int(review_quantity or 0)}
+    mains = db.execute(select(
+        ListingImage.listing_key, ListingImage.garment_code,
+        ListingImage.pack_id, ListingImage.thumbnail_sha256,
+    ).where(ListingImage.tenant_id == tenant_id,
+            ListingImage.listing_key.in_(listing_keys),
+            ListingImage.slot == 1)
+      .order_by(ListingImage.created_at.desc(), ListingImage.pack_id.desc()))
+    for listing_key, garment, pack_id, thumbnail_sha in mains:
+        badge = counts.get(listing_key, {}).get(garment)
+        if not badge or "mainPackId" in badge:
+            continue
+        if not _PACK.fullmatch(pack_id) or not _SHA.fullmatch(thumbnail_sha):
+            raise HTTPException(409, "Invalid saved Main preview identity")
+        badge["mainThumbnailUrl"] = (
+            f"/api/v1/etsy-spy/listing-images/{pack_id}/1/thumbnail"
+            f"?v={thumbnail_sha[:12]}"
+        )
+        badge["mainPackId"] = pack_id
     return {key: [group[garment] for garment in sorted(
                 group, key=lambda code: (code != "C1717", code))]
             for key, group in counts.items()}
@@ -316,7 +346,10 @@ def read_listing_gallery(
             "packId": row.pack_id, "slot": row.slot,
             "sha256": row.output_sha256,
             "designSha256": row.design_sha256, "placement": row.placement,
-            "manifestReady": bool(row.drive_manifest_id),
+            "manifestReady": bool(row.drive_manifest_id) and not
+                listing_preview_requires_review(row.native_width, row.native_height),
+            "previewOnly": listing_preview_requires_review(
+                row.native_width, row.native_height),
             "width": row.native_width, "height": row.native_height,
             "savedAt": row.created_at,
             "thumbnailUrl": f"/api/v1/etsy-spy/listing-images/{row.pack_id}/{row.slot}/thumbnail?v={row.thumbnail_sha256[:12]}",

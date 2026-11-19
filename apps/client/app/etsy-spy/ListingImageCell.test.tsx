@@ -90,6 +90,35 @@ describe("Listing Image saved output badges",()=>{
     expect(document.body.textContent).toContain("4 G500");
     expect(spy).not.toHaveBeenCalled();
   });
+  it("shows 1254px completed previews for review without claiming final QA",async()=>{
+    const lowResGallery:ListingImageGallery={
+      ...gallery,groups:gallery.groups.map(group=>({
+        ...group,images:group.images.map((image,i)=>i===0
+          ?{...image,width:1254,height:1254,previewOnly:true,manifestReady:false}
+          :{...image,previewOnly:false}),
+      })),
+    };
+    spy.mockResolvedValue(lowResGallery);
+    mount({...item,listingImages:[{
+      garmentCode:"C1717",count:2,reviewCount:1,
+      mainThumbnailUrl:"/main-preview.png",
+    }]});
+    const badge=container.querySelector<HTMLButtonElement>(".etsy-listing-image-badge");
+    expect(badge?.textContent).toContain("QA");
+    expect(badge?.title).toContain("1 ảnh cần QA");
+    await act(async()=>{badge?.click();});
+    const dialog=document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog?.querySelector(".etsy-listing-image-review-notice")?.textContent)
+      .toContain("Cần QA · 1254×1254");
+    expect(dialog?.querySelectorAll(".etsy-listing-image-tile-review")).toHaveLength(1);
+    expect(dialog?.querySelector(".etsy-listing-image-review-frame img")
+      ?.getAttribute("src")).toContain("/1/preview");
+    await act(async()=>{
+      dialog?.querySelectorAll<HTMLButtonElement>(".etsy-listing-image-tile")[1]?.click();
+    });
+    expect(dialog?.querySelector(".etsy-listing-image-review-notice")).toBeNull();
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
   it("splits gallery into left review and right product images, switching the preview without another fetch",async()=>{
     spy.mockResolvedValue(gallery);
     mount();

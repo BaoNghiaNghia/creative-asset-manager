@@ -1,4 +1,5 @@
 """ImageGen listing gallery: tenant ACL, idempotent PNG receipts and accurate counts."""
+import asyncio
 import base64
 import hashlib
 import io
@@ -13,7 +14,10 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base, get_db
 from app.modules.authorization.principal import require_authenticated_principal
-from app.modules.etsy_spy.listing_images import listing_image_router, listing_badges
+from app.modules.etsy_spy.listing_images import (
+    listing_image_router, listing_badges, _ensure_pack_manifest,
+    listing_preview_requires_review,
+)
 from app.modules.etsy_spy.model import EtsySpyAgent, EtsySpyPicked, EtsySpyListingImage
 from app.modules.etsy_spy.service import create_agent
 
@@ -90,6 +94,7 @@ def test_gallery_only_counts_saved_outputs_and_enforces_tenant(monkeypatch):
                 headers={"Authorization":"Bearer "+secret})
             assert success.status_code == 200, success.text
             assert success.json()["already_saved"] is False
+            assert success.json()["preview_only"] is True
             assert client.post(upload_url,json=body,
                 headers={"Authorization":"Bearer "+secret}).json()["already_saved"] is True
             assert len(sends) == 1
@@ -97,6 +102,7 @@ def test_gallery_only_counts_saved_outputs_and_enforces_tenant(monkeypatch):
                 headers={"Authorization":"Bearer "+secret}).status_code == 409
             assert listing_badges(db,"boostgame",{"1234567890"}) == {
                 "1234567890":[{"garmentCode":"C1717","count":1,
+                    "reviewCount":1,
                     "mainPackId":pack,
                     "mainThumbnailUrl":f"/api/v1/etsy-spy/listing-images/{pack}/1/thumbnail?v={digest[:12]}"}]}
             gallery = client.get(gallery_url).json()
@@ -105,6 +111,7 @@ def test_gallery_only_counts_saved_outputs_and_enforces_tenant(monkeypatch):
             assert gallery["groups"][0]["images"][0]["designSha256"] == design_sha
             assert gallery["groups"][0]["images"][0]["placement"] == "front_center"
             assert gallery["groups"][0]["images"][0]["manifestReady"] is False
+            assert gallery["groups"][0]["images"][0]["previewOnly"] is True
             assert "drive_file_id" not in str(gallery)
             image = gallery["groups"][0]["images"][0]
             assert "/preview?v=" in image["previewUrl"]
@@ -173,9 +180,9 @@ def test_gallery_only_counts_saved_outputs_and_enforces_tenant(monkeypatch):
             assert len(sends) == 2
             assert client.post(upload_url,json=body,
                 headers={"Authorization":"Bearer "+secret}).status_code == 409
-            # Multiple completed designs can share one Picked row: select
-            # the thumbnail SHA from the SAME lexicographic Main pack.
-            earlier = "sp-" + "0" * 40
+            # Multiple completed packs share a Picked row. Prefer the
+            # newly saved Main even if its ID sorts after the older pack.
+            earlier = "sp-" + "f" * 40
             db.add(EtsySpyListingImage(
                 tenant_id="boostgame", listing_key="1234567890",
                 pack_id=earlier, slot=1, garment_code="C1717",
@@ -189,6 +196,7 @@ def test_gallery_only_counts_saved_outputs_and_enforces_tenant(monkeypatch):
             db.commit()
             multi_badge = listing_badges(db, "boostgame", {"1234567890"})["1234567890"][0]
             assert multi_badge["count"] == 2
+            assert multi_badge["reviewCount"] == 2
             assert multi_badge["mainPackId"] == earlier
             assert multi_badge["mainThumbnailUrl"].endswith(
                 f"/{earlier}/1/thumbnail?v={'f'*12}")
@@ -205,6 +213,52 @@ def test_gallery_only_counts_saved_outputs_and_enforces_tenant(monkeypatch):
             assert client.get(url).status_code == 404
             assert client.get(image["previewUrl"],
                 headers={"If-None-Match":webp_response.headers["etag"]}).status_code == 404
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_completed_native_preview_pack_never_claims_final_drive_manifest(monkeypatch):
+    assert listing_preview_requires_review(1254, 1254)
+    assert listing_preview_requires_review(None, 2000)
+    assert not listing_preview_requires_review(2000, 2000)
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False},
+                           poolclass=StaticPool)
+    Base.metadata.create_all(engine, tables=[
+        EtsySpyAgent.__table__, EtsySpyPicked.__table__,
+        EtsySpyListingImage.__table__])
+    db = Session(engine)
+    pack = "sp-" + "b" * 40
+    tenant, listing = "boostgame", "1234567890"
+    db.add(EtsySpyPicked(tenant_id=tenant, listing_key=listing))
+    for slot in range(1, 11):
+        db.add(EtsySpyListingImage(
+            tenant_id=tenant, listing_key=listing, pack_id=pack,
+            slot=slot, garment_code="C1717",
+            design_sha256="c" * 64, source_sha256="d" * 64,
+            placement="front_center", output_sha256=f"{slot:064x}",
+            thumbnail_sha256="e" * 64,
+            drive_folder_id="oneFolderD12345",
+            drive_thumbnail_folder_id="thumbFolderD12345",
+            drive_file_id=f"remoteOriginal{slot:02d}12345",
+            drive_thumbnail_id=f"remoteThumb{slot:02d}12345",
+            native_width=1254, native_height=1254))
+    db.commit()
+
+    async def must_not_store(**kwargs):
+        raise AssertionError("Preview-only ten-role pack must not be finalized")
+    monkeypatch.setattr(
+        "app.modules.etsy_spy.imagegen_drive.store_listing_pack_manifest_to_drive",
+        must_not_store)
+    try:
+        assert asyncio.run(_ensure_pack_manifest(
+            db, tenant, listing, pack, "C1717", "c" * 64,
+            "d" * 64, "front_center")) is None
+        badges = listing_badges(db, tenant, {listing})[listing]
+        assert badges[0]["count"] == 10
+        assert badges[0]["reviewCount"] == 10
+        assert db.query(EtsySpyListingImage).filter_by(
+            drive_manifest_id=None).count() == 10
     finally:
         db.close()
         engine.dispose()
