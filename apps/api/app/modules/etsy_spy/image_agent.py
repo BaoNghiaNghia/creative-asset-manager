@@ -32,6 +32,10 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.config import get_settings
+from app.modules.agent_harness.executor_session_fence import (
+    SESSION_FENCE_FIELD, bind_session_fence, executor_session_fence_enabled,
+    normalized_executor_session, session_fence_matches,
+)
 from app.modules.agent_harness.external_heartbeat import (
     EVIDENCE_FIELD, ExternalHeartbeatRejected, external_heartbeat_enabled,
     external_heartbeat_signing_key, issue_external_heartbeat,
@@ -514,6 +518,11 @@ def probe_image_agent(
         "harness_heartbeat_ready": bool(
             external_heartbeat_enabled() and external_heartbeat_signing_key()
         ),
+        "harness_executor_session_fence_supported": True,
+        "harness_executor_session_fence_ready": bool(
+            executor_session_fence_enabled() and transport_enabled()
+            and orchestrator_enabled()
+        ),
         "harness_idle_attestation_supported": True,
         "harness_idle_attestation_ready": bool(
             idle_attestation_enabled() and external_heartbeat_signing_key()
@@ -526,10 +535,19 @@ def probe_image_agent(
 def claim_image_job(
     agent_id: str, authorization: str | None = Header(None),
     x_cam_image_worker: str | None = Header(None),
+    x_cam_executor_session: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
     agent = _authenticate(db, agent_id, authorization)
     _enabled()
+    requested_orchestrator = x_cam_image_worker == "orchestrator-v1"
+    require_session = requested_orchestrator and executor_session_fence_enabled()
+    session_id = (
+        normalized_executor_session(x_cam_executor_session)
+        if require_session else None
+    )
+    if require_session and session_id is None:
+        raise HTTPException(422, "Canonical executor session UUIDv4 required")
     # Advisory transaction lock, NOT the agent row: /result and /check-job
     # update that row after locking a job, so reversing row-lock order could
     # otherwise deadlock active workers. No new DB table or instance.
@@ -545,7 +563,6 @@ def claim_image_job(
     ).limit(1))
     if authorized is None:
         raise HTTPException(401, "Image Agent credential was revoked")
-    requested_orchestrator = x_cam_image_worker == "orchestrator-v1"
     worker = "etsy-image:" + agent.id
     now = utcnow()
     # Even an expired processing lease is unresolved until /check-job or a
@@ -570,6 +587,13 @@ def claim_image_job(
             return {"task": None, "pause_reason": "existing_lease_missing"}
         expires = expires.replace(tzinfo=timezone.utc) if expires.tzinfo is None else expires.astimezone(timezone.utc)
         if expires > now:
+            if not session_fence_matches(
+                previous.payload_json, tenant_id=agent.tenant_id,
+                agent_id=agent.id, job_id=previous.id,
+                attempt_count=previous.attempt_count,
+                presented_session=x_cam_executor_session,
+            ):
+                return {"task": None, "pause_reason": "executor_session_conflict"}
             return _task(previous, agent)
     if requested_orchestrator and not orchestrator_enabled():
         return {"task": None, "pause_reason": "orchestrator_not_enabled"}
@@ -642,9 +666,16 @@ def claim_image_job(
     job.claimed_at = now
     job.lease_expires_at = now + timedelta(minutes=30)
     job.attempt_count += 1
-    if requested_orchestrator:
-        job.payload_json = {**(job.payload_json or {}),
-                            "execution_mode": "orchestrator_v1"}
+    payload = job.payload_json if isinstance(job.payload_json, dict) else {}
+    if requested_orchestrator or SESSION_FENCE_FIELD in payload:
+        updated_payload = dict(payload)
+        if requested_orchestrator:
+            updated_payload["execution_mode"] = "orchestrator_v1"
+        job.payload_json = bind_session_fence(
+            updated_payload, tenant_id=agent.tenant_id, agent_id=agent.id,
+            job_id=job.id, attempt_count=job.attempt_count,
+            session_id=session_id,
+        )
     agent.last_seen_at = job.claimed_at
     db.commit()
     return _task(job, agent)
@@ -734,6 +765,7 @@ async def verify_paired_image_idle_report(
 async def attest_image_job_heartbeat(
     agent_id: str, request: Request,
     authorization: str | None = Header(None),
+    x_cam_executor_session: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
     """Opt-in, short-lived authenticated heartbeat; never renews a lease.
@@ -764,6 +796,12 @@ async def attest_image_job_heartbeat(
         raise HTTPException(404, "Image job not found")
     if not hmac.compare_digest(body.lease_token, _lease_token(agent, job)):
         raise HTTPException(409, "Stale image job lease")
+    if not session_fence_matches(
+        job.payload_json, tenant_id=agent.tenant_id, agent_id=agent.id,
+        job_id=job.id, attempt_count=job.attempt_count,
+        presented_session=x_cam_executor_session,
+    ):
+        raise HTTPException(409, "Executor session does not own this lease")
     if db.get(EtsySpyPicked, (agent.tenant_id, job.entity_id)) is None:
         raise HTTPException(409, "Image job is no longer picked")
 
@@ -807,6 +845,7 @@ async def attest_image_job_heartbeat(
 @image_router.post("/{agent_id}/check-job")
 async def check_and_renew_image_job(
     agent_id: str, request: Request, authorization: str | None = Header(None),
+    x_cam_executor_session: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
     """Bounded, replay-safe lease check before extraction/upload.
@@ -827,6 +866,12 @@ async def check_and_renew_image_job(
     lease = str(body.get("lease_token") or "")
     if not hmac.compare_digest(lease, _lease_token(agent, job)):
         raise HTTPException(409, "Stale image job lease")
+    if not session_fence_matches(
+        job.payload_json, tenant_id=agent.tenant_id, agent_id=agent.id,
+        job_id=job.id, attempt_count=job.attempt_count,
+        presented_session=x_cam_executor_session,
+    ):
+        raise HTTPException(409, "Executor session does not own this lease")
     if job.cancellation_requested or db.get(
         EtsySpyPicked, (agent.tenant_id, job.entity_id)
     ) is None:
@@ -854,6 +899,7 @@ async def check_and_renew_image_job(
 @image_router.post("/{agent_id}/result")
 async def submit_image_result(
     agent_id: str, request: Request, authorization: str | None = Header(None),
+    x_cam_executor_session: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
     agent = _authenticate(db, agent_id, authorization)
@@ -885,6 +931,12 @@ async def submit_image_result(
     lease = str(data.get("lease_token") or "")
     if not hmac.compare_digest(lease, _lease_token(agent, job)):
         raise HTTPException(403, "Stale or invalid agent lease")
+    if not session_fence_matches(
+        job.payload_json, tenant_id=agent.tenant_id, agent_id=agent.id,
+        job_id=job.id, attempt_count=job.attempt_count,
+        presented_session=x_cam_executor_session,
+    ):
+        raise HTTPException(409, "Executor session does not own this lease")
     source_sha256 = str(data.get("source_sha256") or "")
     if source_sha256 and not re.fullmatch(r"[0-9a-f]{64}", source_sha256):
         raise HTTPException(422, "Invalid source hash")

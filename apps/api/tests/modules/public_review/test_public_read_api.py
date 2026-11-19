@@ -654,7 +654,7 @@ def test_public_preview_redirect_requires_real_exact_share_scope(ctx):
   s.add_all([
    AssetSourceLinkModel(id="cdn-link-a",tenant_id="tenant-a",asset_id=video.id,source_asset_id=allowed_source.id),
    AssetSourceLinkModel(id="cdn-link-b",tenant_id="tenant-a",asset_id=video.id,source_asset_id=denied_source.id),
-   VideoCacheObjectModel(tenant_id="tenant-a",asset_id=video.id,source_asset_id=allowed_source.id,content_hash=video.content_hash,r2_key=video_cache_key("tenant-a",video.content_hash),mime_type="video/mp4",status="ready",size_bytes=20),
+   VideoCacheObjectModel(tenant_id="tenant-a",asset_id=video.id,source_asset_id=allowed_source.id,content_hash=video.content_hash,r2_key=video_cache_key("tenant-a",video.content_hash),mime_type="video/mp4",status="ready",size_bytes=20,cached_at=datetime.now(timezone.utc)),
    VideoDeliveryRuntimeSettingModel(setting_key=VIDEO_CDN_DELIVERY_SETTING_KEY,enabled=True),
   ])
   s.commit()

@@ -1,3 +1,10 @@
+## 2026-11-19 — Agent Harness V2 executor session fence (backend-only)
+
+- Only newly claimed opt-in `orchestrator_v1` jobs bind a device-generated UUIDv4 digest to the existing PostgreSQL processing row and attempt. No new schema, queue, backup or provider call.
+- Existing per-attempt HMAC lease token, tenant-bound device authorization and transaction lock remain authoritative. Wrong/missing session cannot replay a live claim, renew, heartbeat or deliver a result; historical unbound jobs keep working.
+- The header is a client identity hint, **not** independent Chrome attestation. Default OFF and dispatch remains denied until a separate device canary and slot proof; rollback requires draining active bound claims before reverting code.
+- Security review: `docs/architecture/CAM_AGENT_HARNESS_V2_PHASE4C2B_EXECUTOR_SESSION_FENCE.md`.
+
 ## 2026-11-14 — Etsy Spy preview garment swatches
 
 - Read-only UI palette: 22 requested names mapped to screen-reference HEX, plus checkerboard default and four unique legacy options. One selected CSS variable colors main preview stage and thumbnail; source PNG, data, output rights/QA and worker paths remain untouched.

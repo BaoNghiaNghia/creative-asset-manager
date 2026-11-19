@@ -521,9 +521,11 @@ describe("Inventory Daily tab", () => {
         finalized_by: null,
       }}
     />);
-    expect(markup).toContain("Mở original snapshot");
-    expect(markup).toContain("Mở Gemini working copy");
-    for (const value of ["Tổng quan kiểm kê tự động", "27/08/2026", "26/08/2026", "Ngày kiểm kê", "Sẵn sàng", "206", "4 thay đổi", "Reset đầu ngày", "Snapshot buổi chiều", "Đối soát Gemini buổi tối", "Không phát hiện ngoại lệ", "Theo dõi tự động đang bật"]) {
+    expect(markup).toContain("Bản Snapshot");
+    expect(markup).toContain("Bản đối soát");
+    expect(markup).toContain("https://docs.google.com/spreadsheets/d/snapshot");
+    expect(markup).toContain("https://docs.google.com/spreadsheets/d/gemini-copy");
+    for (const value of ["Tổng quan kiểm kê tự động", "27/08/2026", "26/08/2026", "Ngày kiểm kê", "Sẵn sàng", "206", "4 thay đổi", "Reset đầu ngày", "Snapshot buổi chiều", "Đối soát AI", "Không phát hiện ngoại lệ", "Lịch chạy nền đã cấu hình"]) {
       expect(markup).toContain(value);
     }
     expect(markup).toContain("https://docs.google.com/spreadsheets/d/workbook");

@@ -15,7 +15,7 @@
     },
     {
       "name": "stage-hover",
-      "hover": ".ops-inventory-grid .ops-inventory-card:first-child"
+      "hover": ".ops-inventory-steps .ops-inventory-step:first-child"
     },
     {
       "name": "refresh-focus",
