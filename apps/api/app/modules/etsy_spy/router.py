@@ -776,10 +776,13 @@ def _listing_item(
         "fullImageUrl": verified_image_url(metadata.get("fullImageUrl")),
         "searchBadge": row.search_badge, "bought24h": row.bought24h,
         "views24h": row.views24h, "inCarts": row.in_carts,
+        "itemReviews": row.item_reviews, "cartLowerBound": row.cart_lower_bound,
         "demandScore": row.demand_score, "shopPosition": row.shop_position,
         "searchPosition": row.search_position, "sourceShopUrl": row.source_shop_url,
         "bestseller": row.bestseller, "observedAt": row.observed_at,
         "metadata": row.metadata_json,
+        "reviewAssessment": metadata.get("reviewAssessment")
+            if isinstance(metadata.get("reviewAssessment"), dict) else None,
         "keywordSms": sms or ([fallback] if fallback else []),
         "keywordSmsQuery": metadata.get("keywordSmsQuery") if sms else (fallback or metadata.get("keywordSmsQuery", "")),
         "keywordSmsStatus": sms_status,

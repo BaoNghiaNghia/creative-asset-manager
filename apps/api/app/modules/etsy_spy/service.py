@@ -265,6 +265,49 @@ def _payload_fields(section: str, row: dict, tenant: str, agent: str) -> tuple[t
                 sms_status = "title_fallback"
         thumbnail_url = verified_image_url(row.get("thumbnailUrl"))
         full_image_url = verified_image_url(row.get("fullImageUrl"))
+        review_audit = None
+        source_review = row.get("reviewAssessment")
+        # The review verdict is supplemental. It NEVER makes an unqualified
+        # listing Eligible and is never inferred from shop-wide star metadata.
+        if (isinstance(source_review, dict) and
+                source_review.get("source") == "etsy_item_reviews_modal" and
+                source_review.get("status") in {"observed", "unavailable"} and
+                source_review.get("verdict") in {"take", "review", "skip"} and
+                integer(row.get("inCarts")) is not None and
+                integer(row.get("inCarts")) >= 20 and
+                (row.get("cartLowerBound") is True or
+                 type(row.get("cartLowerBound")) is int and
+                 row.get("cartLowerBound") == 1) and
+                integer(row.get("itemReviews")) is not None and
+                integer(row.get("itemReviews")) > 3):
+            concerns = source_review.get("concerns")
+            evidence = source_review.get("evidence")
+            review_audit = {
+                "version": 1, "source": "etsy_item_reviews_modal",
+                "status": source_review["status"],
+                "verdict": source_review["verdict"],
+                "label": {"take": "Nên lấy", "review": "Cần xem xét",
+                          "skip": "Không nên lấy"}[source_review["verdict"]],
+                "reason": text(source_review.get("reason"), 200),
+                "itemReviews": integer(row.get("itemReviews")),
+                "average": floating(source_review.get("average")),
+                "sampled": max(0, min(40, integer(source_review.get("sampled")) or 0)),
+                "pages": max(0, min(5, integer(source_review.get("pages")) or 0)),
+                "positive": max(0, min(40, integer(source_review.get("positive")) or 0)),
+                "negative": max(0, min(40, integer(source_review.get("negative")) or 0)),
+                "at": text(source_review.get("at"), 45),
+                "concerns": [{
+                    "key": text(item.get("key"), 30),
+                    "label": text(item.get("label"), 55),
+                    "count": max(0, min(40, integer(item.get("count")) or 0))
+                } for item in (concerns if isinstance(concerns, list) else [])[:8]
+                    if isinstance(item, dict)],
+                "evidence": [{
+                    "stars": integer(item.get("stars")),
+                    "text": text(item.get("text"), 200)
+                } for item in (evidence if isinstance(evidence, list) else [])[:5]
+                    if isinstance(item, dict)],
+            }
         metadata = {
             "thumbnailUrl": thumbnail_url or full_image_url,
             "fullImageUrl": full_image_url or thumbnail_url,
@@ -277,6 +320,7 @@ def _payload_fields(section: str, row: dict, tenant: str, agent: str) -> tuple[t
             "keywordSmsQuery": text(row.get("keywordSmsQuery"), 180),
             "keywordSmsStatus": sms_status,
             "keywordSmsCheckedAt": text(row.get("keywordSmsCheckedAt"), 45),
+            **({"reviewAssessment": review_audit} if review_audit else {}),
         }
         values = {
             "is_current": True,
@@ -439,6 +483,16 @@ def sync_batch(db: Session, agent: EtsySpyAgent, body: bytes) -> dict[str, Any]:
                     for image_key in ("thumbnailUrl", "fullImageUrl"):
                         if not incoming_meta.get(image_key) and previous_meta.get(image_key):
                             incoming_meta[image_key] = verified_image_url(previous_meta[image_key])
+                    # Earlier verified product-only review evidence survives
+                    # old Scout batches or transiently unavailable modals.
+                    incoming_review = incoming_meta.get("reviewAssessment")
+                    previous_review = previous_meta.get("reviewAssessment")
+                    if (isinstance(previous_review, dict) and
+                            previous_review.get("source") == "etsy_item_reviews_modal" and
+                            (not isinstance(incoming_review, dict) or
+                             (previous_review.get("status") == "observed" and
+                              incoming_review.get("status") != "observed"))):
+                        incoming_meta["reviewAssessment"] = previous_review
                     # A weaker title fallback must never erase earlier authentic Etsy evidence.
                     if (incoming_meta.get("keywordSmsStatus") == "title_fallback"
                             and previous_meta.get("keywordSmsStatus") in

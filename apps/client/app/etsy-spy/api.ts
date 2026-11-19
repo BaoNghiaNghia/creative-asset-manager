@@ -120,6 +120,15 @@ export type ListingImageGallery = {
   listingKey: string; total: number;
   groups: Array<{ garmentCode: string; count: number; images: ListingImageOutput[] }>;
 };
+export type ReviewAssessment = {
+  version: number; source: "etsy_item_reviews_modal";
+  status: "observed" | "unavailable"; verdict: "take" | "review" | "skip";
+  label: string; reason: string; itemReviews: number | null;
+  average: number | null; sampled: number; pages: number;
+  positive: number; negative: number; at?: string;
+  concerns: { key: string; label: string; count: number }[];
+  evidence: { stars: number | null; text: string }[];
+};
 export type Listing = {
   sessionId: string; keyword: string; sourceKind: string; sourceKinds?: string[]; listingKey: string;
   picked: boolean;
@@ -138,13 +147,17 @@ export type Listing = {
   pageTitle: string; url: string | null; badge: string | null;
   thumbnailUrl?: string | null; fullImageUrl?: string | null;
   searchBadge: string | null; bought24h: number | null; views24h: number | null;
-  inCarts: number | null; demandScore: number | null; observedAt: string | null;
+  inCarts: number | null; itemReviews?: number | null;
+  cartLowerBound?: boolean | null;
+  demandScore: number | null; observedAt: string | null;
+  reviewAssessment?: ReviewAssessment | null;
   keywordSms?: string[]; keywordSmsQuery?: string;
   keywordSmsStatus?: string; keywordSmsCheckedAt?: string | null;
   metadata?: {sourceKinds: string[]; keywordAliases: string[];
     occurrences: number | null; keywordCount: number | null; sessionCount: number | null;
     keywordSms?: string[]; keywordSmsQuery?: string; keywordSmsStatus?: string;
-    thumbnailUrl?: string | null; fullImageUrl?: string | null;} | null;
+    thumbnailUrl?: string | null; fullImageUrl?: string | null;
+    reviewAssessment?: ReviewAssessment | null;} | null;
   tm: string; tmStatus: string; tmSource: string | null; tmCheckedAt: string | null;
   tmSourceAsOf: string | null; tmMatches?: Mark[] | null;
 };

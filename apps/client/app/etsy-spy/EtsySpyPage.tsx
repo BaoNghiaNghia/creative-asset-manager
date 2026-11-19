@@ -4,7 +4,7 @@ import { WorkspacePageHeader, WorkspaceBackToAssets } from "../components/Worksp
 import { fetchAccessIdentity } from "../../features/access_management";
 import {
   spyFetch, readableTime,
-  type SpyTab, type Page, type Summary, type ExtractionOverview, type ImageAgentStatus, type Listing,
+  type SpyTab, type Page, type Summary, type ExtractionOverview, type ImageAgentStatus, type Listing, type ReviewAssessment,
   type Keyword, type Trademark, type SpyLog, type Mark, type AgentStatus,
   type ObservedDaysSummary, type ObservedDayBucket, type DayGroupsSummary,
 } from "./api";
@@ -19,6 +19,7 @@ import { EtsyDeferredImage } from "./EtsyDeferredImage";
 import "./EtsySpyImages.css";
 import "./EtsySpyDayCarousel.css";
 import "./EtsySpySort.css";
+import "./EtsySpyReviewAudit.css";
 import { pickedPollInterval, reconcilePickedPage } from "./pickedPageReconciliation";
 import { TikTokListingCell, canQueueTikTokDraft } from "./TikTokListingCell";
 
@@ -248,6 +249,49 @@ const ProductThumbnail = memo(function ProductThumbnail({ thumb, full, url, titl
   </a>;
 });
 
+function ReviewAssessmentBadge({ audit, itemReviews, cartLowerBound, inCarts }: {
+  audit: ReviewAssessment | null | undefined;
+  itemReviews?: number | null; cartLowerBound?: boolean | null; inCarts: number | null;
+}) {
+  const eligibleToAudit = cartLowerBound === true && Number(inCarts) >= 20 &&
+    Number.isInteger(itemReviews) && Number(itemReviews) > 3;
+  if (!audit && !eligibleToAudit) return null;
+  if (!audit) return <small className="etsy-review-proof-waiting"
+    title="Có 20+ carts và hơn 3 review của chính listing; chưa có bằng chứng đã đọc modal">
+    Review · chưa phân tích
+  </small>;
+  const label = audit.verdict === "take" ? "Nên lấy"
+    : audit.verdict === "skip" ? "Không nên lấy" : "Cần xem xét";
+  const themes = Array.isArray(audit.concerns) ? audit.concerns.slice(0, 5) : [];
+  const evidence = Array.isArray(audit.evidence) ? audit.evidence.slice(0, 5) : [];
+  return <details className={"etsy-review-proof verdict-" + audit.verdict}
+    data-review-verdict={audit.verdict}>
+    <summary title={"Đã đọc " + audit.sampled + " review của chính sản phẩm"}>
+      Review · {label}
+    </summary>
+    <div className="etsy-review-proof-details">
+      <strong>{label}</strong>
+      <p>{audit.reason}</p>
+      <small>{audit.sampled} review đã đọc · {audit.pages} trang
+        {audit.average != null ? " · " + audit.average.toFixed(1) + "/5 sao" : ""}
+        {audit.itemReviews != null ? " · " + audit.itemReviews + " review của listing" : ""}
+      </small>
+      {themes.length > 0 && <div className="etsy-review-proof-concerns">
+        <strong>Rủi ro được nhắc đến</strong>
+        {themes.map(item => <span key={item.key}>{item.label}: {item.count}</span>)}
+      </div>}
+      {evidence.length > 0 && <div className="etsy-review-proof-samples">
+        <strong>Review làm bằng chứng</strong>
+        {evidence.map((sample, i) => <blockquote key={i}>
+          <span>{sample.stars != null ? sample.stars + "/5 ★" : "Chưa rõ sao"}</span>
+          {sample.text}
+        </blockquote>)}
+      </div>}
+      <small>Chỉ review của sản phẩm · không tự Pick/Later · không dùng sao của shop</small>
+    </div>
+  </details>;
+}
+
 function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDisabled, selected,
   onSelect, onListingQueued, optimizerEnabled }: {
   item: Listing; canPick: boolean; busy: boolean;
@@ -414,6 +458,9 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
       {item.tm === "no_match" && <small className="etsy-tm-disclaimer">
         No matches found in source data; this does not mean trademark clearance.
       </small>}
+      <ReviewAssessmentBadge audit={item.reviewAssessment ?? item.metadata?.reviewAssessment}
+        itemReviews={item.itemReviews} cartLowerBound={item.cartLowerBound}
+        inCarts={item.inCarts} />
     </div>
     {expanded && hasMarks && <EvidenceMarks matches={tmMatches} />}
     </td>

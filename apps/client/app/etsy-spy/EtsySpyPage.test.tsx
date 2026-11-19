@@ -18,6 +18,7 @@ vi.mock("../../features/access_management", () => ({
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const observed: string[] = [];
 let blockedTerms: string[] = [];
+let reviewAuditProjection: Record<string, unknown> | null = null;
 let registeredImageAgents: Array<{id: string; name: string; active: boolean; last_seen_at: string | null}> = [];
 let savedWinKeywords: string[] = [];
 let parentKeywords: Array<{keyword: string; keywordKey: string; priority: number;
@@ -275,7 +276,8 @@ function installFetch() {
         url: "https://www.etsy.com/listing/333/christmas-reindeer",
       };
       const visible = [
-        listing, popularNoMatch, deadListing, ...(newSpyListingSynced ? [newlySynced] : []),
+        {...listing, reviewAssessment:reviewAuditProjection}, popularNoMatch, deadListing,
+        ...(newSpyListingSynced ? [newlySynced] : []),
       ].filter(x =>
         pickState === "picked" ? pickedKeys.has(x.listingKey)
         : pickState === "later" ? laterSeedKeys.has(x.listingKey) && !pickedKeys.has(x.listingKey)
@@ -323,10 +325,34 @@ afterEach(async () => {
   await act(async () => {root?.unmount();});
   container?.remove(); container=null; root=null;
   vi.unstubAllGlobals();
+  reviewAuditProjection = null;
   vi.mocked(fetchAccessIdentity).mockResolvedValue({permissions: ["etsy_spy.read"]} as never);
 });
 
 describe("Etsy Spy native CAM dashboard", () => {
+  it("shows a source-only item-review recommendation beside the Etsy demand badge", async () => {
+    reviewAuditProjection = {
+      version:1,source:"etsy_item_reviews_modal",status:"observed",
+      verdict:"skip",label:"Không nên lấy",reason:"Nhiều phản ánh về chất lượng",
+      itemReviews:38,average:4.6,sampled:25,pages:5,positive:20,negative:5,
+      concerns:[{key:"quality",label:"Chất lượng/vải",count:2}],
+      evidence:[{stars:1,text:"Shirt quality was not good"}],
+    };
+    await start();
+    const audit = container?.querySelector<HTMLDetailsElement>(
+      'details[data-review-verdict="skip"]');
+    expect(audit).toBeTruthy();
+    expect(audit?.querySelector("summary")?.textContent).toContain("Không nên lấy");
+    await act(async () => {
+      audit?.querySelector("summary")?.click();
+    });
+    expect(audit?.open).toBe(true);
+    expect(audit?.textContent).toContain("25 review đã đọc");
+    expect(audit?.textContent).toContain("Chất lượng/vải");
+    expect(audit?.textContent).toContain("Shirt quality was not good");
+    expect(audit?.textContent).toContain("không tự Pick/Later");
+  });
+
   it("keeps date filters mounted while collapsing the adaptive explorer", async () => {
     await start({initialUrl: "/etsy-spy?tab=products&observed_day=all"});
     const toggle = container?.querySelector<HTMLButtonElement>(".etsy-facet-toggle");

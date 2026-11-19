@@ -240,6 +240,61 @@ def test_agent_review_shop_first20_carts_item_reviews_are_source_owned(scenario)
     assert db.query(EtsySpyReviewReceipt).count() == 1
 
 
+def test_item_review_assessment_p143_is_source_only_and_preserves_history(scenario):
+    client, db, _ = scenario
+    agent, headers = pair(client, db)
+    source = batch(batch_id="review-p143-001", title="Vintage Merry Sweatshirt")
+    listing = source["records"]["listings"][0]
+    listing.update({
+        "keyword": "Vintage Merry Sweatshirt", "sourceKind": "shop",
+        "sourceKinds": ["shop"], "badge": None, "searchBadge": None,
+        "views24h": None, "inCarts": 20, "cartLowerBound": True,
+        "itemReviews": 38, "shopPosition": 4,
+        "sourceShopUrl": "https://www.etsy.com/shop/HolidayStudio",
+        "reviewAssessment": {
+            "source": "etsy_item_reviews_modal", "status": "observed",
+            "verdict": "skip", "reason": "Repeated quality complaints",
+            "itemReviews": 38, "average": 4.6,
+            "sampled": 25, "pages": 5, "positive": 20, "negative": 5,
+            "concerns": [{"key": "quality", "label": "Chất lượng/vải", "count": 2}],
+            "evidence": [{"stars": 1, "text": "Quality was poor"}],
+        },
+    })
+    assert sync(client, agent, headers, source).status_code == 200
+    rows = client.get("/api/v1/etsy-spy/listings?pick_state=eligible").json()["items"]
+    assert len(rows) == 1
+    assert rows[0]["itemReviews"] == 38
+    assert rows[0]["cartLowerBound"] is True
+    assert rows[0]["reviewAssessment"]["verdict"] == "skip"
+    assert rows[0]["reviewAssessment"]["average"] == 4.6
+    assert rows[0]["reviewAssessment"]["concerns"][0]["count"] == 2
+    assert rows[0]["picked"] is False
+    assert db.query(EtsySpyPicked).count() == 0
+    assert db.query(EtsySpyLaterSeed).count() == 0
+    # Later old clients must not delete verified product-level review evidence.
+    repeat = batch(batch_id="review-p143-002", title="Vintage Merry Sweatshirt")
+    repeat["records"]["listings"][0].update({
+        k: v for k, v in listing.items() if k != "reviewAssessment"
+    })
+    repeat["records"]["listings"][0]["updatedAt"] = "2026-11-20T01:00:00Z"
+    assert sync(client, agent, headers, repeat).status_code == 200
+    retained = client.get("/api/v1/etsy-spy/listings").json()["items"][0]
+    assert retained["reviewAssessment"]["verdict"] == "skip"
+    # Shop aggregate metadata must never forge a review assessment.
+    fabricated = batch(batch_id="review-p143-003", title="Vintage Theme Hoodie")
+    fabricated["records"]["listings"][0].update({
+        **{k: v for k, v in listing.items() if k != "reviewAssessment"},
+        "listingKey": "2222222222",
+        "url": "https://www.etsy.com/listing/2222222222/hoodie",
+        "reviewAssessment": {**listing["reviewAssessment"],
+                             "source": "shop_aggregate_reviews"},
+    })
+    assert sync(client, agent, headers, fabricated).status_code == 200
+    products = client.get("/api/v1/etsy-spy/listings").json()["items"]
+    untrusted = next(x for x in products if x["listingKey"] == "2222222222")
+    assert untrusted["reviewAssessment"] is None
+
+
 def test_sms_receipt_projection_picked_only_and_immutable_sent(scenario):
     client, db, principal = scenario
     agent, headers = pair(client, db)

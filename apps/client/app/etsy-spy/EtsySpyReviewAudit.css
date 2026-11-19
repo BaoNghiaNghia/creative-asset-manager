@@ -1,0 +1,36 @@
+.etsy-review-proof {position:relative;max-width:210px;font-size:11px}
+.etsy-review-proof summary,.etsy-review-proof-waiting {
+ display:inline-flex;align-items:center;min-height:25px;max-width:210px;
+ box-sizing:border-box;border:1px solid var(--border-muted,#c5cdd8);
+ border-radius:7px;padding:4px 9px;background:var(--surface-raised,#fff);
+ color:var(--text-primary,#263443);font-size:11px;font-weight:650;
+ line-height:1.3;cursor:pointer;
+}
+.etsy-review-proof summary {list-style:none}
+.etsy-review-proof summary::-webkit-details-marker {display:none}
+.etsy-review-proof.verdict-take summary {border-color:#91b9a0;color:#27674a}
+.etsy-review-proof.verdict-review summary {border-color:#d1b47e;color:#9a6b21}
+.etsy-review-proof.verdict-skip summary {border-color:#c89e9e;color:#993f43}
+.etsy-review-proof-waiting {cursor:default;color:#7b808d}
+.etsy-review-proof-details {
+ position:absolute;z-index:45;top:calc(100% + 5px);left:0;
+ box-sizing:border-box;width:min(350px,calc(100vw - 45px));
+ max-height:390px;overflow-y:auto;padding:12px;
+ border:1px solid var(--border-muted,#c8ced6);border-radius:10px;
+ background:var(--surface-raised,#fff);color:var(--text-primary,#263443);
+ box-shadow:0 8px 27px #0002;font-size:12px;
+}
+.etsy-review-proof-details p {margin:6px 0;line-height:1.35}
+.etsy-review-proof-details small {display:block;color:#6c7280;font-size:11px;line-height:1.35}
+.etsy-review-proof-concerns,.etsy-review-proof-samples {
+ display:flex;flex-direction:column;gap:5px;margin:10px 0;
+}
+.etsy-review-proof-concerns strong,.etsy-review-proof-samples strong {font-size:11px}
+.etsy-review-proof-concerns span {display:block}
+.etsy-review-proof-samples blockquote {
+ display:flex;flex-direction:column;gap:3px;margin:0;
+ border-left:2px solid #bec8d1;padding-left:9px;line-height:1.35;
+ overflow-wrap:anywhere;font-weight:400;
+}
+.etsy-review-proof-samples blockquote span {font-weight:650;color:#656d77}
+@media(max-width:650px){.etsy-review-proof-details{left:auto;right:0;width:min(320px,90vw)}}
