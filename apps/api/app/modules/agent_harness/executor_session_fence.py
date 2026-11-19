@@ -98,7 +98,9 @@ def session_fence_shape(payload: Any, *, attempt_count: int) -> str:
     A server observer cannot authenticate the bound UUID without the client's
     presented session. Never return a digest, device ID or positive free slots.
     """
-    if not isinstance(payload, dict) or SESSION_FENCE_FIELD not in payload:
+    if not isinstance(payload, dict):
+        return "malformed"
+    if SESSION_FENCE_FIELD not in payload:
         return "legacy_unbound"
     record = payload[SESSION_FENCE_FIELD]
     if (not isinstance(record, dict) or set(record) != _KEYS or

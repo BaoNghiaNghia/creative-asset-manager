@@ -87,7 +87,7 @@ def test_read_only_session_fence_shape_never_authenticates_or_exposes_uuid():
     payload = {SESSION_FENCE_FIELD: fence}
     assert session_fence_shape(payload, attempt_count=2) == "structurally_bound"
     assert session_fence_shape({}, attempt_count=2) == "legacy_unbound"
-    assert session_fence_shape(None, attempt_count=2) == "legacy_unbound"
+    assert session_fence_shape(None, attempt_count=2) == "malformed"
     assert session_fence_shape(payload, attempt_count=3) == "attempt_mismatch"
     assert session_fence_shape({SESSION_FENCE_FIELD: None}, attempt_count=2) == "malformed"
     assert session_fence_shape(
