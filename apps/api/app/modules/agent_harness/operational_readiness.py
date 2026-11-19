@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import os
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, not_, or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.processing.model import ProcessingJobModel
@@ -64,9 +64,58 @@ def collect_processing_queue_counts(session: Session, *, tenant_id: str) -> dict
     return counts
 
 
+def collect_processing_lease_health(
+    session: Session, *, tenant_id: str, now: datetime | None = None,
+) -> dict[str, int | str]:
+    """Aggregate active, expired and invalid claims from existing processing_jobs.
+
+    One tenant-bound SELECT; no job bodies, IDs, writes, recovery action, new
+    storage or assumed executor capacity. A snapshot cannot reserve a slot.
+    """
+    clock = now or datetime.now(timezone.utc)
+    if clock.tzinfo is None:
+        clock = clock.replace(tzinfo=timezone.utc)
+    else:
+        clock = clock.astimezone(timezone.utc)
+    invalid_claim = or_(
+        ProcessingJobModel.claimed_by.is_(None),
+        ProcessingJobModel.claimed_at.is_(None),
+        ProcessingJobModel.lease_expires_at.is_(None),
+        ProcessingJobModel.claimed_at > clock,
+        ProcessingJobModel.lease_expires_at <= ProcessingJobModel.claimed_at,
+    )
+    expired_claim = and_(
+        not_(invalid_claim), ProcessingJobModel.lease_expires_at <= clock,
+    )
+    statement = select(
+        func.count(ProcessingJobModel.id),
+        func.count(ProcessingJobModel.id).filter(invalid_claim),
+        func.count(ProcessingJobModel.id).filter(expired_claim),
+    ).where(
+        ProcessingJobModel.tenant_id == tenant_id,
+        ProcessingJobModel.status == "processing",
+    )
+    observed, invalid, expired = session.execute(statement).one()
+    total = max(0, int(observed or 0))
+    invalid_count = max(0, int(invalid or 0))
+    expired_count = max(0, int(expired or 0))
+    # Never manufacture positive "free" capacity from this observation.
+    consistent = invalid_count + expired_count <= total
+    return {
+        "state": "observed" if consistent else "inconsistent",
+        "observed_processing": total,
+        "invalid_claims": invalid_count,
+        "expired_leases": expired_count,
+        "valid_live_leases": (
+            total - invalid_count - expired_count if consistent else 0
+        ),
+    }
+
+
 def summarize_readiness(*, tenant_id: str, settings: object,
                         open_jobs: dict[str, int],
-                        disk: dict[str, object]) -> dict[str, Any]:
+                        disk: dict[str, object],
+                        lease_health: dict[str, int | str] | None = None) -> dict[str, Any]:
     """Explain missing execution gates, without granting any permissions."""
     emergency = bool(getattr(settings, "AI_EMERGENCY_STOP_ENABLED", False))
     execution_configured = bool(getattr(settings, "AGENT_HARNESS_EXECUTION_ENABLED", False))
@@ -82,6 +131,15 @@ def summarize_readiness(*, tenant_id: str, settings: object,
         blockers.insert(0, "global_emergency_stop")
     if not bool(disk.get("sufficient_for_canary")):
         blockers.insert(0, "disk_headroom_unverified_or_low")
+    lease = lease_health or {}
+    lease_state = lease.get("state", "unverified")
+    observed_leases = lease_state == "observed"
+    invalid_count = int(lease.get("invalid_claims", 0)) if observed_leases else 0
+    expired_count = int(lease.get("expired_leases", 0)) if observed_leases else 0
+    if not observed_leases:
+        blockers.insert(0, "processing_lease_health_unverified")
+    elif invalid_count or expired_count:
+        blockers.insert(0, "processing_claims_require_recovery")
     return {
         "tenant_id": tenant_id,
         "as_of": datetime.now(timezone.utc).isoformat(),
@@ -94,6 +152,15 @@ def summarize_readiness(*, tenant_id: str, settings: object,
         },
         "processing_jobs": {
             name: int(open_jobs.get(name, 0)) for name in _OPEN_STATUSES
+        },
+        "processing_lease_health": {
+            "state": lease_state if lease_state in ("observed", "inconsistent") else "unverified",
+            "observed_processing": int(lease.get("observed_processing", 0)) if observed_leases else None,
+            "invalid_claims": invalid_count if observed_leases else None,
+            "expired_leases": expired_count if observed_leases else None,
+            "valid_live_leases": int(lease.get("valid_live_leases", 0)) if observed_leases else None,
+            "reservation_created": False,
+            "dispatch_allowed": False,
         },
         "feedback": {
             "capture_configured": feedback_capture,

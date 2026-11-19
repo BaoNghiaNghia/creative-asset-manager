@@ -36,7 +36,8 @@ from .model import AgentExperienceModel, AgentHoldoutStudyModel, AgentHoldoutAss
 from .job_lease_preview import observe_processing_lease
 from .external_capacity import preview_image_agent_capacity
 from .operational_readiness import (
-    collect_processing_queue_counts, disk_headroom, summarize_readiness,
+    collect_processing_queue_counts, collect_processing_lease_health,
+    disk_headroom, summarize_readiness,
 )
 from .idle_attestation import idle_attestation_enabled, verify_idle_attestation
 from .external_heartbeat import (
@@ -853,6 +854,7 @@ def read_agent_harness_operational_readiness(
         tenant_id=tenant_id,
         settings=get_settings(),
         open_jobs=collect_processing_queue_counts(db, tenant_id=tenant_id),
+        lease_health=collect_processing_lease_health(db, tenant_id=tenant_id),
         disk=disk_headroom(),
     )
 

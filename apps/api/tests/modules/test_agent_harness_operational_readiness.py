@@ -1,4 +1,5 @@
 """Read-only CAM Harness P0 operational baseline; no migration or backup."""
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -107,6 +108,67 @@ def test_status_query_is_tenant_scoped_and_aggregate_only():
     assert "processing_jobs" in sql
 
 
+def test_processing_lease_health_is_single_tenant_scoped_aggregate():
+    from sqlalchemy.dialects import postgresql
+
+    class LeaseSession:
+        def __init__(self):
+            self.queries = []
+
+        def execute(self, query):
+            self.queries.append(query)
+            return SimpleNamespace(one=lambda: (7, 1, 2))
+
+    db = LeaseSession()
+    result = ops.collect_processing_lease_health(
+        db, tenant_id="boostgame",
+        now=datetime(2026, 11, 19, 11, 0, tzinfo=timezone.utc),
+    )
+    assert result == {
+        "state": "observed", "observed_processing": 7,
+        "invalid_claims": 1, "expired_leases": 2,
+        "valid_live_leases": 4,
+    }
+    assert len(db.queries) == 1
+    sql = str(db.queries[0].compile(dialect=postgresql.dialect()))
+    assert "processing_jobs.tenant_id" in sql
+    assert "processing_jobs.status" in sql
+    assert "FILTER" in sql and "count(" in sql
+    assert "FOR UPDATE" not in sql
+    assert "INSERT" not in sql and "UPDATE" not in sql
+    assert "payload_json" not in sql
+
+
+def test_processing_lease_health_blocks_unsafe_claims_without_dispatch():
+    value = summarize_readiness(
+        tenant_id="boostgame",
+        settings=settings(AGENT_HARNESS_EXECUTION_ENABLED=True),
+        open_jobs={"processing": 7},
+        disk={"state": "advisory_headroom", "sufficient_for_canary": True},
+        lease_health={
+            "state": "observed", "observed_processing": 7,
+            "invalid_claims": 1, "expired_leases": 2,
+            "valid_live_leases": 4,
+        },
+    )
+    assert "processing_claims_require_recovery" in value["blockers"]
+    assert "processing_lease_health_unverified" not in value["blockers"]
+    assert value["processing_lease_health"]["expired_leases"] == 2
+    assert value["processing_lease_health"]["valid_live_leases"] == 4
+    assert value["executor"]["dispatch_allowed"] is False
+    assert value["processing_lease_health"]["reservation_created"] is False
+
+
+def test_missing_lease_evidence_fails_closed():
+    value = summarize_readiness(
+        tenant_id="boostgame", settings=settings(),
+        open_jobs={"processing": 0},
+        disk={"state": "advisory_headroom", "sufficient_for_canary": True},
+    )
+    assert "processing_lease_health_unverified" in value["blockers"]
+    assert value["processing_lease_health"]["invalid_claims"] is None
+
+
 def test_admin_endpoint_is_flagged_tenant_scoped_and_never_writes(monkeypatch):
     db = StubSession()
     cfg = settings()
@@ -120,6 +182,10 @@ def test_admin_endpoint_is_flagged_tenant_scoped_and_never_writes(monkeypatch):
     app.dependency_overrides[require_authenticated_principal] = lambda: actor
     app.dependency_overrides[get_db] = lambda: db
     monkeypatch.setattr(module, "get_settings", lambda: cfg)
+    monkeypatch.setattr(module, "collect_processing_lease_health", lambda db, tenant_id: {
+        "state": "observed", "observed_processing": 3,
+        "invalid_claims": 0, "expired_leases": 0, "valid_live_leases": 3,
+    })
     monkeypatch.setattr(module, "disk_headroom", lambda: {
         "state": "advisory_headroom", "available_mib": 6550,
         "used_percent": 86.3, "sufficient_for_canary": True,
