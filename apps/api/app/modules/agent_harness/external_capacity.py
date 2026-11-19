@@ -19,6 +19,7 @@ from app.modules.processing.model import ProcessingJobModel
 from .external_heartbeat import (
     EVIDENCE_FIELD, inspect_completed_heartbeat, observe_external_heartbeat,
 )
+from .executor_session_fence import session_fence_shape
 
 _JOB_TYPE = "etsy_design_extract"
 _DEVICE_LIMIT = 20
@@ -65,6 +66,17 @@ def preview_image_agent_capacity(
             "sample_truncated": False,
         },
         "max_advisory_slots_per_device": 1,
+        "session_fence_evidence": {
+            "observation_kind": "structural_shape_only",
+            "live_structurally_bound": 0,
+            "live_legacy_unbound": 0,
+            "live_malformed": 0,
+            "live_attempt_mismatch": 0,
+            "independent_browser_session_verified": False,
+            "reservation_created": False,
+            "verified_free_slots": 0,
+            "dispatch_allowed": False,
+        },
         "verified_free_slots": 0,
         "reservation_created": False,
         "dispatch_allowed": False,
@@ -127,6 +139,10 @@ def preview_image_agent_capacity(
         owned_live = 0
         signed_live = 0
         stale_claims = 0
+        session_counts = {
+            "structurally_bound": 0, "legacy_unbound": 0,
+            "malformed": 0, "attempt_mismatch": 0,
+        }
         for job in claims:
             expiry = _utc(job.lease_expires_at)
             claim_at = _utc(job.claimed_at)
@@ -138,6 +154,10 @@ def preview_image_agent_capacity(
                 stale_claims += 1
                 continue
             owned_live += 1
+            shape = session_fence_shape(
+                job.payload_json, attempt_count=job.attempt_count)
+            session_counts[shape] += 1
+            response["session_fence_evidence"]["live_" + shape] += 1
             if heartbeat_enabled and signing_key is not None:
                 verified = observe_external_heartbeat(
                     job, signing_key=signing_key,
@@ -162,6 +182,7 @@ def preview_image_agent_capacity(
             "live_leases": owned_live,
             "expired_or_cancelled_leases": stale_claims,
             "fresh_signed_leases": signed_live,
+            "session_fence_shape_counts": session_counts,
             "capacity_state": state,
             "verified_free_slots": 0,
             "dispatch_allowed": False,

@@ -92,6 +92,28 @@ def session_fence_matches(
     )
 
 
+def session_fence_shape(payload: Any, *, attempt_count: int) -> str:
+    """Privacy-safe read-only classification, NOT cryptographic proof.
+
+    A server observer cannot authenticate the bound UUID without the client's
+    presented session. Never return a digest, device ID or positive free slots.
+    """
+    if not isinstance(payload, dict) or SESSION_FENCE_FIELD not in payload:
+        return "legacy_unbound"
+    record = payload[SESSION_FENCE_FIELD]
+    if (not isinstance(record, dict) or set(record) != _KEYS or
+        record.get("protocol") != _PROTOCOL or
+        type(record.get("attempt_count")) is not int or
+        record["attempt_count"] < 1 or
+        not isinstance(record.get("session_digest"), str) or
+        len(record["session_digest"]) != 64 or
+        any(c not in "0123456789abcdef" for c in record["session_digest"])):
+        return "malformed"
+    if type(attempt_count) is not int or record["attempt_count"] != attempt_count:
+        return "attempt_mismatch"
+    return "structurally_bound"
+
+
 def bind_session_fence(
     payload: Any, *, tenant_id: str, agent_id: str, job_id: str,
     attempt_count: int, session_id: str | None,

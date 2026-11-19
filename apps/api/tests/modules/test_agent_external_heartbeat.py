@@ -213,6 +213,9 @@ def test_capacity_preview_is_tenant_scoped_and_never_reserves_slots(setup):
     assert original["device_count"] == 1
     assert original["active_claim_count"] == 1
     assert original["authenticated_live_claim_count"] == 0
+    assert original["session_fence_evidence"]["live_legacy_unbound"] == 1
+    assert original["session_fence_evidence"]["live_structurally_bound"] == 0
+    assert original["session_fence_evidence"]["dispatch_allowed"] is False
     assert original["verified_free_slots"] == 0
     assert original["dispatch_allowed"] is False
     assert original["reservation_created"] is False
@@ -245,6 +248,47 @@ def test_capacity_preview_is_tenant_scoped_and_never_reserves_slots(setup):
     assert after["verified_free_slots"] == 0
     assert after["dispatch_allowed"] is False
     assert "signature" not in str(after)
+
+
+def test_capacity_session_shape_is_read_only_and_never_verifies_browser_slot(setup):
+    from app.modules.agent_harness.executor_session_fence import (
+        SESSION_FENCE_FIELD, issue_session_fence,
+    )
+
+    s = setup
+    url = ("/api/v1/admin/agent-harness/boostgame/external-executors/"
+           "etsy-image/capacity-preview")
+    fence = issue_session_fence(
+        tenant_id="boostgame", agent_id=s.agent.id, job_id=s.job.id,
+        attempt_count=s.job.attempt_count, session_id=str(uuid4()),
+    )
+    s.job.payload_json = {SESSION_FENCE_FIELD: fence}
+    s.db.commit()
+    bound = s.client.get(url)
+    assert bound.status_code == 200
+    observed = bound.json()["session_fence_evidence"]
+    assert observed["live_structurally_bound"] == 1
+    assert observed["live_legacy_unbound"] == 0
+    assert observed["independent_browser_session_verified"] is False
+    assert observed["verified_free_slots"] == 0
+    assert observed["reservation_created"] is False
+    assert observed["dispatch_allowed"] is False
+    assert "session_digest" not in bound.text
+    assert fence["session_digest"] not in bound.text
+    assert s.agent.id not in bound.text
+
+    s.job.attempt_count += 1
+    s.db.commit()
+    mismatch = s.client.get(url).json()["session_fence_evidence"]
+    assert mismatch["live_attempt_mismatch"] == 1
+    assert mismatch["live_structurally_bound"] == 0
+
+    s.job.payload_json = {SESSION_FENCE_FIELD: {"unexpected": True}}
+    s.db.commit()
+    malformed = s.client.get(url).json()["session_fence_evidence"]
+    assert malformed["live_malformed"] == 1
+    assert malformed["live_structurally_bound"] == 0
+    assert malformed["dispatch_allowed"] is False
 
 
 def test_historical_proof_survives_expiry_but_not_bad_completion(setup):
