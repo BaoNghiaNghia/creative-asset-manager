@@ -20,11 +20,16 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
-from .model import EtsySpyListingImage as ListingImage, EtsySpyPicked as Picked
+from .model import (
+    EtsySpyListingImage as ListingImage,
+    EtsySpyListingImageDeletion as DeletedListingImage,
+    EtsySpyPicked as Picked,
+)
 from .service import authenticate_agent
 
 listing_image_router = APIRouter(tags=["etsy-listing-images"])
 READ = require_permission("etsy_spy.read")
+MANAGE = require_permission("etsy_spy.manage")
 _LISTING = re.compile(r"^[0-9]{5,20}$")
 _PACK = re.compile(r"^sp-[0-9a-f]{40}$")
 _SHA = re.compile(r"^[0-9a-f]{64}$")
@@ -176,6 +181,11 @@ async def save_listing_output(
     elif revision_number is not None:
         raise HTTPException(422, "Main revision number requires previous SHA")
     key = (agent.tenant_id, listing, pack, slot)
+    # A previously deleted PNG is never re-imported from local receipts.
+    # A genuinely new image for this missing slot (new SHA) is permitted
+    # only through a later, explicit regeneration workflow.
+    if db.get(DeletedListingImage, (*key, sha)) is not None:
+        raise HTTPException(409, "Deleted Listing Image cannot be re-synced")
     previous = db.get(ListingImage, key)
     if previous is not None:
         if (previous.garment_code != garment or
@@ -236,6 +246,10 @@ async def save_listing_output(
     # a new visible gallery entry. Re-pick can restore its previous history.
     if db.get(Picked, (agent.tenant_id, listing)) is None:
         raise HTTPException(409, "Listing was unpicked during upload")
+    # Recheck after remote upload in case the operator deleted this exact
+    # PNG while the upload was in flight.
+    if db.get(DeletedListingImage, (*key, sha)) is not None:
+        raise HTTPException(409, "Deleted Listing Image cannot be re-synced")
     if replace_sha:
         changed = db.execute(update(ListingImage).where(
             ListingImage.tenant_id == agent.tenant_id,
@@ -311,6 +325,118 @@ def read_agent_listing_image_coverage(
     return {"protocol": "cam-picked-listing-image-coverage-v1",
             "complete": True, "coveredListingIds": sorted(set(keys)),
             "total": len(set(keys))}
+
+
+@listing_image_router.get("/image-agents/{agent_id}/listing-image-regeneration-pending")
+def read_pending_listing_image_regeneration(
+    agent_id: str, authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    """Read-only list of explicit user-deleted slots, for a future refill pass.
+
+    No automatic ImageGen job is started by deletion. A slot is pending only
+    if it is still Picked and no newly regenerated output occupies that slot.
+    """
+    agent = authenticate_agent(db, agent_id, authorization, image_only=True)
+    rows = db.scalars(select(DeletedListingImage).join(
+        Picked, (Picked.tenant_id == DeletedListingImage.tenant_id) &
+                (Picked.listing_key == DeletedListingImage.listing_key)
+    ).where(DeletedListingImage.tenant_id == agent.tenant_id)
+      .order_by(DeletedListingImage.deleted_at.desc()).limit(1001)).all()
+    if len(rows) > 1000:
+        raise HTTPException(409, "Too many pending Listing Image deletions")
+    pending = []
+    seen = set()
+    for row in rows:
+        key = (row.tenant_id, row.listing_key, row.pack_id, row.slot)
+        if key in seen or db.get(ListingImage, key) is not None:
+            continue
+        seen.add(key)
+        pending.append({
+            "listing_id": row.listing_key, "pack_id": row.pack_id,
+            "slot": row.slot, "deleted_sha256": row.output_sha256,
+        })
+    return {"protocol": "cam-listing-image-regeneration-pending-v1",
+            "auto_queued": False, "total": len(pending), "slots": pending}
+
+
+@listing_image_router.delete("/listings/{listing_key}/listing-images/{pack_id}/{slot}")
+async def delete_listing_image(
+    listing_key: str, pack_id: str, slot: int, sha256: str,
+    principal: CurrentPrincipal = Depends(MANAGE),
+    db: Session = Depends(get_db),
+):
+    """Delete exactly ONE selected image (both Drive PNG and thumbnail).
+
+    Never delete entire designs or folders. Only a user with Etsy Spy manage
+    rights in the active tenant can act. Compare-and-swap by output SHA
+    prevents a stale modal from deleting a newer regenerated image. Only
+    after remote deletion succeeds is the gallery row removed; old SHA
+    receipts are durably tombstoned for a later regeneration pass.
+    """
+    verified_identity(listing_key, pack_id, slot, expected_slots=13)
+    if not _SHA.fullmatch(sha256):
+        raise HTTPException(422, "Selected Listing Image SHA required")
+    tenant = principal.active_tenant_id
+    if db.get(Picked, (tenant, listing_key)) is None:
+        raise HTTPException(404, "Picked listing not found")
+    row = db.scalar(select(ListingImage).where(
+        ListingImage.tenant_id == tenant,
+        ListingImage.listing_key == listing_key,
+        ListingImage.pack_id == pack_id,
+        ListingImage.slot == slot,
+    ).with_for_update())
+    if row is None:
+        raise HTTPException(404, "Listing Image no longer exists")
+    if row.output_sha256 != sha256:
+        raise HTTPException(409, "Listing Image changed; refresh before deleting")
+    if db.get(DeletedListingImage, (tenant, listing_key, pack_id,
+                                    slot, sha256)) is not None:
+        raise HTTPException(409, "Listing Image already marked deleted")
+    # A provider may deduplicate content by its tracked asset ID. Never
+    # remove a Drive file referenced by another output or tenant.
+    target_ids = (row.drive_file_id, row.drive_thumbnail_id)
+    if not all(isinstance(value, str) and value for value in target_ids):
+        raise HTTPException(409, "Listing Image Drive file IDs missing")
+    references = db.scalar(select(func.count()).select_from(ListingImage).where(
+        or_(ListingImage.drive_file_id.in_(target_ids),
+            ListingImage.drive_thumbnail_id.in_(target_ids))))
+    if references != 1:
+        raise HTTPException(409, "Drive files have shared Listing Image references")
+
+    from .imagegen_drive import delete_listing_output_files_from_drive
+    try:
+        await delete_listing_output_files_from_drive(
+            tenant_id=tenant, pack_id=pack_id, slot=slot,
+            drive_file_id=row.drive_file_id,
+            drive_thumbnail_id=row.drive_thumbnail_id,
+            drive_folder_id=row.drive_folder_id,
+            drive_thumbnail_folder_id=row.drive_thumbnail_folder_id,
+            output_sha256=row.output_sha256,
+            thumbnail_sha256=row.thumbnail_sha256,
+        )
+    except Exception:
+        db.rollback()  # Never hide a local row when Drive failed.
+        raise
+    db.add(DeletedListingImage(
+        tenant_id=tenant, listing_key=listing_key, pack_id=pack_id,
+        slot=slot, output_sha256=sha256,
+    ))
+    db.delete(row)
+    # All other photos stay intact, but their old 10/13-role manifest can
+    # no longer describe a complete pack. Invalidate its DB pointer.
+    db.execute(update(ListingImage).where(
+        ListingImage.tenant_id == tenant,
+        ListingImage.listing_key == listing_key,
+        ListingImage.pack_id == pack_id,
+    ).values(drive_manifest_id=None))
+    db.commit()
+    return {
+        "ok": True, "deleted": True, "drive_deleted": True,
+        "packId": pack_id, "slot": slot, "sha256": sha256,
+        "regeneration": "pending_manual_or_later_queue",
+        "auto_regenerated": False,
+    }
 
 
 def listing_badges(db: Session, tenant_id: str, listing_keys: set[str]):
