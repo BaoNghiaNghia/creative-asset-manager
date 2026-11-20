@@ -62,17 +62,16 @@
    Thumbnails are gallery-size derivatives, never original PNGs. */
 .etsy-listing-image-overlay{
   position:fixed;inset:0;z-index:2147483000;display:flex;
-  align-items:center;justify-content:center;padding:8px;
+  align-items:center;justify-content:center;padding:clamp(16px,4vw,48px);
   box-sizing:border-box;background:rgba(31,32,38,.68);backdrop-filter:blur(2px);
 }
 .etsy-listing-image-overlay *{box-sizing:border-box}
 .etsy-listing-image-dialog,.etsy-listing-image-dialog.is-sparse{
   display:flex;flex-direction:column;overflow:hidden;min-width:0;
-  /* Use nearly all of the browser viewport like the reference screenshot.
-     The previous 820px height / 1420px width cap left a large unused area. */
-  width:min(1880px,100%);height:calc(100dvh - 16px);
-  max-height:calc(100dvh - 16px);
-  border-radius:12px;background:#fff;color:#302d36;
+  /* Compact centered modal with visible breathing space around the dialog. */
+  width:min(1160px,calc(100vw - 64px));height:min(76dvh,750px);
+  max-height:calc(100dvh - 48px);
+  border-radius:16px;background:#fff;color:#302d36;
   box-shadow:0 24px 100px rgba(12,17,28,.32);
 }
 .etsy-listing-image-dialog-head{
@@ -97,7 +96,7 @@
 .etsy-listing-image-body{flex:1;min-width:0;min-height:0;overflow:hidden}
 .etsy-listing-image-workspace,.etsy-listing-image-workspace.is-sparse{
   /* Slim filmstrip + dominant preview + compact SEO rail. */
-  display:grid;grid-template-columns:82px minmax(0,1fr) clamp(270px,21vw,320px);
+  display:grid;grid-template-columns:80px minmax(0,1fr) clamp(268px,24vw,310px);
   width:100%;height:100%;min-height:0;overflow:hidden;
 }
 /* Left: one portrait-oriented, independently scrolling filmstrip. */
@@ -143,8 +142,8 @@
 /* Middle: preview is centered like the Etsy primary product photograph. */
 .etsy-listing-image-preview{
   position:relative;grid-column:2;grid-row:1;display:flex;align-items:center;justify-content:center;
-  /* The preview is the hero; the inset used to waste visible image area. */
-  min-width:0;min-height:0;padding:5px;
+  /* Give the image a square stage bounded by the available card height. */
+  min-width:0;min-height:0;padding:10px;container-type:size;
   overflow:hidden;background:#f6f5f3;
 }
 .etsy-listing-image-nav{
@@ -158,11 +157,10 @@
 .etsy-listing-image-nav.is-next{right:clamp(12px,2vw,26px)}
 .etsy-listing-image-nav:hover{background:#fff;box-shadow:0 4px 18px rgba(30,26,30,.23)}
 .etsy-listing-image-nav:focus-visible{outline:2px solid #d47d50;outline-offset:2px}
-/* Let the photo occupy the entire central card instead of a fixed square
-   limited by dialog height. The cover mode minimizes lateral gutters;
-   users can switch to contain when they need to inspect every print edge. */
+/* One predictable preview mode: a square card that fits inside its panel. */
 .etsy-listing-image-review-frame{
-  position:relative;flex:1 1 auto;width:100%;height:100%;min-width:0;min-height:0;
+  position:relative;flex:none;width:min(100%,100cqh);aspect-ratio:1;
+  height:auto;max-height:100%;min-width:0;min-height:0;
   border-radius:7px;
   overflow:hidden;background:#eeece9;
   box-shadow:0 1px 5px rgba(35,30,25,.08);
@@ -172,25 +170,11 @@
   width:100%;height:100%;cursor:zoom-in;text-decoration:none;
 }
 .etsy-listing-image-fullsize img{
-  display:block;width:100%;height:100%;object-fit:cover;
-  object-position:center 35%;
+  display:block;width:100%;height:100%;object-fit:contain;
+  object-position:center;
   border-radius:9px;transform-origin:center center;will-change:transform;
   user-select:none;pointer-events:none;-webkit-user-drag:none;
 }
-.etsy-listing-image-review-frame[data-fit-mode="contain"] .etsy-listing-image-fullsize img{
-  object-fit:contain;object-position:center;
-}
-.etsy-listing-image-fit-toggle{
-  position:absolute;right:12px;bottom:12px;z-index:5;
-  display:inline-flex;align-items:center;justify-content:center;
-  min-width:77px;min-height:32px;padding:6px 10px;
-  border:1px solid rgba(255,255,255,.45);border-radius:8px;
-  background:rgba(40,39,43,.78);color:#fff;
-  font-size:11px;font-weight:750;line-height:1.2;cursor:pointer;
-  backdrop-filter:blur(4px);
-}
-.etsy-listing-image-fit-toggle:hover{background:#302c34}
-.etsy-listing-image-fit-toggle:focus-visible{outline:2px solid #fff;outline-offset:2px}
 .etsy-listing-image-fullsize.is-zoomed{cursor:grab;touch-action:none}
 .etsy-listing-image-fullsize.is-dragging{cursor:grabbing}
 .etsy-listing-image-fullsize:focus-visible{outline:3px solid #292630;outline-offset:-3px}
@@ -314,7 +298,8 @@
 /* Tablet: strip and preview remain side-by-side, SEO moves below. */
 @media(max-width:850px){
   .etsy-listing-image-dialog,.etsy-listing-image-dialog.is-sparse{
-    height:min(93dvh,950px);max-height:95dvh;
+    width:min(92vw,760px);height:min(84dvh,740px);
+    max-height:calc(100dvh - 36px);
   }
   .etsy-listing-image-body{overflow-y:auto;overscroll-behavior:contain}
   .etsy-listing-image-workspace,.etsy-listing-image-workspace.is-sparse{
@@ -323,7 +308,6 @@
   }
   .etsy-listing-image-library{grid-column:1;grid-row:1;max-height:54dvh}
   .etsy-listing-image-preview{grid-column:2;grid-row:1;max-height:54dvh}
-  .etsy-listing-image-review-frame{width:100%;height:100%}
   .etsy-listing-image-seo{
     grid-column:1/-1;grid-row:2;overflow:visible;max-height:none;
     padding:20px clamp(18px,4vw,36px) 6px;border-left:0;border-top:1px solid #e9e6e3;
@@ -334,19 +318,19 @@
 /* Phone: keep the image large; thumbnails become a horizontal touch rail
    instead of a tiny vertical column. SEO follows without nested scrolling. */
 @media(max-width:600px){
-  .etsy-listing-image-overlay{align-items:flex-end;padding:0}
+  .etsy-listing-image-overlay{align-items:center;padding:10px}
   .etsy-listing-image-dialog,.etsy-listing-image-dialog.is-sparse{
-    width:100%;height:95dvh;max-height:95dvh;border-radius:16px 16px 0 0;
+    width:calc(100vw - 20px);height:min(88dvh,720px);
+    max-height:calc(100dvh - 20px);border-radius:16px;
   }
   .etsy-listing-image-dialog-head{min-height:48px;padding:7px 14px}
   .etsy-listing-image-workspace,.etsy-listing-image-workspace.is-sparse{
     display:flex;flex-direction:column;height:auto;max-height:none;overflow:visible;
   }
   .etsy-listing-image-preview{
-    order:0;flex:none;width:100%;height:min(96vw,47dvh);
-    min-height:240px;padding:10px;
+    order:0;flex:none;width:100%;height:min(88vw,43dvh);
+    min-height:200px;padding:10px;
   }
-  .etsy-listing-image-review-frame{width:100%;height:100%}
   .etsy-listing-image-library{
     order:1;display:flex;align-items:flex-start;gap:12px;
     width:100%;max-height:none;min-height:0;padding:11px 12px;
