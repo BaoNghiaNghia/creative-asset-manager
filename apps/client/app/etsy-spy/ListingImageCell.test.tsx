@@ -118,7 +118,7 @@ describe("Listing Image saved output badges",()=>{
     expect(document.body.textContent).toContain("4 G500");
     expect(spy).not.toHaveBeenCalled();
   });
-  it("shows 1254px completed previews for review without claiming final QA",async()=>{
+  it("keeps 1254px preview selection working without rendering QA labels",async()=>{
     const lowResGallery:ListingImageGallery={
       ...gallery,groups:gallery.groups.map(group=>({
         ...group,images:group.images.map((image,i)=>i===0
@@ -132,13 +132,13 @@ describe("Listing Image saved output badges",()=>{
       mainThumbnailUrl:"/main-preview.png",
     }]});
     const badge=container.querySelector<HTMLButtonElement>(".etsy-listing-image-badge");
-    expect(badge?.textContent).toContain("QA");
-    expect(badge?.title).toContain("1 ảnh cần QA");
+    expect(badge?.textContent).not.toContain("QA");
+    expect(badge?.title).not.toContain("QA");
     await act(async()=>{badge?.click();});
     const dialog=document.querySelector<HTMLElement>('[role="dialog"]');
-    expect(dialog?.querySelector(".etsy-listing-image-review-notice")?.textContent)
-      .toContain("Cần QA · 1254×1254");
-    expect(dialog?.querySelectorAll(".etsy-listing-image-tile-review")).toHaveLength(1);
+    expect(dialog?.querySelector(".etsy-listing-image-review-notice")).toBeNull();
+    expect(dialog?.querySelectorAll(".etsy-listing-image-tile-review")).toHaveLength(0);
+    expect(dialog?.textContent).not.toContain("QA");
     expect(dialog?.querySelector(".etsy-listing-image-review-frame img")
       ?.getAttribute("src")).toContain("/1/preview");
     await act(async()=>{
@@ -233,8 +233,9 @@ describe("Listing Image saved output badges",()=>{
     ]);
     const seoPanel=document.querySelector<HTMLElement>(".etsy-listing-image-seo")!;
     expect(seoPanel.querySelector("h3")?.textContent).toBe("Ohio Varsity Graphic Tee");
-    expect(seoPanel.querySelector(".etsy-listing-image-seo-state")?.textContent)
-      .toBe("Cần kiểm duyệt");
+    expect(seoPanel.querySelector(".etsy-listing-image-seo-state")).toBeNull();
+    expect(seoPanel.textContent).not.toContain("QA");
+    expect(seoPanel.textContent).not.toContain("Cần kiểm duyệt");
     expect(seoPanel.querySelectorAll(".etsy-listing-image-seo-terms span")).toHaveLength(2);
     expect(seoPanel.querySelectorAll(".etsy-listing-image-seo-section li")).toHaveLength(2);
     expect(seoPanel.textContent).toContain("Chỉ là bản nháp · chưa xuất bản");

@@ -149,10 +149,6 @@ function ListingZoomPreview({ image, garmentCode }: {
       <ListingReviewPreview image={image}
         transform={`translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})`} />
       <span className="etsy-listing-image-open-icon" aria-hidden="true">↗</span>
-      {image.previewOnly && <span className="etsy-listing-image-review-notice"
-        role="status" title="Ảnh preview chưa đạt tiêu chuẩn native 2000px, cần QA trước khi sử dụng">
-        Cần QA · {image.width}×{image.height}
-      </span>}
     </a>
   </div>;
 }
@@ -163,7 +159,7 @@ type GalleryCache = { identity: string; until: number; value: ListingImageGaller
 const SEO_ACTIVE = new Set(["pending", "retry", "processing"]);
 const SEO_STATUS: Record<string, string> = {
   not_queued: "Chưa tạo", pending: "Đang chờ", retry: "Đang thử lại",
-  processing: "Đang tạo", needs_fact_check: "Cần kiểm duyệt",
+  processing: "Đang tạo",
   failed: "Tạo lỗi", cancelled: "Đã hủy",
 };
 
@@ -228,9 +224,10 @@ function TikTokSeoAside({ item }: { item: Listing }) {
   return <aside className="etsy-listing-image-seo" aria-label="TikTok SEO">
     <div className="etsy-listing-image-seo-topline">
       <span>TIKTOK SHOP · SEO</span>
-      <span className="etsy-listing-image-seo-state" data-seo-status={status}>
+      {status !== "needs_fact_check" && <span
+        className="etsy-listing-image-seo-state" data-seo-status={status}>
         {SEO_STATUS[status] || status}
-      </span>
+      </span>}
     </div>
     {title ? <section className="etsy-listing-image-seo-section is-title">
       <span className="etsy-listing-image-seo-label">Product title</span>
@@ -374,13 +371,10 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
           aria-label="Ảnh đã lưu theo mã áo">
           {badges.map(b => <button type="button"
             className="etsy-listing-image-badge" key={b.garmentCode}
-            title={b.count + " ảnh " + b.garmentCode + " đã lưu từ CAM Image Extension" +
-              (b.reviewCount ? " · " + b.reviewCount + " ảnh cần QA" : "")}
+            title={b.count + " ảnh " + b.garmentCode + " đã lưu từ CAM Image Extension"}
             aria-label={"Xem " + b.count + " ảnh Listing Image mẫu " + b.garmentCode}
             onClick={openGallery}>
             <span>{b.count}</span> {b.garmentCode}
-            {!!b.reviewCount && <span className="etsy-listing-image-review-badge"
-              aria-label={b.reviewCount + " ảnh cần QA"}>QA</span>}
           </button>)}
         </div>}
       </div>
@@ -430,8 +424,6 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
                           <span className="etsy-listing-image-slot" aria-hidden="true">
                             {String(image.slot).padStart(2, "0")}
                           </span>
-                          {image.previewOnly && <span className="etsy-listing-image-tile-review"
-                            title="Ảnh preview cần QA">QA</span>}
                         </button>)}
                       </div>
                     </div>;
