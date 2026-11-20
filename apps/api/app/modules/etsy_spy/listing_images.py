@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import json
 import re
 from collections import defaultdict
 
@@ -20,11 +21,17 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
-from .model import EtsySpyListingImage as ListingImage, EtsySpyPicked as Picked
+from .model import (
+    EtsySpyListingImage as ListingImage,
+    EtsySpyListingImageDeletion as ImageDeletion,
+    EtsySpyPicked as Picked,
+    utcnow,
+)
 from .service import authenticate_agent
 
 listing_image_router = APIRouter(tags=["etsy-listing-images"])
 READ = require_permission("etsy_spy.read")
+MANAGE = require_permission("etsy_spy.manage")
 _LISTING = re.compile(r"^[0-9]{5,20}$")
 _PACK = re.compile(r"^sp-[0-9a-f]{40}$")
 _SHA = re.compile(r"^[0-9a-f]{64}$")
@@ -79,6 +86,14 @@ async def _ensure_pack_manifest(
     Retries, including a lost ACK after the last upload, recreate neither
     images nor a manifest; they only reconcile the original immutable pack.
     """
+    # A Drive deletion still in progress must block manifest reconstruction.
+    if db.scalar(select(ImageDeletion).where(
+        ImageDeletion.tenant_id == tenant,
+        ImageDeletion.listing_key == listing,
+        ImageDeletion.pack_id == pack,
+        ImageDeletion.state == "pending",
+    ).limit(1)) is not None:
+        return None
     rows = db.scalars(select(ListingImage).where(
         ListingImage.tenant_id == tenant,
         ListingImage.listing_key == listing,
@@ -176,6 +191,18 @@ async def save_listing_output(
     elif revision_number is not None:
         raise HTTPException(422, "Main revision number requires previous SHA")
     key = (agent.tenant_id, listing, pack, slot)
+    # Exact SHA tombstones prevent old local ImageGen publisher receipts
+    # from re-uploading an image that a CAM user deliberately deleted.
+    if db.get(ImageDeletion, (*key, sha)) is not None:
+        raise HTTPException(410, "This Listing Image was deleted; create a new PNG")
+    if db.scalar(select(ImageDeletion).where(
+        ImageDeletion.tenant_id == agent.tenant_id,
+        ImageDeletion.listing_key == listing,
+        ImageDeletion.pack_id == pack,
+        ImageDeletion.slot == slot,
+        ImageDeletion.state == "pending",
+    ).limit(1)) is not None:
+        raise HTTPException(409, "Listing Image Drive deletion is still pending")
     previous = db.get(ListingImage, key)
     if previous is not None:
         if (previous.garment_code != garment or
@@ -232,10 +259,13 @@ async def save_listing_output(
         design_sha256=design_sha, placement=placement,
         garment_code=garment, expected_slots=expected_slots,
         **({"main_revision_number": revision_number} if replace_sha else {}))
-    # Recheck Picked after I/O to prevent a late unpick from authorizing
-    # a new visible gallery entry. Re-pick can restore its previous history.
+    # Recheck Picked and revocation after Drive I/O: a user may have
+    # requested deletion while these bytes were being uploaded.
     if db.get(Picked, (agent.tenant_id, listing)) is None:
         raise HTTPException(409, "Listing was unpicked during upload")
+    db.expire_all()
+    if db.get(ImageDeletion, (*key, sha)) is not None:
+        raise HTTPException(410, "Image deletion won while upload was running")
     if replace_sha:
         changed = db.execute(update(ListingImage).where(
             ListingImage.tenant_id == agent.tenant_id,
@@ -288,6 +318,153 @@ async def save_listing_output(
             "placement": placement, "storage_root_folder_id": _DRIVE_ROOT,
             "preview_only": review_only,
             "drive_manifest_id": manifest}
+
+
+@listing_image_router.delete("/listings/{listing_key}/listing-images/{pack_id}/{slot}")
+async def delete_saved_listing_image(
+    listing_key: str, pack_id: str, slot: int, request: Request,
+    principal: CurrentPrincipal = Depends(MANAGE),
+    db: Session = Depends(get_db),
+):
+    """Delete exactly one selected SHA from CAM AND Google Drive, with retries.
+
+    First durably revoke the exact SHA so a polling extension cannot recreate
+    the deleted image. Then remove the original, private thumbnail and shared
+    manifest (if any). Success is returned only after Drive confirms cleanup.
+    Folder, original design asset and other role images are never deleted.
+    """
+    if (not _LISTING.fullmatch(listing_key) or
+        not _PACK.fullmatch(pack_id) or not 1 <= slot <= 13):
+        raise HTTPException(422, "Invalid Listing Image selection")
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > 1024:
+            raise HTTPException(413, "Listing Image deletion receipt too large")
+    try:
+        payload = json.loads(body)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise HTTPException(422, "Invalid Listing Image deletion receipt") from exc
+    if not isinstance(payload, dict) or payload.get("confirm") is not True:
+        raise HTTPException(422, "Explicit Listing Image deletion confirmation required")
+    sha = payload.get("sha256")
+    if not isinstance(sha, str) or not _SHA.fullmatch(sha):
+        raise HTTPException(422, "Exact selected ImageGen SHA required")
+    tenant = principal.active_tenant_id
+    if db.get(Picked, (tenant, listing_key)) is None:
+        raise HTTPException(404, "Picked listing not found")
+    key = (tenant, listing_key, pack_id, slot)
+    row = db.get(ListingImage, key)
+    revocation = db.get(ImageDeletion, (*key, sha))
+    if row is not None and row.output_sha256 != sha:
+        raise HTTPException(409, "Selected Listing Image changed; refresh before deletion")
+    if revocation is not None and revocation.state == "deleted":
+        if row is not None:
+            raise HTTPException(409, "Listing Image deletion history is inconsistent")
+        return {"ok": True, "already_deleted": True,
+                "listingKey": listing_key, "packId": pack_id, "slot": slot,
+                "regenerationStatus": revocation.regeneration_status}
+    if revocation is None:
+        if row is None:
+            raise HTTPException(404, "Listing Image not found")
+        revocation = ImageDeletion(
+            tenant_id=tenant, listing_key=listing_key,
+            pack_id=pack_id, slot=slot, output_sha256=sha,
+            garment_code=row.garment_code, design_sha256=row.design_sha256,
+            source_sha256=row.source_sha256, placement=row.placement,
+            thumbnail_sha256=row.thumbnail_sha256,
+            drive_file_id=row.drive_file_id,
+            drive_thumbnail_id=row.drive_thumbnail_id,
+            drive_folder_id=row.drive_folder_id,
+            drive_thumbnail_folder_id=row.drive_thumbnail_folder_id,
+            drive_manifest_id=row.drive_manifest_id,
+            original_deleted=False, thumbnail_deleted=False,
+            manifest_deleted=row.drive_manifest_id is None,
+            state="pending", regeneration_status="waiting",
+        )
+        db.add(revocation)
+        db.commit()  # The SHA is revoked BEFORE the first Drive deletion.
+    elif row is not None and (
+        row.drive_file_id != revocation.drive_file_id or
+        row.drive_thumbnail_id != revocation.drive_thumbnail_id
+    ):
+        raise HTTPException(409, "Pending Drive deletion targets changed")
+
+    from .imagegen_drive import delete_listing_drive_object
+    targets = (
+        ("manifest_deleted", "manifest", revocation.drive_manifest_id,
+         revocation.drive_folder_id, None),
+        ("thumbnail_deleted", "thumbnail", revocation.drive_thumbnail_id,
+         revocation.drive_thumbnail_folder_id, revocation.thumbnail_sha256),
+        ("original_deleted", "original", revocation.drive_file_id,
+         revocation.drive_folder_id, revocation.output_sha256),
+    )
+    for field, kind, file_id, folder_id, content_sha in targets:
+        if getattr(revocation, field):
+            continue
+        if file_id is None:
+            setattr(revocation, field, True)
+        else:
+            await delete_listing_drive_object(
+                tenant_id=tenant, pack_id=pack_id, slot=slot,
+                kind=kind, remote_file_id=file_id,
+                folder_id=folder_id, sha256=content_sha)
+            setattr(revocation, field, True)
+        db.commit()  # Durable checkpoint allows safe 404-tolerant retry.
+
+    if not all((revocation.manifest_deleted, revocation.thumbnail_deleted,
+                revocation.original_deleted)):
+        raise HTTPException(503, "Listing Image Google Drive cleanup incomplete")
+    latest = db.get(ListingImage, key)
+    if latest is not None:
+        if latest.output_sha256 != sha:
+            raise HTTPException(409, "Selected Listing Image changed during deletion")
+        db.delete(latest)
+        db.flush()
+    # A prior completed pack manifest listed this role and is now invalid.
+    db.execute(update(ListingImage).where(
+        ListingImage.tenant_id == tenant,
+        ListingImage.listing_key == listing_key,
+        ListingImage.pack_id == pack_id,
+    ).values(drive_manifest_id=None))
+    revocation.state = "deleted"
+    revocation.regeneration_status = "pending"
+    revocation.completed_at = utcnow()
+    db.commit()
+    return {"ok": True, "deleted": True, "already_deleted": False,
+            "listingKey": listing_key, "packId": pack_id, "slot": slot,
+            "regenerationStatus": "pending"}
+
+
+@listing_image_router.get("/image-agents/{agent_id}/listing-image-regeneration-requests")
+def read_agent_listing_image_regeneration_requests(
+    agent_id: str, authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    """Read-only future regeneration backlog, never enqueues a generation job."""
+    agent = authenticate_agent(db, agent_id, authorization, image_only=True)
+    rows = db.scalars(select(ImageDeletion).join(
+        Picked, (Picked.tenant_id == ImageDeletion.tenant_id) &
+                (Picked.listing_key == ImageDeletion.listing_key)
+    ).where(
+        ImageDeletion.tenant_id == agent.tenant_id,
+        ImageDeletion.state == "deleted",
+        ImageDeletion.regeneration_status == "pending",
+    ).order_by(ImageDeletion.completed_at.asc()).limit(201)).all()
+    if len(rows) > 200:
+        raise HTTPException(409, "Too many pending deleted ImageGen roles")
+    requests = [
+        {"listingId": r.listing_key, "packId": r.pack_id, "slot": r.slot,
+         "garmentCode": r.garment_code, "designSha256": r.design_sha256,
+         "sourceSha256": r.source_sha256, "placement": r.placement,
+         "deletedOutputSha256": r.output_sha256}
+        for r in rows
+        if db.get(ListingImage,
+                  (agent.tenant_id, r.listing_key, r.pack_id, r.slot)) is None
+    ]
+    return {"protocol": "cam-deleted-listing-image-slots-v1",
+            "autoGenerate": False, "total": len(requests),
+            "requests": requests}
 
 
 @listing_image_router.get("/image-agents/{agent_id}/listing-image-coverage")
