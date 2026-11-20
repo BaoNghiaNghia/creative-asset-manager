@@ -406,7 +406,7 @@ async def delete_listing_image(
 
     from .imagegen_drive import delete_listing_output_files_from_drive
     try:
-        await delete_listing_output_files_from_drive(
+        remote_result = await delete_listing_output_files_from_drive(
             tenant_id=tenant, pack_id=pack_id, slot=slot,
             drive_file_id=row.drive_file_id,
             drive_thumbnail_id=row.drive_thumbnail_id,
@@ -415,6 +415,11 @@ async def delete_listing_image(
             output_sha256=row.output_sha256,
             thumbnail_sha256=row.thumbnail_sha256,
         )
+        if not isinstance(remote_result, dict) or (
+            remote_result.get("original_deleted") is not True or
+            remote_result.get("thumbnail_deleted") is not True
+        ):
+            raise HTTPException(503, "Drive deletion was not fully confirmed")
     except Exception:
         db.rollback()  # Never hide a local row when Drive failed.
         raise
