@@ -173,11 +173,18 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
     .sort((a,b) => Number(b.garmentCode === "C1717") -
                     Number(a.garmentCode === "C1717") ||
                     a.garmentCode.localeCompare(b.garmentCode));
-  const mainC1717Url = badges.find(b => b.garmentCode === "C1717" &&
-    typeof b.mainThumbnailUrl === "string")?.mainThumbnailUrl;
+  // Prefer a genuine C1717 Main when available; otherwise show a saved
+  // thumbnail from any position/model. A finished slot 02+ is still a
+  // visible ImageGen asset even while Main is pending publication.
+  const primaryBadge = badges.find(b => b.garmentCode === "C1717" &&
+    (b.mainThumbnailUrl || b.previewThumbnailUrl)) ||
+    badges.find(b => b.mainThumbnailUrl || b.previewThumbnailUrl);
+  const primaryUrl = primaryBadge?.mainThumbnailUrl || primaryBadge?.previewThumbnailUrl;
+  const isMain = Boolean(primaryBadge?.mainThumbnailUrl);
   const galleryIdentity = item.listingKey + "|" + badges.map(b =>
     b.garmentCode + ":" + b.count + ":" + (b.reviewCount || 0) +
-    ":" + (b.mainThumbnailUrl || "")).join("|");
+    ":" + (b.mainThumbnailUrl || "") + ":" +
+    (b.previewThumbnailUrl || "") + ":" + (b.previewSlot || "")).join("|");
   const selectedGarment = gallery?.groups.find(group => group.images.some(image =>
     image.packId === selected?.packId && image.sha256 === selected?.sha256))?.garmentCode;
 
@@ -228,14 +235,18 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
     <td className="etsy-listing-image-cell">
       <div className="etsy-listing-image-layout">
         <div className="etsy-listing-image-primary">
-          {mainC1717Url ? <button type="button"
+          {primaryUrl ? <button type="button"
             className="etsy-listing-image-main"
             onClick={openGallery}
-            aria-label={"Xem ảnh Main C1717 cho " + item.pageTitle}
-            title="C1717 · Ảnh Main đã tạo và lưu vào CAM ImageGen Designs">
-            <EtsyDeferredImage src={mainC1717Url} alt="Ảnh Main C1717" />
+            aria-label={"Xem " + (isMain ? "ảnh Main " : "ảnh ImageGen đã lưu ") +
+              primaryBadge?.garmentCode + " cho " + item.pageTitle}
+            title={primaryBadge?.garmentCode + (isMain
+              ? " · Ảnh Main đã lưu vào CAM" : " · Ảnh đã đồng bộ từ ImageGen Extension")}>
+            <EtsyDeferredImage src={primaryUrl}
+              alt={isMain ? "Ảnh Main " + primaryBadge?.garmentCode
+                : "Ảnh ImageGen " + primaryBadge?.garmentCode} />
           </button> : <span className="etsy-listing-image-pending"
-            title="Chưa có ảnh Main C1717 được đồng bộ từ Image Extension">Chưa có ảnh</span>}
+            title="Chưa nhận được ảnh đã lưu từ ImageGen Extension">Chưa đồng bộ ảnh</span>}
         </div>
         {badges.length > 0 && <div className="etsy-listing-image-badges"
           aria-label="Ảnh đã lưu theo mã áo">

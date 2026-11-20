@@ -75,13 +75,41 @@ describe("Listing Image saved output badges",()=>{
     ]});
     const layout = container.querySelector(".etsy-listing-image-layout");
     expect(layout?.querySelector(".etsy-listing-image-primary .etsy-listing-image-pending")?.textContent)
-      .toBe("Chưa có ảnh");
+      .toBe("Chưa đồng bộ ảnh");
     expect(layout?.querySelector(".etsy-listing-image-main")).toBeNull();
     const badges = Array.from(layout?.querySelectorAll(".etsy-listing-image-badges button") || []);
     expect(badges.map(button => button.textContent?.trim())).toEqual([
       "10 C1717", "6 G180", "2 G185", "3 G500",
     ]);
     expect(layout?.querySelector(".etsy-listing-image-badges")?.parentElement).toBe(layout);
+  });
+  it("shows saved partial C1717 output even before Main exists",()=>{
+    const partial={...item,listingImages:[{
+      garmentCode:"C1717",count:3,reviewCount:3,
+      previewThumbnailUrl:"/saved-c1717-slot02.png",
+      previewPackId:pack,previewSlot:2,
+    }]} as Listing;
+    mount(partial);
+    const main=container.querySelector<HTMLButtonElement>(".etsy-listing-image-main");
+    expect(main).not.toBeNull();
+    expect(main?.querySelector("img")?.getAttribute("src"))
+      .toBe("/saved-c1717-slot02.png");
+    expect(main?.getAttribute("aria-label")).toContain("ImageGen đã lưu C1717");
+    expect(main?.getAttribute("aria-label")).not.toContain("Main");
+    expect(container.textContent).not.toContain("Chưa đồng bộ ảnh");
+    expect(spy).not.toHaveBeenCalled();
+  });
+  it("shows saved G500 Main if C1717 still has no published preview",()=>{
+    mount({...item,listingImages:[
+      {garmentCode:"C1717",count:3},
+      {garmentCode:"G500",count:4,
+       mainThumbnailUrl:"/saved-g500-main.png",mainPackId:pack},
+    ]});
+    const trigger=container.querySelector<HTMLButtonElement>(".etsy-listing-image-main");
+    expect(trigger?.querySelector("img")?.getAttribute("src"))
+      .toBe("/saved-g500-main.png");
+    expect(trigger?.getAttribute("aria-label")).toContain("Main G500");
+    expect(spy).not.toHaveBeenCalled();
   });
   it("displays counts by garment without polling all listings",()=>{
     mount();

@@ -303,24 +303,33 @@ def listing_badges(db: Session, tenant_id: str, listing_keys: set[str]):
         counts[listing_key][garment] = {
             "garmentCode": garment, "count": int(quantity),
             "reviewCount": int(review_quantity or 0)}
-    mains = db.execute(select(
+    # The row thumbnail must represent any saved ImageGen output, even when
+    # slot 01 (Main) has not been uploaded yet. Previously only slot 01 was
+    # queried, leaving the Picked primary cell blank despite saved slots 02+.
+    # Keep the latest real Main separately for callers which require slot 01.
+    saved = db.execute(select(
         ListingImage.listing_key, ListingImage.garment_code,
-        ListingImage.pack_id, ListingImage.thumbnail_sha256,
+        ListingImage.pack_id, ListingImage.slot, ListingImage.thumbnail_sha256,
     ).where(ListingImage.tenant_id == tenant_id,
-            ListingImage.listing_key.in_(listing_keys),
-            ListingImage.slot == 1)
-      .order_by(ListingImage.created_at.desc(), ListingImage.pack_id.desc()))
-    for listing_key, garment, pack_id, thumbnail_sha in mains:
+            ListingImage.listing_key.in_(listing_keys))
+      .order_by(ListingImage.created_at.desc(), ListingImage.pack_id.desc(),
+                ListingImage.slot.asc()))
+    for listing_key, garment, pack_id, slot, thumbnail_sha in saved:
         badge = counts.get(listing_key, {}).get(garment)
-        if not badge or "mainPackId" in badge:
+        if not badge:
             continue
-        if not _PACK.fullmatch(pack_id) or not _SHA.fullmatch(thumbnail_sha):
-            raise HTTPException(409, "Invalid saved Main preview identity")
-        badge["mainThumbnailUrl"] = (
-            f"/api/v1/etsy-spy/listing-images/{pack_id}/1/thumbnail"
-            f"?v={thumbnail_sha[:12]}"
-        )
-        badge["mainPackId"] = pack_id
+        if (not _PACK.fullmatch(pack_id) or not _SHA.fullmatch(thumbnail_sha)
+                or not isinstance(slot, int) or not 1 <= slot <= 10):
+            raise HTTPException(409, "Invalid saved Listing Image preview identity")
+        url = (f"/api/v1/etsy-spy/listing-images/{pack_id}/{slot}/thumbnail"
+               f"?v={thumbnail_sha[:12]}")
+        if "previewThumbnailUrl" not in badge:
+            badge["previewThumbnailUrl"] = url
+            badge["previewPackId"] = pack_id
+            badge["previewSlot"] = slot
+        if slot == 1 and "mainThumbnailUrl" not in badge:
+            badge["mainThumbnailUrl"] = url
+            badge["mainPackId"] = pack_id
     return {key: [group[garment] for garment in sorted(
                 group, key=lambda code: (code != "C1717", code))]
             for key, group in counts.items()}

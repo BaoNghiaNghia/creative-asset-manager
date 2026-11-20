@@ -863,10 +863,16 @@ class AiOperationsApiTest(unittest.TestCase):
 
     def test_daily_provider_failure_and_filters(self):
         daily = self.get("/api/v1/admin/ai-operations/daily").json()["items"]
-        self.assertEqual(len(daily), 1)
-        self.assertEqual(daily[0]["requested"], 6)
-        self.assertEqual(daily[0]["reconciled_cost_micros"], 15)
-        self.assertEqual(daily[0]["provider_estimated_cost_micros"], {"gemini": 10, "openai": 50})
+        # The fixture may straddle UTC midnight when CI runs around 00:00.
+        # Verify totals across real daily buckets rather than assuming one day.
+        self.assertGreaterEqual(len(daily), 1)
+        self.assertEqual(sum(day["requested"] for day in daily), 6)
+        self.assertEqual(sum(day["reconciled_cost_micros"] for day in daily), 15)
+        provider_costs = {}
+        for day in daily:
+            for provider, amount in day["provider_estimated_cost_micros"].items():
+                provider_costs[provider] = provider_costs.get(provider, 0) + amount
+        self.assertEqual(provider_costs, {"gemini": 10, "openai": 50})
         providers = self.get("/api/v1/admin/ai-operations/providers").json()["items"]
         self.assertEqual({(item["provider"], item["processing_mode"]) for item in providers}, {
             ("gemini", "single"), ("openai", "batch"),
@@ -1003,7 +1009,9 @@ class AiOperationsApiTest(unittest.TestCase):
         )
 
     def test_summary_uses_canonical_current_job_states_and_latest_replacement(self):
-        today_start = self.now.replace(hour=0, minute=0, second=0, microsecond=0)
+        # The jobs below are created 1-5 minutes before self.now. Include
+        # them even when the fixture happens to cross UTC midnight.
+        window_start = self.now - timedelta(minutes=8)
         with self.factory() as session:
             session.add_all([
                 ProcessingJobModel(
@@ -1060,7 +1068,7 @@ class AiOperationsApiTest(unittest.TestCase):
 
         today = self.get(
             "/api/v1/admin/ai-operations/summary",
-            **{"from": today_start.isoformat(), "to": self.now.isoformat()},
+            **{"from": window_start.isoformat(), "to": self.now.isoformat()},
         ).json()
         self.assertEqual(today["completed"], 2)
         self.assertEqual(today["failed"], 1)

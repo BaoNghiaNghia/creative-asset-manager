@@ -104,7 +104,9 @@ def test_gallery_only_counts_saved_outputs_and_enforces_tenant(monkeypatch):
                 "1234567890":[{"garmentCode":"C1717","count":1,
                     "reviewCount":1,
                     "mainPackId":pack,
-                    "mainThumbnailUrl":f"/api/v1/etsy-spy/listing-images/{pack}/1/thumbnail?v={digest[:12]}"}]}
+                    "mainThumbnailUrl":f"/api/v1/etsy-spy/listing-images/{pack}/1/thumbnail?v={digest[:12]}",
+                    "previewPackId":pack, "previewSlot":1,
+                    "previewThumbnailUrl":f"/api/v1/etsy-spy/listing-images/{pack}/1/thumbnail?v={digest[:12]}"}]}
             gallery = client.get(gallery_url).json()
             assert gallery["total"] == 1
             assert gallery["groups"][0]["garmentCode"] == "C1717"
@@ -213,6 +215,46 @@ def test_gallery_only_counts_saved_outputs_and_enforces_tenant(monkeypatch):
             assert client.get(url).status_code == 404
             assert client.get(image["previewUrl"],
                 headers={"If-None-Match":webp_response.headers["etag"]}).status_code == 404
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_partial_imagegen_pack_is_visible_before_main_is_uploaded():
+    # Slot 02 can finish before the Main. The Picked cell must show a real
+    # saved thumbnail without pretending that slot 01 was published.
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False},
+                           poolclass=StaticPool)
+    Base.metadata.create_all(engine, tables=[
+        EtsySpyAgent.__table__, EtsySpyPicked.__table__,
+        EtsySpyListingImage.__table__])
+    db = Session(engine)
+    tenant, listing = "boostgame", "1234567890"
+    pack = "sp-" + "c" * 40
+    url = f"/api/v1/etsy-spy/listing-images/{pack}/2/thumbnail?v=" + "e" * 12
+    try:
+        db.add(EtsySpyPicked(tenant_id=tenant, listing_key=listing))
+        db.add(EtsySpyListingImage(
+            tenant_id=tenant, listing_key=listing, pack_id=pack,
+            slot=2, garment_code="G500",
+            design_sha256="a" * 64, source_sha256="b" * 64,
+            placement="front_center", output_sha256="d" * 64,
+            thumbnail_sha256="e" * 64,
+            drive_folder_id="oneFolderD12345",
+            drive_thumbnail_folder_id="thumbFolderD12345",
+            drive_file_id="remoteOriginal123456",
+            drive_thumbnail_id="remoteThumb123456",
+            native_width=1254, native_height=1254))
+        db.commit()
+        saved = listing_badges(db, tenant, {listing})
+        assert saved[listing] == [{
+            "garmentCode": "G500", "count": 1, "reviewCount": 1,
+            "previewPackId": pack, "previewSlot": 2,
+            "previewThumbnailUrl": url,
+        }]
+        assert listing_badges(db, "other-tenant", {listing}) == {}
+        assert listing_badges(db, tenant, {"5555555555"}) == {}
+        assert "mainThumbnailUrl" not in saved[listing][0]
     finally:
         db.close()
         engine.dispose()
