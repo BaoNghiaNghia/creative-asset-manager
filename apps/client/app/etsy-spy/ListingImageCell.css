@@ -67,7 +67,7 @@
 }
 .etsy-listing-image-overlay *{box-sizing:border-box}
 .etsy-listing-image-dialog,.etsy-listing-image-dialog.is-sparse{
-  display:flex;flex-direction:column;overflow:hidden;min-width:0;
+  position:relative;display:flex;flex-direction:column;overflow:hidden;min-width:0;
   width:min(1420px,100%);height:min(88dvh,820px);max-height:95dvh;
   border-radius:17px;background:#fff;color:#302d36;
   box-shadow:0 24px 100px rgba(12,17,28,.32);
