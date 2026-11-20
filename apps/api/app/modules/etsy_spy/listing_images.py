@@ -33,6 +33,7 @@ _DRIVE_ROOT = "1JdCzemUBcLhfro5IbOq5jPze7rdDIJMl"
 _GARMENTS = frozenset({"C1717", "G500", "G180", "G185"})
 _MAX_BODY = 112 * 1024 * 1024
 _MAX_PNG = 80 * 1024 * 1024
+_SUPPORTED_SLOT_COUNTS = frozenset({10, 13})
 
 
 def listing_preview_requires_review(width: int | None, height: int | None) -> bool:
@@ -40,9 +41,13 @@ def listing_preview_requires_review(width: int | None, height: int | None) -> bo
     return width is None or height is None or width < 2000 or height < 2000
 
 
-def verified_identity(listing_key: str, pack_id: str, slot: int, garment: str | None = None):
-    if not _LISTING.fullmatch(str(listing_key)) or not _PACK.fullmatch(str(pack_id)) \
-       or not isinstance(slot, int) or isinstance(slot, bool) or not 1 <= slot <= 10:
+def verified_identity(listing_key: str, pack_id: str, slot: int,
+                      garment: str | None = None, *, expected_slots: int = 10):
+    if (expected_slots not in _SUPPORTED_SLOT_COUNTS or
+        not _LISTING.fullmatch(str(listing_key)) or
+        not _PACK.fullmatch(str(pack_id)) or
+        not isinstance(slot, int) or isinstance(slot, bool) or
+        not 1 <= slot <= expected_slots):
         raise HTTPException(422, "Invalid ImageGen listing output identity")
     if garment is not None and garment not in _GARMENTS:
         raise HTTPException(422, "Invalid garment model")
@@ -67,9 +72,9 @@ async def _json_payload(request: Request):
 async def _ensure_pack_manifest(
     db: Session, tenant: str, listing: str, pack: str, garment: str,
     design_sha: str, source_sha: str, placement: str,
-    *, main_revision: bool = False,
+    *, main_revision: bool = False, expected_slots: int = 10,
 ) -> str | None:
-    """Manifest is written only after ten distinct SHA-bound saved slots.
+    """Manifest requires all ten legacy or thirteen V13 saved slots.
 
     Retries, including a lost ACK after the last upload, recreate neither
     images nor a manifest; they only reconcile the original immutable pack.
@@ -79,9 +84,9 @@ async def _ensure_pack_manifest(
         ListingImage.listing_key == listing,
         ListingImage.pack_id == pack,
     ).order_by(ListingImage.slot)).all()
-    if len(rows) < 10:
+    if len(rows) < expected_slots:
         return None
-    if len(rows) != 10 or [r.slot for r in rows] != list(range(1, 11)):
+    if len(rows) != expected_slots or [r.slot for r in rows] != list(range(1, expected_slots + 1)):
         raise HTTPException(409, "Incomplete or ambiguous ImageGen pack slots")
     if any(
         r.garment_code != garment or r.design_sha256 != design_sha or
@@ -118,6 +123,7 @@ async def _ensure_pack_manifest(
         garment_code=garment, design_sha256=design_sha,
         source_sha256=source_sha, placement=placement, images=saved,
         expected_drive_folder_id=expected_folder_id,
+        expected_slots=expected_slots,
         main_sha256=rows[0].output_sha256 if main_revision else None,
     )
     db.execute(update(ListingImage).where(
@@ -143,7 +149,10 @@ async def save_listing_output(
     pack = str(payload.get("pack_id") or "")
     garment = str(payload.get("garment_code") or "").upper()
     slot = payload.get("slot")
-    verified_identity(listing, pack, slot, garment)
+    expected_slots = payload.get("expected_slots", 10)
+    if type(expected_slots) is not int or expected_slots not in _SUPPORTED_SLOT_COUNTS:
+        raise HTTPException(422, "Expected 10 legacy or 13 V13 listing slots")
+    verified_identity(listing, pack, slot, garment, expected_slots=expected_slots)
     sha = str(payload.get("sha256") or "")
     design_sha = str(payload.get("design_sha256") or "")
     source_sha = str(payload.get("source_sha256") or "")
@@ -180,7 +189,7 @@ async def save_listing_output(
             manifest = await _ensure_pack_manifest(
                 db, agent.tenant_id, listing, pack, garment,
                 design_sha, source_sha, placement,
-                main_revision=bool(replace_sha))
+                main_revision=bool(replace_sha), expected_slots=expected_slots)
             return {"ok": True, "already_saved": True, "listing_id": listing,
                     "garment_code": garment, "pack_id": pack, "slot": slot,
                     "sha256": sha, "design_sha256": design_sha,
@@ -221,7 +230,7 @@ async def save_listing_output(
         tenant_id=agent.tenant_id, pack_id=pack, slot=slot,
         digest=sha, png=png, listing_id=listing,
         design_sha256=design_sha, placement=placement,
-        garment_code=garment,
+        garment_code=garment, expected_slots=expected_slots,
         **({"main_revision_number": revision_number} if replace_sha else {}))
     # Recheck Picked after I/O to prevent a late unpick from authorizing
     # a new visible gallery entry. Re-pick can restore its previous history.
@@ -271,7 +280,7 @@ async def save_listing_output(
     manifest = await _ensure_pack_manifest(
         db, agent.tenant_id, listing, pack, garment,
         design_sha, source_sha, placement,
-        main_revision=bool(replace_sha))
+        main_revision=bool(replace_sha), expected_slots=expected_slots)
     return {"ok": True, "already_saved": False,
             "main_replaced": bool(replace_sha), "listing_id": listing,
             "garment_code": garment, "pack_id": pack, "slot": slot,
@@ -279,6 +288,29 @@ async def save_listing_output(
             "placement": placement, "storage_root_folder_id": _DRIVE_ROOT,
             "preview_only": review_only,
             "drive_manifest_id": manifest}
+
+
+@listing_image_router.get("/image-agents/{agent_id}/listing-image-coverage")
+def read_agent_listing_image_coverage(
+    agent_id: str, authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    """Read-only, tenant-scoped proof of which Picked listings already have an image.
+
+    The Image Agent needs this before creating new Skill jobs. No URLs, Drive
+    identifiers or other tenants' listings are returned. Fail closed on an
+    unavailable endpoint rather than generating duplicate listing art.
+    """
+    agent = authenticate_agent(db, agent_id, authorization, image_only=True)
+    keys = db.scalars(select(ListingImage.listing_key).join(
+        Picked, (Picked.tenant_id == ListingImage.tenant_id) &
+                (Picked.listing_key == ListingImage.listing_key)
+    ).where(ListingImage.tenant_id == agent.tenant_id).distinct().limit(10001)).all()
+    if len(keys) > 10000:
+        raise HTTPException(409, "Listing Image coverage exceeds safe bound")
+    return {"protocol": "cam-picked-listing-image-coverage-v1",
+            "complete": True, "coveredListingIds": sorted(set(keys)),
+            "total": len(set(keys))}
 
 
 def listing_badges(db: Session, tenant_id: str, listing_keys: set[str]):
@@ -319,7 +351,7 @@ def listing_badges(db: Session, tenant_id: str, listing_keys: set[str]):
         if not badge:
             continue
         if (not _PACK.fullmatch(pack_id) or not _SHA.fullmatch(thumbnail_sha)
-                or not isinstance(slot, int) or not 1 <= slot <= 10):
+                or not isinstance(slot, int) or not 1 <= slot <= 13):
             raise HTTPException(409, "Invalid saved Listing Image preview identity")
         url = (f"/api/v1/etsy-spy/listing-images/{pack_id}/{slot}/thumbnail"
                f"?v={thumbnail_sha[:12]}")
@@ -387,7 +419,7 @@ async def read_listing_output_image(
     principal: CurrentPrincipal = Depends(READ), db: Session = Depends(get_db),
     if_none_match: str | None = Header(default=None),
 ):
-    if (not _PACK.fullmatch(pack_id) or not 1 <= slot <= 10
+    if (not _PACK.fullmatch(pack_id) or not 1 <= slot <= 13
             or quality not in {"thumbnail", "preview", "original"}):
         raise HTTPException(404, "ImageGen listing output not found")
     tenant = principal.active_tenant_id

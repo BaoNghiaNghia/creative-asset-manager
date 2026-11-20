@@ -16,7 +16,7 @@ from app.core.database import Base, get_db
 from app.modules.authorization.principal import require_authenticated_principal
 from app.modules.etsy_spy.listing_images import (
     listing_image_router, listing_badges, _ensure_pack_manifest,
-    listing_preview_requires_review,
+    listing_preview_requires_review, verified_identity,
 )
 from app.modules.etsy_spy.model import EtsySpyAgent, EtsySpyPicked, EtsySpyListingImage
 from app.modules.etsy_spy.service import create_agent
@@ -373,6 +373,98 @@ def test_existing_private_r2_cache_only_after_picked_acl(monkeypatch):
             db.commit()
             assert client.get(image_url).status_code == 404
             assert len(requests) == 1
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_v13_slot_bounds_accept_final_infographic_without_relaxing_legacy():
+    from fastapi import HTTPException
+
+    verified_identity("1234567890", "sp-" + "a" * 40, 13, "C1717",
+                      expected_slots=13)
+    with __import__("pytest").raises(HTTPException):
+        verified_identity("1234567890", "sp-" + "a" * 40, 13, "C1717")
+    with __import__("pytest").raises(HTTPException):
+        verified_identity("1234567890", "sp-" + "a" * 40, 14, "C1717",
+                          expected_slots=13)
+
+
+def test_read_only_agent_coverage_includes_only_picked_listing_with_saved_png():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False},
+                           poolclass=StaticPool)
+    Base.metadata.create_all(engine, tables=[
+        EtsySpyAgent.__table__, EtsySpyPicked.__table__,
+        EtsySpyListingImage.__table__])
+    db = Session(engine)
+    app = FastAPI()
+    app.include_router(listing_image_router, prefix="/api/v1/etsy-spy")
+    app.dependency_overrides[get_db] = lambda: db
+    agent, secret = create_agent(db, "boostgame", "Image Agent Coverage")
+    for key in ("1234567890", "2345678901"):
+        db.add(EtsySpyPicked(tenant_id="boostgame", listing_key=key))
+    # 123 is Picked and has a saved PNG, 234 is Picked but image-less.
+    # 345 is a saved historical image but is not currently Picked.
+    for key, slot in (("1234567890", 2), ("3456789012", 1)):
+        db.add(EtsySpyListingImage(
+            tenant_id="boostgame", listing_key=key, pack_id="sp-" + "a" * 40,
+            slot=slot, garment_code="C1717", design_sha256="a" * 64,
+            source_sha256="b" * 64, placement="front_center",
+            drive_folder_id="someFolder123456",
+            drive_thumbnail_folder_id="thumbFolder123456",
+            output_sha256="c" * 64, thumbnail_sha256="d" * 64,
+            drive_file_id="someFile123456", drive_thumbnail_id="thumbFile123456",
+            native_width=1254, native_height=1254))
+    db.commit()
+    try:
+        with TestClient(app) as client:
+            route = f"/api/v1/etsy-spy/image-agents/{agent.id}/listing-image-coverage"
+            assert client.get(route).status_code == 401
+            result = client.get(route, headers={"Authorization": "Bearer " + secret})
+            assert result.status_code == 200
+            assert result.json() == {
+                "protocol": "cam-picked-listing-image-coverage-v1",
+                "complete": True, "total": 1,
+                "coveredListingIds": ["1234567890"]}
+            assert db.query(EtsySpyListingImage).count() == 2
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_v13_complete_preview_pack_does_not_publish_final_manifest(monkeypatch):
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False},
+                           poolclass=StaticPool)
+    Base.metadata.create_all(engine, tables=[
+        EtsySpyAgent.__table__, EtsySpyPicked.__table__,
+        EtsySpyListingImage.__table__])
+    db = Session(engine)
+    tenant, listing, pack = "boostgame", "1234567890", "sp-" + "e" * 40
+    db.add(EtsySpyPicked(tenant_id=tenant, listing_key=listing))
+    for slot in range(1, 14):
+        db.add(EtsySpyListingImage(
+            tenant_id=tenant, listing_key=listing, pack_id=pack,
+            slot=slot, garment_code="C1717",
+            design_sha256="c" * 64, source_sha256="d" * 64,
+            placement="front_center", output_sha256=f"{slot:064x}",
+            thumbnail_sha256="e" * 64, drive_folder_id="oneFolderD12345",
+            drive_thumbnail_folder_id="thumbFolderD12345",
+            drive_file_id=f"remoteOriginal{slot:02d}12345",
+            drive_thumbnail_id=f"remoteThumb{slot:02d}12345",
+            native_width=1254, native_height=1254))
+    db.commit()
+
+    async def fail_if_published(**kwargs):
+        raise AssertionError("Preview PNGs must not be marked final")
+
+    monkeypatch.setattr(
+        "app.modules.etsy_spy.imagegen_drive.store_listing_pack_manifest_to_drive",
+        fail_if_published)
+    try:
+        assert asyncio.run(_ensure_pack_manifest(
+            db, tenant, listing, pack, "C1717", "c" * 64, "d" * 64,
+            "front_center", expected_slots=13)) is None
+        assert listing_badges(db, tenant, {listing})[listing][0]["count"] == 13
     finally:
         db.close()
         engine.dispose()

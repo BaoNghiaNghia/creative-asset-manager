@@ -317,19 +317,28 @@ _ROLE_FILES = {
     7: "07-variant-3.png", 8: "08-variant-4.png",
     9: "09-variant-5.png", 10: "10-variant-6.png",
 }
+_ROLE_FILES_V13 = {
+    1: "01-folded-main.png", 2: "02-printed-ink-macro.png",
+    3: "03-medium-print-detail.png", 4: "04-base-worn-shirt.png",
+    **{slot: f"{slot:02d}-colorway-{slot - 4}.png"
+       for slot in range(5, 13)},
+    13: "13-benefit-infographic.png",
+}
 
 
 async def store_listing_output_to_drive(
     *, tenant_id: str, pack_id: str, slot: int, digest: str, png: bytes,
     listing_id: str, design_sha256: str, placement: str, garment_code: str,
-    main_revision_number: int = 0,
+    main_revision_number: int = 0, expected_slots: int = 10,
 ) -> dict:
     """Store a verified output below listing/design/target-garment hierarchy.
 
     Root is the operator-selected CAM ImageGen Designs folder; never
     reclassify a source listing by its blank type or upload into flat root.
     """
-    if (slot not in _ROLE_FILES or len(png) < 57 or len(png) > _MAX_PNG or
+    role_files = _ROLE_FILES_V13 if expected_slots == 13 else _ROLE_FILES
+    if (expected_slots not in (10, 13) or not 1 <= slot <= expected_slots or
+        slot not in role_files or len(png) < 57 or len(png) > _MAX_PNG or
         hashlib.sha256(png).hexdigest() != digest):
         raise HTTPException(422, "Invalid saved ImageGen photo identity")
     if (not isinstance(main_revision_number, int) or
@@ -380,7 +389,7 @@ async def store_listing_output_to_drive(
         )
         return remote_id
 
-    filename = (_ROLE_FILES[slot].replace(".png",
+    filename = (role_files[slot].replace(".png",
                 f"-rev-{main_revision_number:04d}.png")
                 if main_revision_number else _ROLE_FILES[slot])
     remote = await put("original", png, digest,
@@ -401,10 +410,12 @@ async def store_listing_pack_manifest_to_drive(
     garment_code: str, placement: str, design_sha256: str,
     source_sha256: str, images: list[dict],
     expected_drive_folder_id: str, main_sha256: str | None = None,
+    expected_slots: int = 10,
 ) -> str:
-    """Write immutable SHA-versioned 10-role manifest; preserve older revisions."""
-    if len(images) != 10 or sorted(row["slot"] for row in images) != list(range(1, 11)):
-        raise HTTPException(409, "Cannot publish incomplete 10-image manifest")
+    """Write immutable SHA-versioned 10/13-role manifest, without altering previews."""
+    if expected_slots not in (10, 13) or len(images) != expected_slots or \
+       sorted(row["slot"] for row in images) != list(range(1, expected_slots + 1)):
+        raise HTTPException(409, "Cannot publish incomplete ImageGen pack manifest")
     from .listing_drive_folders import (
         ROOT_FOLDER_ID, ensure_listing_output_folders, verify_listing_file_provenance,
     )
@@ -419,8 +430,9 @@ async def store_listing_pack_manifest_to_drive(
     )
     if hierarchy["garment_folder_id"] != expected_drive_folder_id:
         raise HTTPException(409, "Existing pack images are outside the design folder")
+    role_files = _ROLE_FILES_V13 if expected_slots == 13 else _ROLE_FILES
     items = [
-        {"slot": row["slot"], "filename": _ROLE_FILES[row["slot"]],
+        {"slot": row["slot"], "filename": role_files[row["slot"]],
          "sha256": row["output_sha256"],
          "drive_file_id": row["drive_file_id"],
          "width": row["native_width"], "height": row["native_height"]}
@@ -428,19 +440,21 @@ async def store_listing_pack_manifest_to_drive(
     ]
     import json
     body = (json.dumps({
-        "schema": "cam-imagegen-skill-pack-drive-v2",
+        "schema": "cam-imagegen-skill-pack-drive-v3" if expected_slots == 13
+                  else "cam-imagegen-skill-pack-drive-v2",
         "listing_id": listing_id, "pack_id": pack_id,
         "design_sha256": design_sha256, "source_sha256": source_sha256,
         "placement": placement, "target_garment": garment_code,
         "skill_name": "print-variant-model-10-image",
-        "drive_root_folder_id": ROOT_FOLDER_ID, "image_count": 10,
+        "drive_root_folder_id": ROOT_FOLDER_ID, "image_count": expected_slots,
         "images": items,
     }, sort_keys=True, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
     digest = hashlib.sha256(body).hexdigest()
     main_token = (main_sha256[:16] if isinstance(main_sha256, str)
                   and re.fullmatch(r"[0-9a-f]{64}", main_sha256) else None)
-    manifest_asset = (f"{pack_id}:manifest:v2:main-{main_token}"
-                      if main_token else f"{pack_id}:manifest:v2")
+    version = "v3" if expected_slots == 13 else "v2"
+    manifest_asset = (f"{pack_id}:manifest:{version}:main-{main_token}"
+                      if main_token else f"{pack_id}:manifest:{version}")
     manifest_file = (f"manifest-main-{main_token}.json"
                      if main_token else "manifest.json")
     try:
