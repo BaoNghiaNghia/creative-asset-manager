@@ -10,7 +10,25 @@ const MODEL = /^(C1717|G500|G180|G185)$/;
 const safeBadge = (code: string, count: number) =>
   MODEL.test(code) && Number.isSafeInteger(count) && count > 0 && count <= 1000;
 
-type Props = { item: Listing; onPreviewStart?: () => void };
+type Props = {
+  item: Listing; onPreviewStart?: () => void;
+  canDelete?: boolean; onImageDeleted?: () => void;
+};
+
+/** One confirmed SHA from exactly one pack/slot. Never remove other colors. */
+export function galleryWithoutDeletedImage(
+  value: ListingImageGallery, deleted: ListingImageOutput,
+): ListingImageGallery {
+  const groups = value.groups.map(group => {
+    const images = group.images.filter(image => !(
+      image.packId === deleted.packId && image.slot === deleted.slot &&
+      image.sha256 === deleted.sha256
+    ));
+    return { ...group, count: images.length, images };
+  }).filter(group => group.images.length > 0);
+  return { ...value, groups,
+    total: groups.reduce((sum, group) => sum + group.count, 0) };
+}
 
 // A missing WebP conversion must not trigger an original 1254px+ PNG fetch.
 // Use the already saved 192px thumbnail as the fail-safe visual fallback.
@@ -285,12 +303,16 @@ function TikTokSeoAside({ item }: { item: Listing }) {
 }
 
 /** One lazy detail request per modal, never one request for each Picked row. */
-export const ListingImageCell = memo(function ListingImageCell({item, onPreviewStart}: Props) {
+export const ListingImageCell = memo(function ListingImageCell({item, onPreviewStart, canDelete = false, onImageDeleted}: Props) {
   const [open, setOpen] = useState(false);
   const [gallery, setGallery] = useState<ListingImageGallery | null>(null);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<ListingImageOutput | null>(null);
   const [retryKey, setRetryKey] = useState(0);
+  const [deleteTarget, setDeleteTarget] = useState<ListingImageOutput | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const [deleteSuccess, setDeleteSuccess] = useState("");
   const galleryCache = useRef<GalleryCache | null>(null);
   const badges = (item.listingImages || [])
     .filter(b => safeBadge(b.garmentCode, b.count))
@@ -312,6 +334,51 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
   const selectedGarment = gallery?.groups.find(group => group.images.some(image =>
     image.packId === selected?.packId && image.sha256 === selected?.sha256))?.garmentCode;
   const orderedImages = gallery?.groups.flatMap(group => group.images) || [];
+  const deleteSelected = async () => {
+    if (!canDelete || !deleteTarget || deleteBusy || !gallery) return;
+    const target = deleteTarget;
+    setDeleteBusy(true);
+    setDeleteError("");
+    try {
+      await spyFetch<{ok: boolean; deleted?: boolean; already_deleted?: boolean}>(
+        "/listings/" + encodeURIComponent(item.listingKey) +
+        "/listing-images/" + encodeURIComponent(target.packId) +
+        "/" + target.slot, {
+          method: "DELETE",
+          body: JSON.stringify({sha256: target.sha256, confirm: true}),
+        });
+      const index = orderedImages.findIndex(image =>
+        image.packId === target.packId && image.slot === target.slot &&
+        image.sha256 === target.sha256);
+      const remaining = galleryWithoutDeletedImage(gallery, target);
+      const next = remaining.groups.flatMap(group => group.images);
+      galleryCache.current = null;
+      setGallery(remaining);
+      setSelected(next[Math.min(Math.max(index, 0), next.length - 1)] || null);
+      setDeleteTarget(null);
+      setDeleteSuccess("Đã xóa ảnh " + String(target.slot).padStart(2, "0") +
+        " trên CAM và Google Drive · Slot đang chờ tạo lại.");
+      onImageDeleted?.();
+      try {
+        const latest = await spyFetch<ListingImageGallery>(
+          "/listings/" + encodeURIComponent(item.listingKey) + "/listing-images");
+        setGallery(latest);
+        galleryCache.current = null;
+        setSelected(current => latest.groups.flatMap(group => group.images)
+          .find(image => image.packId === current?.packId &&
+            image.slot === current?.slot && image.sha256 === current?.sha256) ||
+          latest.groups.flatMap(group => group.images)[0] || null);
+      } catch {
+        // Deletion already committed; do not describe a refresh failure as
+        // a failed Google Drive deletion or restore the stale thumbnail.
+      }
+    } catch (reason) {
+      setDeleteError(reason instanceof Error ? reason.message :
+        "Không xóa được ảnh trong Google Drive. Hãy thử lại.");
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
   const moveImage = (step: -1 | 1) => {
     if (orderedImages.length < 2) return;
     const index = orderedImages.findIndex(image =>
@@ -356,11 +423,13 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
   useEffect(() => {
     if (!open) return;
     const onEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key !== "Escape" || deleteBusy) return;
+      if (deleteTarget) { setDeleteTarget(null); setDeleteError(""); }
+      else setOpen(false);
     };
     window.addEventListener("keydown", onEscape);
     return () => window.removeEventListener("keydown", onEscape);
-  }, [open]);
+  }, [open, deleteBusy, deleteTarget]);
 
   const openGallery = () => { onPreviewStart?.(); setOpen(true); };
   return <>
@@ -395,21 +464,71 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
     {open && createPortal(
       <div className="etsy-listing-image-overlay"
         role="presentation"
-        onMouseDown={event => { if (event.target === event.currentTarget) setOpen(false); }}>
+        onMouseDown={event => {
+          if (!deleteBusy && !deleteTarget && event.target === event.currentTarget)
+            setOpen(false);
+        }}>
         <section role="dialog" aria-modal="true"
           aria-label={"Listing Image đã lưu cho " + item.pageTitle}
           className={"etsy-listing-image-dialog" + (gallery && gallery.total <= 2 ? " is-sparse" : "")}>
           <header className="etsy-listing-image-dialog-head">
             <h2>Listing Image</h2>
-            <button type="button" className="etsy-listing-image-close"
-              onClick={() => setOpen(false)} aria-label="Đóng Listing Image">×</button>
+            <div className="etsy-listing-image-head-actions">
+              {canDelete && selected && <button type="button"
+                className="etsy-listing-image-delete-trigger"
+                disabled={deleteBusy}
+                aria-label={"Xóa ảnh " + String(selected.slot).padStart(2, "0") +
+                  " cùng file trên Google Drive"}
+                onClick={() => {
+                  setDeleteError(""); setDeleteSuccess(""); setDeleteTarget(selected);
+                }}>
+                <span aria-hidden="true">⌫</span> Xóa ảnh {String(selected.slot).padStart(2, "0")}
+              </button>}
+              <button type="button" className="etsy-listing-image-close"
+                disabled={deleteBusy}
+                onClick={() => setOpen(false)} aria-label="Đóng Listing Image">×</button>
+            </div>
           </header>
+          {deleteSuccess && <div className="etsy-listing-image-delete-success"
+            role="status">{deleteSuccess}</div>}
           {!gallery && !error && <div className="etsy-listing-image-notice" role="status">Đang tải ảnh…</div>}
           {error && <div className="etsy-listing-image-notice is-error" role="alert">
             {error} <button type="button" onClick={() => {
               galleryCache.current = null;
               setRetryKey(value => value + 1);
             }}>Thử lại</button>
+          </div>}
+          {deleteTarget && <div className="etsy-listing-image-delete-shade">
+            <section className="etsy-listing-image-delete-dialog"
+              role="alertdialog" aria-modal="true"
+              aria-labelledby="listing-image-delete-title"
+              aria-describedby="listing-image-delete-description">
+              <h3 id="listing-image-delete-title">
+                Xóa ảnh {String(deleteTarget.slot).padStart(2, "0")}?
+              </h3>
+              <p id="listing-image-delete-description">
+                CAM sẽ xóa vĩnh viễn <strong>ảnh đang chọn</strong> và
+                thumbnail khỏi Google Drive, cập nhật Listing Image.
+                Nếu bộ ảnh có manifest, manifest cũ cũng sẽ được gỡ.
+                Những ảnh khác và design gốc được giữ nguyên.
+              </p>
+              <p className="etsy-listing-image-delete-future">
+                Slot này được ghi nhận <strong>chờ tạo lại</strong>,
+                không chạy ImageGen ngay khi xóa.
+              </p>
+              {deleteError && <p role="alert"
+                className="etsy-listing-image-delete-error">{deleteError}</p>}
+              <div className="etsy-listing-image-delete-buttons">
+                <button type="button" disabled={deleteBusy}
+                  onClick={() => { setDeleteTarget(null); setDeleteError(""); }}>
+                  Hủy
+                </button>
+                <button type="button" className="is-danger"
+                  disabled={deleteBusy} onClick={() => void deleteSelected()}>
+                  {deleteBusy ? "Đang xóa trên Drive…" : "Xóa ảnh & Google Drive"}
+                </button>
+              </div>
+            </section>
           </div>}
           {gallery && <div className="etsy-listing-image-body">
             {gallery.total === 0 ? <div className="etsy-listing-image-notice">
