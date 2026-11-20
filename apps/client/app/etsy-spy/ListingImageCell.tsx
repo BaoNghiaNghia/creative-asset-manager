@@ -1,7 +1,8 @@
 import { memo, useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
-import { spyFetch, type Listing, type ListingImageGallery, type ListingImageOutput } from "./api";
+import { spyFetch, type Listing, type ListingImageGallery, type ListingImageOutput, type TikTokListingView } from "./api";
+import { formatTikTokDraft } from "./TikTokListingCell";
 import { EtsyDeferredImage } from "./EtsyDeferredImage";
 import "./ListingImageCell.css";
 
@@ -159,6 +160,119 @@ function ListingZoomPreview({ image, garmentCode }: {
 const GALLERY_CACHE_MS = 30_000;
 type GalleryCache = { identity: string; until: number; value: ListingImageGallery };
 
+const SEO_ACTIVE = new Set(["pending", "retry", "processing"]);
+const SEO_STATUS: Record<string, string> = {
+  not_queued: "Chưa tạo", pending: "Đang chờ", retry: "Đang thử lại",
+  processing: "Đang tạo", needs_fact_check: "Cần kiểm duyệt",
+  failed: "Tạo lỗi", cancelled: "Đã hủy",
+};
+
+/** Render the existing TikTok listing draft, never an invented SEO draft.
+ * Detail is fetched only after this gallery is opened, not on Picked rows.
+ */
+function TikTokSeoAside({ item }: { item: Listing }) {
+  const [detail, setDetail] = useState<TikTokListingView | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
+  const rowSeo = item.tiktokListing;
+  const hasDetail = Boolean(rowSeo && (rowSeo.status !== "not_queued" ||
+    rowSeo.title_preview || rowSeo.search_terms_preview?.length));
+
+  useEffect(() => {
+    if (!hasDetail) return;
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    void spyFetch<TikTokListingView>(
+      "/listings/" + encodeURIComponent(item.listingKey) + "/tiktok-listing",
+      { signal: controller.signal },
+    ).then(result => {
+      if (!controller.signal.aborted) setDetail(result);
+    }).catch(reason => {
+      if (!controller.signal.aborted) setError(
+        reason instanceof Error ? reason.message : "Không thể tải TikTok SEO");
+    }).finally(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
+  }, [item.listingKey, hasDetail, retry]);
+
+  const status = detail?.status || rowSeo?.status || "not_queued";
+  useEffect(() => {
+    if (!hasDetail || !SEO_ACTIVE.has(status)) return;
+    const timer = window.setTimeout(() => setRetry(value => value + 1), 15_000);
+    return () => window.clearTimeout(timer);
+  }, [hasDetail, status, retry]);
+
+  const draft = detail?.result || detail?.previous_draft;
+  const title = draft?.title?.trim() || rowSeo?.title_preview?.trim() || "";
+  const terms = [...new Set((draft?.search_terms || rowSeo?.search_terms_preview || [])
+    .filter((value): value is string => typeof value === "string")
+    .map(value => value.trim()).filter(Boolean))];
+  const description = draft?.description?.trim() || "";
+  const onCopy = async () => {
+    if (!draft) return;
+    try {
+      await navigator.clipboard.writeText(formatTikTokDraft(draft));
+      setCopied(true);
+      setCopyError(false);
+    } catch {
+      setCopied(false);
+      setCopyError(true);
+    }
+  };
+
+  return <aside className="etsy-listing-image-seo" aria-label="TikTok SEO">
+    <div className="etsy-listing-image-seo-topline">
+      <span>TIKTOK SHOP · SEO</span>
+      <span className="etsy-listing-image-seo-state" data-seo-status={status}>
+        {SEO_STATUS[status] || status}
+      </span>
+    </div>
+    {title ? <section className="etsy-listing-image-seo-section is-title">
+      <span className="etsy-listing-image-seo-label">Product title</span>
+      <h3>{title}</h3>
+    </section> : <div className="etsy-listing-image-seo-empty">
+      <strong>Chưa có bản nháp TikTok SEO</strong>
+      <p>{SEO_ACTIVE.has(status) ? "Đang xử lý nội dung SEO. Ảnh đã lưu vẫn có thể xem trước." :
+        "Khi Listing Optimizer tạo xong, nội dung SEO sẽ hiển thị tại đây."}</p>
+    </div>}
+    {terms.length > 0 && <section className="etsy-listing-image-seo-section">
+      <h4>Search terms <small>{terms.length}</small></h4>
+      <div className="etsy-listing-image-seo-terms">
+        {terms.map(term => <span key={term}>{term}</span>)}
+      </div>
+    </section>}
+    {!!draft?.highlights?.length && <section className="etsy-listing-image-seo-section">
+      <h4>Product highlights</h4>
+      <ul>{draft.highlights.map((value, i) => <li key={i}>{value}</li>)}</ul>
+    </section>}
+    {description && <section className="etsy-listing-image-seo-section">
+      <h4>Product description</h4>
+      <p className="etsy-listing-image-seo-description">
+        {description.length > 260 ? description.slice(0, 260).trimEnd() + "…" : description}
+      </p>
+      {description.length > 260 && <details className="etsy-listing-image-seo-more">
+        <summary>Xem toàn bộ mô tả</summary>
+        <p>{description}</p>
+      </details>}
+    </section>}
+    {loading && <p className="etsy-listing-image-seo-activity" role="status">Đang tải TikTok SEO…</p>}
+    {error && <div className="etsy-listing-image-seo-error" role="alert">
+      {error} <button type="button" onClick={() => setRetry(v => v + 1)}>Thử lại</button>
+    </div>}
+    <div className="etsy-listing-image-seo-actions">
+      <button type="button" onClick={() => void onCopy()} disabled={!draft}>
+        {copied ? "Đã sao chép" : "Sao chép TikTok SEO"}
+      </button>
+      <span>Chỉ là bản nháp · chưa xuất bản</span>
+      {copyError && <small role="alert">Không thể sao chép tự động. Hãy thử lại.</small>}
+    </div>
+  </aside>;
+}
 
 /** One lazy detail request per modal, never one request for each Picked row. */
 export const ListingImageCell = memo(function ListingImageCell({item, onPreviewStart}: Props) {
@@ -187,6 +301,14 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
     (b.previewThumbnailUrl || "") + ":" + (b.previewSlot || "")).join("|");
   const selectedGarment = gallery?.groups.find(group => group.images.some(image =>
     image.packId === selected?.packId && image.sha256 === selected?.sha256))?.garmentCode;
+  const orderedImages = gallery?.groups.flatMap(group => group.images) || [];
+  const moveImage = (step: -1 | 1) => {
+    if (orderedImages.length < 2) return;
+    const index = orderedImages.findIndex(image =>
+      image.packId === selected?.packId && image.slot === selected?.slot &&
+      image.sha256 === selected?.sha256);
+    setSelected(orderedImages[(index + step + orderedImages.length) % orderedImages.length]);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -287,10 +409,6 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
               Chưa có ảnh đã lưu.
             </div> : <div className={"etsy-listing-image-workspace" +
               (gallery.total <= 2 ? " is-sparse" : "")}>
-              <section className="etsy-listing-image-preview" aria-label="Ảnh xem trước">
-                {selected && <ListingZoomPreview key={selected.packId + ":" + selected.sha256}
-                  image={selected} garmentCode={selectedGarment || ""} />}
-              </section>
               <aside className="etsy-listing-image-library" aria-label="Danh sách ảnh theo sản phẩm">
                 {gallery.groups.map(group => <section
                   className="etsy-listing-image-group" key={group.garmentCode}>
@@ -320,6 +438,17 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
                   })}
                 </section>)}
               </aside>
+              <section className="etsy-listing-image-preview" aria-label="Ảnh xem trước">
+                {selected && <ListingZoomPreview key={selected.packId + ":" + selected.sha256}
+                  image={selected} garmentCode={selectedGarment || ""} />}
+                {orderedImages.length > 1 && <>
+                  <button type="button" className="etsy-listing-image-nav is-prev"
+                    onClick={() => moveImage(-1)} aria-label="Ảnh trước" title="Ảnh trước">‹</button>
+                  <button type="button" className="etsy-listing-image-nav is-next"
+                    onClick={() => moveImage(1)} aria-label="Ảnh tiếp theo" title="Ảnh tiếp theo">›</button>
+                </>}
+              </section>
+              <TikTokSeoAside item={item} />
             </div>}
           </div>}
         </section>
