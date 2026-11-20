@@ -61,155 +61,298 @@
     content:"Listing Image";
   }
 }
-/* Image-first gallery: one preview, product thumbnails, minimal chrome.
-   Keep preview WebP/CDN only; full-size PNG is fetched solely by opening the link. */
+/* Etsy-inspired three-column listing workspace:
+   filmstrip | square preview | existing TikTok SEO draft.
+   Thumbnails are gallery-size derivatives, never original PNGs. */
 .etsy-listing-image-overlay{
   position:fixed;inset:0;z-index:2147483000;display:flex;
-  justify-content:center;align-items:center;padding:14px;box-sizing:border-box;
-  background:rgba(16,28,48,.65);
+  align-items:center;justify-content:center;padding:clamp(9px,2vw,24px);
+  box-sizing:border-box;background:rgba(31,32,38,.68);backdrop-filter:blur(2px);
 }
 .etsy-listing-image-overlay *{box-sizing:border-box}
-.etsy-listing-image-dialog{
+.etsy-listing-image-dialog,.etsy-listing-image-dialog.is-sparse{
   display:flex;flex-direction:column;overflow:hidden;min-width:0;
-  width:min(960px,100%);max-height:min(90dvh,760px);border-radius:14px;
-  background:#fff;color:#22344e;box-shadow:0 22px 85px rgba(15,35,62,.28);
+  width:min(1420px,100%);height:min(88dvh,820px);max-height:95dvh;
+  border-radius:17px;background:#fff;color:#302d36;
+  box-shadow:0 24px 100px rgba(12,17,28,.32);
 }
-.etsy-listing-image-dialog.is-sparse{width:min(790px,100%)}
 .etsy-listing-image-dialog-head{
   display:flex;align-items:center;justify-content:space-between;gap:12px;
-  min-height:48px;padding:7px 12px 7px 16px;flex:none;
-  border-bottom:1px solid #e7edf4;
+  flex:none;min-height:56px;padding:9px 17px 9px 20px;
+  border-bottom:1px solid #e9e6e4;background:#fff;
 }
 .etsy-listing-image-dialog-head h2{
-  margin:0;font-size:14px;font-weight:800;line-height:1.3;color:#263c58;
+  margin:0;color:#292630;font-size:14px;font-weight:800;line-height:1.3;
 }
 .etsy-listing-image-close{
-  display:grid;place-items:center;flex:0 0 30px;width:30px;height:30px;
-  padding:0;border:1px solid #dce5ee;border-radius:8px;
-  background:#f8fafc;color:#4e6179;font-size:21px;line-height:1;cursor:pointer;
+  display:grid;place-items:center;flex:0 0 32px;width:32px;height:32px;
+  padding:0;border:1px solid #e7e5e1;border-radius:50%;
+  background:#faf9f7;color:#494650;font-size:22px;line-height:1;cursor:pointer;
 }
-.etsy-listing-image-close:hover{background:#eaf1f8}
-.etsy-listing-image-close:focus-visible{outline:2px solid #3177d8;outline-offset:2px}
-.etsy-listing-image-body{min-width:0;min-height:0;overflow:hidden}
-.etsy-listing-image-workspace{
-  display:grid;grid-template-columns:minmax(0,1.45fr) minmax(245px,1fr);
-  max-height:calc(90dvh - 48px);min-height:0;width:100%;overflow:hidden;
+.etsy-listing-image-close:hover{background:#eee9e4}
+.etsy-listing-image-close:focus-visible,
+.etsy-listing-image-tile:focus-visible,
+.etsy-listing-image-seo button:focus-visible{
+  outline:2px solid #d47d50;outline-offset:2px;
 }
-.etsy-listing-image-workspace.is-sparse{
-  grid-template-columns:minmax(0,1.85fr) minmax(205px,.85fr);
+.etsy-listing-image-body{flex:1;min-width:0;min-height:0;overflow:hidden}
+.etsy-listing-image-workspace,.etsy-listing-image-workspace.is-sparse{
+  display:grid;grid-template-columns:94px minmax(0,1fr) clamp(280px,27vw,368px);
+  width:100%;height:100%;min-height:0;overflow:hidden;
 }
+/* Left: one portrait-oriented, independently scrolling filmstrip. */
+.etsy-listing-image-library{
+  grid-column:1;grid-row:1;min-height:0;min-width:0;
+  overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;
+  padding:12px 9px 18px;background:#f9f8f6;border-right:1px solid #e8e5e2;
+}
+.etsy-listing-image-group{min-width:0;margin:0;padding:0 0 14px}
+.etsy-listing-image-group+.etsy-listing-image-group{
+  border-top:1px solid #e9e4df;padding-top:12px;
+}
+.etsy-listing-image-group:last-child{padding-bottom:0}
+.etsy-listing-image-group-heading{
+  margin:0 0 9px;color:#67626d;font-size:11px;line-height:1.3;
+  text-align:center;font-weight:800;letter-spacing:.04em;
+}
+.etsy-listing-image-design{min-width:0}
+.etsy-listing-image-design+.etsy-listing-image-design{
+  margin-top:10px;padding-top:10px;border-top:1px dashed #e1ddd7;
+}
+.etsy-listing-image-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
+.etsy-listing-image-tile{
+  position:relative;isolation:isolate;display:block;width:100%;
+  min-width:0;aspect-ratio:1;padding:3px;border:2px solid transparent;
+  border-radius:9px;background:#fff;cursor:pointer;overflow:hidden;line-height:0;
+  transition:box-shadow .15s,border-color .15s,transform .15s;
+}
+.etsy-listing-image-tile img{
+  display:block;width:100%;height:100%;aspect-ratio:1;
+  object-fit:contain;border-radius:5px;background:#f0efed;
+}
+.etsy-listing-image-tile:hover{border-color:#cfb69f;transform:translateY(-1px)}
+.etsy-listing-image-tile.is-selected{
+  border-color:#292630;box-shadow:0 0 0 2px rgba(41,38,48,.09);
+}
+.etsy-listing-image-slot,.etsy-listing-image-tile-review{
+  position:absolute;bottom:5px;z-index:1;padding:4px 5px;
+  border-radius:4px;font-size:10px;font-weight:800;line-height:1;
+  font-variant-numeric:tabular-nums;pointer-events:none;
+}
+.etsy-listing-image-slot{left:5px;background:rgba(37,37,42,.8);color:#fff}
+.etsy-listing-image-tile-review{
+  right:5px;background:rgba(119,71,30,.87);color:#fff1df;font-size:9px;
+}
+/* Middle: preview is centered like the Etsy primary product photograph. */
 .etsy-listing-image-preview{
-  display:flex;min-width:0;min-height:0;align-self:start;
-  padding:11px;border-right:1px solid #e7edf4;background:#fff;
+  position:relative;grid-column:2;grid-row:1;display:flex;align-items:center;justify-content:center;
+  min-width:0;min-height:0;padding:clamp(10px,1.6vw,22px);
+  overflow:hidden;background:#f6f5f3;
 }
+.etsy-listing-image-nav{
+  position:absolute;top:50%;z-index:4;display:grid;place-items:center;
+  width:36px;height:36px;transform:translateY(-50%);
+  border:0;border-radius:50%;background:rgba(255,255,255,.96);
+  color:#352f36;box-shadow:0 3px 14px rgba(30,26,30,.15);
+  font-size:26px;line-height:1;cursor:pointer;
+}
+.etsy-listing-image-nav.is-prev{left:clamp(12px,2vw,26px)}
+.etsy-listing-image-nav.is-next{right:clamp(12px,2vw,26px)}
+.etsy-listing-image-nav:hover{background:#fff;box-shadow:0 4px 18px rgba(30,26,30,.23)}
+.etsy-listing-image-nav:focus-visible{outline:2px solid #d47d50;outline-offset:2px}
 .etsy-listing-image-review-frame{
-  position:relative;width:100%;aspect-ratio:1;max-height:min(73dvh,610px);
-  overflow:hidden;border-radius:10px;background:#f3f5f8;
+  position:relative;flex:none;width:min(100%,calc(88dvh - 115px));
+  max-height:100%;aspect-ratio:1;border-radius:10px;
+  overflow:hidden;background:#eeece9;
+  box-shadow:0 1px 5px rgba(35,30,25,.08);
 }
 .etsy-listing-image-fullsize{
   position:relative;display:flex;align-items:center;justify-content:center;
   width:100%;height:100%;cursor:zoom-in;text-decoration:none;
 }
 .etsy-listing-image-fullsize img{
-  display:block;width:100%;height:100%;object-fit:contain;border-radius:9px;
-  transform-origin:center center;will-change:transform;
+  display:block;width:100%;height:100%;object-fit:contain;
+  border-radius:9px;transform-origin:center center;will-change:transform;
   user-select:none;pointer-events:none;-webkit-user-drag:none;
 }
 .etsy-listing-image-fullsize.is-zoomed{cursor:grab;touch-action:none}
 .etsy-listing-image-fullsize.is-dragging{cursor:grabbing}
-.etsy-listing-image-fullsize:focus-visible{outline:3px solid #327ec4;outline-offset:-3px}
+.etsy-listing-image-fullsize:focus-visible{outline:3px solid #292630;outline-offset:-3px}
 .etsy-listing-image-review-notice{
-  position:absolute;left:10px;bottom:10px;z-index:2;
-  padding:5px 8px;border:1px solid rgba(240,182,101,.65);
-  border-radius:6px;background:rgba(48,36,19,.83);
-  color:#fff2d8;font-size:11px;font-weight:750;line-height:1.15;
-  pointer-events:none;
+  position:absolute;left:12px;bottom:12px;z-index:2;
+  padding:6px 9px;border:1px solid rgba(230,190,139,.55);
+  border-radius:6px;background:rgba(47,35,25,.86);
+  color:#fff2dd;font-size:11px;font-weight:750;line-height:1.2;pointer-events:none;
 }
 .etsy-listing-image-open-icon{
-  position:absolute;top:10px;right:10px;display:grid;place-items:center;
-  width:28px;height:28px;border:1px solid rgba(255,255,255,.45);
-  border-radius:8px;background:rgba(20,34,56,.68);
+  position:absolute;top:12px;right:12px;display:grid;place-items:center;
+  width:31px;height:31px;border:1px solid rgba(255,255,255,.5);
+  border-radius:9px;background:rgba(34,34,39,.8);
   color:#fff;font-size:19px;font-weight:600;line-height:1;
-  opacity:.85;transition:background .15s ease,opacity .15s ease;
 }
-.etsy-listing-image-fullsize:hover .etsy-listing-image-open-icon{
-  background:rgba(20,34,56,.9);opacity:1;
+.etsy-listing-image-fullsize:hover .etsy-listing-image-open-icon{background:#292630}
+/* Right: a genuine TikTok SEO draft, not the Etsy product title or invented metrics. */
+.etsy-listing-image-seo{
+  grid-column:3;grid-row:1;display:flex;flex-direction:column;
+  min-width:0;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+  scrollbar-width:thin;padding:24px 23px 0;background:#fff;
+  border-left:1px solid #e9e6e3;overflow-wrap:anywhere;
 }
-.etsy-listing-image-library{
-  min-width:0;min-height:0;max-height:min(76dvh,650px);
-  padding:12px;overflow-y:auto;overscroll-behavior:contain;
-  scrollbar-width:thin;background:#fff;
+.etsy-listing-image-seo-topline{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  margin-bottom:14px;color:#776f70;font-size:10px;font-weight:850;letter-spacing:.08em;
 }
-.etsy-listing-image-group{margin:0;padding:0 0 14px}
-.etsy-listing-image-group:last-child{padding-bottom:0}
-.etsy-listing-image-group+.etsy-listing-image-group{
-  border-top:1px solid #e8edf4;padding-top:12px;
+.etsy-listing-image-seo-state{
+  flex:none;padding:5px 7px;border-radius:99px;background:#f3f1ef;
+  color:#67616a;font-size:10px;font-weight:750;letter-spacing:0;
 }
-.etsy-listing-image-group-heading{
-  margin:1px 0 9px;font-size:11px;line-height:1.4;
-  font-weight:800;letter-spacing:.02em;color:#415b7a;
+.etsy-listing-image-seo-state[data-seo-status="needs_fact_check"]{
+  background:#fff4e2;color:#9b5c20;
 }
-.etsy-listing-image-design{margin:0;min-width:0}
-.etsy-listing-image-design+.etsy-listing-image-design{
-  margin-top:10px;padding-top:10px;border-top:1px dashed #e4eaf2;
+.etsy-listing-image-seo-state[data-seo-status="processing"],
+.etsy-listing-image-seo-state[data-seo-status="pending"]{
+  background:#eef4ff;color:#456d9d;
 }
-.etsy-listing-image-grid{
-  display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));
-  gap:8px;min-width:0;
+.etsy-listing-image-seo-section{
+  padding:0 0 19px;margin:0 0 18px;border-bottom:1px solid #eeeae6;
 }
-.etsy-listing-image-tile{
-  position:relative;isolation:isolate;display:block;width:100%;
-  min-width:0;aspect-ratio:1;padding:3px;border:1px solid #dce6ef;
-  border-radius:9px;background:#fff;overflow:hidden;
-  cursor:pointer;line-height:0;
+.etsy-listing-image-seo-section.is-title{padding-bottom:22px}
+.etsy-listing-image-seo-label{
+  display:block;margin-bottom:9px;color:#897f7a;
+  font-size:10px;text-transform:uppercase;font-weight:750;letter-spacing:.07em;
 }
-.etsy-listing-image-tile img{
-  display:block;width:100%;height:100%;aspect-ratio:1;
-  object-fit:contain;border-radius:6px;background:#f3f5f8;
+.etsy-listing-image-seo-section h3{
+  margin:0;color:#2c2730;font:400 clamp(19px,1.6vw,25px)/1.18 Georgia,serif;
+  letter-spacing:-.015em;
 }
-.etsy-listing-image-tile:hover{border-color:#8ab9e9;background:#f5f9fe}
-.etsy-listing-image-tile.is-selected{
-  border-color:#2c78d5;box-shadow:inset 0 0 0 1px #2c78d5,0 0 0 1px #2c78d5;
+.etsy-listing-image-seo-section h4{
+  display:flex;align-items:center;gap:8px;margin:0 0 11px;
+  color:#39333a;font-size:12px;font-weight:800;
 }
-.etsy-listing-image-tile:focus-visible{outline:2px solid #3177d8;outline-offset:2px}
-.etsy-listing-image-slot{
-  position:absolute;left:7px;bottom:7px;z-index:1;
-  padding:4px 5px;border-radius:5px;background:rgba(20,34,56,.73);
-  color:#fff;font-size:10px;font-weight:750;line-height:1;
-  font-variant-numeric:tabular-nums;pointer-events:none;
+.etsy-listing-image-seo-section h4 small{
+  border-radius:9px;background:#f0ede9;padding:2px 6px;
+  color:#81726a;font-size:10px;font-weight:700;
 }
-.etsy-listing-image-tile-review{
-  position:absolute;right:7px;bottom:7px;z-index:1;
-  padding:4px 5px;border-radius:5px;background:rgba(122,68,18,.86);
-  color:#fff1d7;font-size:9px;font-weight:800;line-height:1;
-  pointer-events:none;
+.etsy-listing-image-seo-terms{display:flex;flex-wrap:wrap;gap:6px}
+.etsy-listing-image-seo-terms span{
+  border:1px solid #ebe3dc;border-radius:15px;background:#faf6f1;
+  padding:5px 9px;color:#765640;font-size:11px;line-height:1.35;
 }
-.etsy-listing-image-notice{padding:26px;color:#64768d;text-align:center;font-size:13px}
+.etsy-listing-image-seo-section ul{margin:0;padding-left:17px}
+.etsy-listing-image-seo-section li{
+  margin:0 0 8px;color:#4d464d;font-size:12px;line-height:1.55;
+}
+.etsy-listing-image-seo-description{
+  margin:0;color:#554e55;font-size:12px;line-height:1.6;white-space:pre-wrap;
+}
+.etsy-listing-image-seo-more{margin-top:10px}
+.etsy-listing-image-seo-more summary{
+  cursor:pointer;color:#965c38;font-size:12px;font-weight:800;
+}
+.etsy-listing-image-seo-more p{
+  margin:9px 0 0;color:#554e55;font-size:12px;line-height:1.55;white-space:pre-wrap;
+}
+.etsy-listing-image-seo-empty{
+  margin:14px 0 20px;padding:19px 16px;border:1px dashed #e8dfd8;
+  border-radius:12px;background:#fdfbf8;
+}
+.etsy-listing-image-seo-empty strong{font-size:13px;color:#453b42}
+.etsy-listing-image-seo-empty p{margin:8px 0 0;font-size:12px;line-height:1.6;color:#746a70}
+.etsy-listing-image-seo-activity,.etsy-listing-image-seo-error{
+  font-size:11px;line-height:1.5;color:#756a70;
+}
+.etsy-listing-image-seo-error{color:#a34a40}
+.etsy-listing-image-seo-error button{
+  margin-left:6px;border:0;background:transparent;color:inherit;
+  text-decoration:underline;font-weight:800;cursor:pointer;
+}
+.etsy-listing-image-seo-actions{
+  position:sticky;bottom:0;display:flex;flex-direction:column;
+  gap:9px;margin-top:auto;padding:14px 0 18px;
+  background:linear-gradient(0deg,#fff 85%,rgba(255,255,255,.92));
+}
+.etsy-listing-image-seo-actions>button{
+  width:100%;min-height:43px;padding:9px 12px;border:0;
+  border-radius:22px;background:#302b34;color:#fff;
+  font-size:12px;font-weight:800;cursor:pointer;
+}
+.etsy-listing-image-seo-actions>button:hover{background:#4c414d}
+.etsy-listing-image-seo-actions>button:disabled{
+  background:#eae7e5;color:#a19a9b;cursor:not-allowed;
+}
+.etsy-listing-image-seo-actions>span{
+  color:#968e92;font-size:10px;text-align:center;
+}
+.etsy-listing-image-seo-actions small{color:#a34a40;font-size:11px}
+.etsy-listing-image-notice{
+  padding:26px;color:#786c72;text-align:center;font-size:13px;
+}
 .etsy-listing-image-notice.is-error{color:#a33441}
 .etsy-listing-image-notice button{
-  margin-left:8px;padding:5px 9px;border:1px solid #d4dfea;
-  border-radius:6px;background:#fff;color:inherit;cursor:pointer;
+  margin-left:8px;padding:5px 9px;border:1px solid #e1d9d4;
+  border-radius:7px;background:#fff;color:inherit;cursor:pointer;
 }
-@media(max-width:720px){
-  .etsy-listing-image-overlay{align-items:flex-end;padding:0}
+/* Tablet: strip and preview remain side-by-side, SEO moves below. */
+@media(max-width:850px){
   .etsy-listing-image-dialog,.etsy-listing-image-dialog.is-sparse{
-    width:100%;max-height:94dvh;border-radius:14px 14px 0 0;
+    height:min(93dvh,950px);max-height:95dvh;
   }
-  .etsy-listing-image-dialog-head{min-height:46px;padding:7px 10px 7px 13px}
   .etsy-listing-image-body{overflow-y:auto;overscroll-behavior:contain}
   .etsy-listing-image-workspace,.etsy-listing-image-workspace.is-sparse{
-    display:flex;flex-direction:column;max-height:none;overflow:visible;
+    grid-template-columns:86px minmax(0,1fr);
+    grid-template-rows:minmax(0,54dvh) auto;height:auto;overflow:visible;
+  }
+  .etsy-listing-image-library{grid-column:1;grid-row:1;max-height:54dvh}
+  .etsy-listing-image-preview{grid-column:2;grid-row:1;max-height:54dvh}
+  .etsy-listing-image-review-frame{width:min(100%,49dvh)}
+  .etsy-listing-image-seo{
+    grid-column:1/-1;grid-row:2;overflow:visible;max-height:none;
+    padding:20px clamp(18px,4vw,36px) 6px;border-left:0;border-top:1px solid #e9e6e3;
+  }
+  .etsy-listing-image-seo-section h3{font-size:23px}
+  .etsy-listing-image-seo-actions{position:static}
+}
+/* Phone: keep the image large; thumbnails become a horizontal touch rail
+   instead of a tiny vertical column. SEO follows without nested scrolling. */
+@media(max-width:600px){
+  .etsy-listing-image-overlay{align-items:flex-end;padding:0}
+  .etsy-listing-image-dialog,.etsy-listing-image-dialog.is-sparse{
+    width:100%;height:95dvh;max-height:95dvh;border-radius:16px 16px 0 0;
+  }
+  .etsy-listing-image-dialog-head{min-height:48px;padding:7px 14px}
+  .etsy-listing-image-workspace,.etsy-listing-image-workspace.is-sparse{
+    display:flex;flex-direction:column;height:auto;max-height:none;overflow:visible;
   }
   .etsy-listing-image-preview{
-    width:100%;flex:none;padding:9px;border-right:0;
-    border-bottom:1px solid #e7edf4;
+    order:0;flex:none;width:100%;height:min(96vw,47dvh);
+    min-height:240px;padding:10px;
   }
-  .etsy-listing-image-review-frame{
-    aspect-ratio:auto;height:min(47dvh,380px);max-height:none;
+  .etsy-listing-image-review-frame{width:min(100%,45dvh);max-height:100%}
+  .etsy-listing-image-library{
+    order:1;display:flex;align-items:flex-start;gap:12px;
+    width:100%;max-height:none;min-height:0;padding:11px 12px;
+    overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;
+    border-right:0;border-bottom:1px solid #e9e4df;
   }
-  .etsy-listing-image-library{width:100%;max-height:none;overflow:visible;padding:10px 12px 14px}
-  .etsy-listing-image-grid{grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:7px}
+  .etsy-listing-image-group{
+    display:flex;flex-direction:column;flex:none;min-width:0;padding:0;
+  }
+  .etsy-listing-image-group+.etsy-listing-image-group{
+    border-top:0;border-left:1px solid #e9e4df;padding:0 0 0 12px;
+  }
+  .etsy-listing-image-group-heading{margin:0 0 6px;text-align:left}
+  .etsy-listing-image-design,.etsy-listing-image-design+.etsy-listing-image-design{
+    margin:0;padding:0;border:0;
+  }
+  .etsy-listing-image-grid{display:flex;gap:7px}
+  .etsy-listing-image-tile{width:68px;flex:0 0 68px}
+  .etsy-listing-image-seo{
+    order:2;display:flex;flex-direction:column;
+    width:100%;padding:19px 19px 4px;
+  }
+  .etsy-listing-image-seo-section h3{font-size:22px}
 }
-@media(max-width:360px){
-  .etsy-listing-image-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media(max-width:380px){
+  .etsy-listing-image-tile{width:60px;flex-basis:60px}
+  .etsy-listing-image-preview{min-height:215px}
 }

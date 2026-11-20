@@ -3,7 +3,7 @@ import {afterEach,describe,expect,it,vi} from "vitest";
 import {act} from "react";
 import {createRoot,type Root} from "react-dom/client";
 import {ListingImageCell} from "./ListingImageCell";
-import type {Listing,ListingImageGallery} from "./api";
+import type {Listing,ListingImageGallery,TikTokListingView} from "./api";
 
 vi.mock("./api", async original => {
   const rest=await original<typeof import("./api")>();
@@ -147,7 +147,7 @@ describe("Listing Image saved output badges",()=>{
     expect(dialog?.querySelector(".etsy-listing-image-review-notice")).toBeNull();
     expect(spy).toHaveBeenCalledTimes(1);
   });
-  it("splits gallery into left review and right product images, switching the preview without another fetch",async()=>{
+  it("renders Etsy-style filmstrip, main preview and TikTok SEO in three columns",async()=>{
     spy.mockResolvedValue(gallery);
     mount();
     await act(async()=>{(document.querySelector(".etsy-listing-image-badge") as HTMLButtonElement).click();});
@@ -156,15 +156,18 @@ describe("Listing Image saved output badges",()=>{
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
     expect(dialog).not.toBeNull();
     const workspace = dialog?.querySelector(".etsy-listing-image-workspace");
-    expect(workspace?.children).toHaveLength(2);
-    expect(workspace?.firstElementChild?.classList.contains("etsy-listing-image-preview")).toBe(true);
-    expect(workspace?.lastElementChild?.classList.contains("etsy-listing-image-library")).toBe(true);
+    expect(workspace?.children).toHaveLength(3);
+    expect(workspace?.firstElementChild?.classList.contains("etsy-listing-image-library")).toBe(true);
+    expect(workspace?.children[1]?.classList.contains("etsy-listing-image-preview")).toBe(true);
+    expect(workspace?.lastElementChild?.classList.contains("etsy-listing-image-seo")).toBe(true);
     expect(dialog?.querySelector(".etsy-listing-image-dialog-head h2")?.textContent).toBe("Listing Image");
     expect(dialog?.textContent).not.toContain("Ảnh xem trước");
     expect(dialog?.textContent).not.toContain("Ảnh theo sản phẩm");
     expect(dialog?.textContent).not.toContain("ảnh đã lưu");
     expect(dialog?.textContent).not.toContain("Design");
     expect(dialog?.textContent).not.toContain(item.pageTitle);
+    expect(dialog?.querySelector(".etsy-listing-image-seo-empty")?.textContent)
+      .toContain("Chưa có bản nháp TikTok SEO");
     expect(dialog?.querySelector(".etsy-listing-image-foot")).toBeNull();
     expect(dialog?.querySelector(".etsy-listing-image-design-title")).toBeNull();
     expect(dialog?.querySelectorAll(".etsy-listing-image-group")).toHaveLength(1);
@@ -176,6 +179,13 @@ describe("Listing Image saved output badges",()=>{
     expect(previewImage()?.getAttribute("src")).toContain("/1/preview");
     expect(previewImage()?.getAttribute("src")).not.toContain("/original");
     expect(previewImage()?.getAttribute("data-review-quality")).toBe("webp");
+    const next=document.querySelector<HTMLButtonElement>(".etsy-listing-image-nav.is-next");
+    const previous=document.querySelector<HTMLButtonElement>(".etsy-listing-image-nav.is-prev");
+    expect(next?.getAttribute("aria-label")).toBe("Ảnh tiếp theo");
+    await act(async()=>{next?.click();});
+    expect(previewImage()?.getAttribute("src")).toContain("/2/preview");
+    await act(async()=>{previous?.click();});
+    expect(previewImage()?.getAttribute("src")).toContain("/1/preview");
     expect(dialog?.querySelectorAll(".etsy-listing-image-review-frame img")).toHaveLength(1);
     await act(async()=>{tiles[1]?.click();});
     expect(previewImage()?.getAttribute("src")).toContain("/2/preview");
@@ -189,6 +199,49 @@ describe("Listing Image saved output badges",()=>{
     expect(spy).toHaveBeenCalledTimes(1);
     act(()=>window.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true})));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+  it("loads a genuine TikTok SEO draft only after opening the image viewer",async()=>{
+    const seo: TikTokListingView={
+      status:"needs_fact_check",draft_only:true,
+      result:{
+        title:"Ohio Varsity Graphic Tee",
+        description:"Vintage varsity styling with soft everyday fit. ",
+        highlights:["Distressed print", "Everyday outfit"],
+        search_terms:["ohio varsity shirt","college lettering tee"],
+        qa_status:"needs_fact_check",keyword_source:"codex",
+        ytrends_status:"unavailable",warnings:[],published:false,
+        metrics:{title_characters:24,description_characters:49,
+          description_words:8,highlights_count:2,
+          highlights_characters_total:34,search_terms_count:2,
+          search_terms_characters_total:37,search_terms_joined_characters:39},
+      },
+    };
+    spy.mockResolvedValueOnce(gallery).mockResolvedValueOnce(seo);
+    mount({...item,tiktokListing:{
+      status:"needs_fact_check",draft_only:true,
+      title_preview:"Ohio Varsity Graphic",
+      search_terms_preview:["ohio varsity shirt"],
+    }});
+    expect(spy).not.toHaveBeenCalled();
+    await act(async()=>{
+      document.querySelector<HTMLButtonElement>(".etsy-listing-image-badge")?.click();
+    });
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(spy.mock.calls.map(call=>call[0])).toEqual([
+      "/listings/1234567890/listing-images",
+      "/listings/1234567890/tiktok-listing",
+    ]);
+    const seoPanel=document.querySelector<HTMLElement>(".etsy-listing-image-seo")!;
+    expect(seoPanel.querySelector("h3")?.textContent).toBe("Ohio Varsity Graphic Tee");
+    expect(seoPanel.querySelector(".etsy-listing-image-seo-state")?.textContent)
+      .toBe("Cần kiểm duyệt");
+    expect(seoPanel.querySelectorAll(".etsy-listing-image-seo-terms span")).toHaveLength(2);
+    expect(seoPanel.querySelectorAll(".etsy-listing-image-seo-section li")).toHaveLength(2);
+    expect(seoPanel.textContent).toContain("Chỉ là bản nháp · chưa xuất bản");
+    expect(seoPanel.querySelector<HTMLButtonElement>(".etsy-listing-image-seo-actions button")?.disabled)
+      .toBe(false);
+    // No separate TikTok SEO modal is opened over the image viewer.
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
   });
   it("groups C1717 and G180 in the right library, orders slots and previews selected garment",async()=>{
     const otherPack = "sp-" + "c".repeat(40);
