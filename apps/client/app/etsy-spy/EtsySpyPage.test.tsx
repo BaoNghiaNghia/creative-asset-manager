@@ -1919,7 +1919,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(cell?.querySelector("img, button")).toBeNull();
   });
 
-  it("shows honest QA evidence for picked Fast CPU PNG without print-ready claims", async () => {
+  it("keeps review PNG links available without displaying QA badges in Picked", async () => {
     await start();
     pickedKeys.add(listing.listingKey);
     extractionProjection = {
@@ -1931,11 +1931,9 @@ describe("Etsy Spy native CAM dashboard", () => {
       container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
       await new Promise(resolve => setTimeout(resolve, 65));
     });
-    const warning = container?.querySelector<HTMLElement>(".etsy-extraction-qa");
-    expect(warning?.textContent).toContain("Cần QA độ nét");
-    expect(warning?.textContent).toContain("Phóng ×6.2");
-    expect(warning?.getAttribute("title")).toContain("Thiết kế gốc có độ phân giải thấp");
-    expect(warning?.getAttribute("title")).toContain("quyền thương mại chưa xác minh");
+    expect(container?.querySelector(".etsy-extraction-qa")).toBeNull();
+    expect(container?.textContent).not.toContain("Cần QA");
+    expect(container?.textContent).not.toContain("QA độ nét");
     const preview = container?.querySelector<HTMLAnchorElement>(".etsy-extraction-open");
     expect(preview?.getAttribute("href")).toBe(
       "/api/v1/etsy-spy/image-agents/assets/" + extractionProjection.job_id);
@@ -1958,7 +1956,8 @@ describe("Etsy Spy native CAM dashboard", () => {
       await new Promise(resolve => setTimeout(resolve, 65));
     });
     expect(container?.querySelector(".etsy-extraction-status")).toBeNull();
-    expect(container?.querySelector(".etsy-extraction-qa")?.textContent).toContain("PNG nháp");
+    expect(container?.querySelector(".etsy-extraction-qa")).toBeNull();
+    expect(container?.textContent).not.toContain("cần QA");
     const review = container?.querySelector<HTMLAnchorElement>(".etsy-extraction-candidate");
     expect(review?.getAttribute("href")).toBe(
       "/api/v1/etsy-spy/image-agents/candidates/" + extractionProjection.job_id);

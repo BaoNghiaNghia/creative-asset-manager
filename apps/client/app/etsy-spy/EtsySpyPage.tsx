@@ -348,18 +348,6 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
   const tmTooltip = [item.tmSource || "TM status", item.tmCheckedAt ? readableTime(item.tmCheckedAt) : "",
     item.tmSourceAsOf ? "Source as of " + readableTime(item.tmSourceAsOf) : ""].filter(Boolean).join(" · ");
   const tmLabel = tmDescription(item.tm, deadMatches);
-  const qaFlags = new Set(Array.isArray(item.extraction?.review_flags)
-    ? item.extraction.review_flags.filter(flag => [
-        "low_native_resolution", "upscaled_preview", "edge_noise",
-      ].includes(flag)) : []);
-  const qaNotes = [
-    qaFlags.has("low_native_resolution") ? "Thiết kế gốc có độ phân giải thấp" : null,
-    qaFlags.has("upscaled_preview") ? "PNG được phóng lớn; chưa có chi tiết gốc tương ứng" : null,
-    qaFlags.has("edge_noise") ? "Cần kiểm tra viền, rìa và vải nền" : null,
-  ].filter(Boolean);
-  const upscale = item.extraction?.upscale_factor;
-  const upscaleText = typeof upscale === "number" && Number.isFinite(upscale) &&
-    upscale > 1 ? "Phóng ×" + upscale.toFixed(1) : null;
   return <>
     <tr className={"etsy-product-row" + (selected ? " is-selected" : "")}
       onPointerEnter={showImagePreview}
@@ -402,11 +390,6 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
               : item.smsPush?.status === "needs_source" ? "SMS thiếu nguồn"
               : "SMS chưa đồng bộ"}
           </span>}
-          {item.picked && item.extraction?.status === "needs_review" && qaNotes.length > 0 &&
-            <small className="etsy-extraction-qa" title={[...qaNotes,
-              "Chỉ dùng để kiểm tra nội bộ; quyền thương mại chưa xác minh"].join(" · ")}>
-              ⚠ Cần QA độ nét{upscaleText ? " · " + upscaleText : ""}
-            </small>}
           {item.picked && item.extraction?.status === "needs_review" && item.extraction.job_id &&
             <a className="etsy-extraction-open"
               href={"/api/v1/etsy-spy/image-agents/assets/" + encodeURIComponent(item.extraction.job_id)}
@@ -416,10 +399,6 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
             </a>}
           {item.picked && item.extraction?.status === "needs_ai" &&
             item.extraction?.candidate_ready && item.extraction.job_id && <>
-              <small className="etsy-extraction-qa"
-                title="Bản nháp tách lớp màu cục bộ; chưa phải AI. Cần đối chiếu hình, chữ, độ nét và quyền sử dụng.">
-                ⚠ PNG nháp · cần QA
-              </small>
               <a className="etsy-extraction-open etsy-extraction-candidate"
                 href={"/api/v1/etsy-spy/image-agents/candidates/" + encodeURIComponent(item.extraction.job_id)}
                 target="_blank" rel="noopener noreferrer"
@@ -1115,7 +1094,7 @@ export function EtsySpyPage() {
           method: "POST", body: JSON.stringify({limit: 5, dry_run: false}),
         });
       setTiktokBackfillMessage("Đã tạo " + out.created + " job TikTok Listing · " +
-        out.missing_image + " sản phẩm thiếu ảnh nguồn. Nội dung cần QA trước khi dùng.");
+        out.missing_image + " sản phẩm thiếu ảnh nguồn. Nội dung chỉ là bản nháp.");
       setRefresh(old => old + 1);
     } catch (e) {
       setTiktokBackfillMessage(e instanceof Error ? e.message : "Cannot queue TikTok listings");
@@ -1210,7 +1189,7 @@ export function EtsySpyPage() {
         }
       }
       setBulkMessage("TikTok SEO: đã gửi " + created + "/" + candidates.length +
-        " sản phẩm vào hàng đợi. Bản nháp cần QA trước khi sử dụng.");
+        " sản phẩm vào hàng đợi. Nội dung vẫn là bản nháp.");
       if (failures.length) setBulkError("Không xử lý được: " + failures.slice(0, 2).join(" · ") +
         (failures.length > 2 ? " và " + (failures.length - 2) + " sản phẩm khác." : ""));
       setSelectedListings(new Set());
@@ -1638,7 +1617,7 @@ export function EtsySpyPage() {
         aria-label="Picked design extraction queue">
         <div>
           <strong>Picked → Transparent PNG</strong>
-          <small>Fast Extraction trước · AI review khi ảnh khó · mọi kết quả cần QA và xác minh quyền.</small>
+          <small>Fast Extraction trước · AI khi ảnh khó · xác minh quyền sử dụng trước khi in.</small>
         </div>
         <button type="button" disabled={!canManage || !extraction?.enabled ||
           extractionBackfillBusy || extraction.storage?.ready !== true}
