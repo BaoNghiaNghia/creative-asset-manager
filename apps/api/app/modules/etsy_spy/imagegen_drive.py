@@ -391,7 +391,7 @@ async def store_listing_output_to_drive(
 
     filename = (role_files[slot].replace(".png",
                 f"-rev-{main_revision_number:04d}.png")
-                if main_revision_number else _ROLE_FILES[slot])
+                if main_revision_number else role_files[slot])
     remote = await put("original", png, digest,
                        hierarchy["garment_folder_id"], filename)
     small = await put("thumbnail", thumbnail, thumb_sha,
@@ -473,6 +473,76 @@ async def store_listing_pack_manifest_to_drive(
         stored.remote_folder_id != hierarchy["garment_folder_id"]):
         raise HTTPException(502, "ImageGen Drive manifest folder mismatch")
     return remote_id
+
+
+async def delete_listing_drive_object(
+    *, tenant_id: str, pack_id: str, slot: int, kind: str,
+    remote_file_id: str, folder_id: str, sha256: str | None,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> None:
+    """Permanently delete ONE exact managed Listing Image asset, never a folder.
+
+    The caller must already have persisted a per-SHA deletion receipt from
+    its own database. A 404 is safe to retry only with that trusted receipt.
+    This method never accepts a Drive ID supplied by a browser.
+    """
+    if (not re.fullmatch(r"sp-[0-9a-f]{40}", pack_id) or
+        not isinstance(slot, int) or isinstance(slot, bool) or
+        not 1 <= slot <= 13 or
+        kind not in {"original", "thumbnail", "manifest"} or
+        not _DRIVE_ID.fullmatch(remote_file_id) or
+        not _DRIVE_ID.fullmatch(folder_id) or
+        not tenant_id or len(tenant_id) > 255 or
+        (kind != "manifest" and
+         not re.fullmatch(r"[0-9a-f]{64}", str(sha256 or "")))):
+        raise HTTPException(422, "Invalid Listing Image Drive deletion identity")
+    from .listing_drive_folders import ROOT_FOLDER_ID
+    provider, root = provider_and_folder()
+    if root != ROOT_FOLDER_ID:
+        raise HTTPException(503, "ImageGen Drive destination differs from verified root")
+    await verify_private_drive_destination(provider, root)
+    try:
+        token = await provider.get_access_token()
+    except StorageProviderError as exc:
+        raise HTTPException(503, "ImageGen Drive authorization unavailable") from exc
+
+    url = f"https://www.googleapis.com/drive/v3/files/{remote_file_id}"
+    async with httpx.AsyncClient(
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=httpx.Timeout(35, connect=10), transport=transport,
+    ) as client:
+        try:
+            response = await client.get(url, params={
+                "fields": "id,parents,trashed,mimeType,appProperties",
+                "supportsAllDrives": "true",
+            })
+            if response.status_code == 404:
+                # Previous partial attempt may already have deleted this ID.
+                return
+            response.raise_for_status()
+            metadata = response.json()
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            raise HTTPException(503, "Listing Image Drive deletion proof unavailable") from exc
+        props = metadata.get("appProperties") or {}
+        actual_asset = str(props.get("cam_asset_id") or "")
+        expected_asset = (rf"{re.escape(pack_id)}:manifest:v[23](?::main-[0-9a-f]{{16}})?"
+                          if kind == "manifest"
+                          else rf"{re.escape(pack_id)}:listing-{slot:02d}:{kind}(?::rev-[0-9]{{4}})?")
+        if (metadata.get("id") != remote_file_id or metadata.get("trashed") or
+            folder_id not in (metadata.get("parents") or []) or
+            metadata.get("mimeType") == "application/vnd.google-apps.folder" or
+            not isinstance(props, dict) or
+            props.get("cam_tenant_id") != tenant_id or
+            not re.fullmatch(expected_asset, actual_asset) or
+            not re.fullmatch(r"[0-9a-f]{64}", str(props.get("cam_content_hash") or "")) or
+            (sha256 is not None and props.get("cam_content_hash") != sha256)):
+            raise HTTPException(409, "Listing Image Drive file provenance mismatch")
+        try:
+            deleted = await client.delete(url, params={"supportsAllDrives": "true"})
+            if deleted.status_code != 404:
+                deleted.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise HTTPException(503, "Listing Image Drive deletion unavailable") from exc
 
 
 async def read_design_from_drive(*, tenant_id: str, asset_id: str, remote_id: str,
