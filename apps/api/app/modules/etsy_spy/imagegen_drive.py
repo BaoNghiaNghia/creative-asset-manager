@@ -405,6 +405,104 @@ async def store_listing_output_to_drive(
             "native_height": dimensions[1]}
 
 
+async def delete_listing_output_files_from_drive(
+    *, tenant_id: str, pack_id: str, slot: int,
+    drive_file_id: str, drive_thumbnail_id: str,
+    drive_folder_id: str, drive_thumbnail_folder_id: str,
+    output_sha256: str, thumbnail_sha256: str,
+) -> dict[str, bool]:
+    """Permanently delete only the SHA/tenant-bound PNG and its thumbnail.
+
+    The generic managed provider's delete_asset requires a *direct* child of
+    its root folder. ImageGen uses nested listing/garment subfolders, so
+    deleting through that generic method would reject a valid file. Verify
+    both exact nested parents + appProperties before ANY deletion, use the
+    CAM-managed OAuth account, then delete by the verified IDs. A prior
+    partial success (Google 404) is safe to retry while DB still holds the
+    immutable IDs. No folders, source designs or other slots are touched.
+    """
+    from .listing_drive_folders import ROOT_FOLDER_ID
+    if (not pack_id.startswith("sp-") or not
+        re.fullmatch(r"sp-[0-9a-f]{40}", pack_id) or
+        type(slot) is not int or not 1 <= slot <= 13 or
+        not isinstance(tenant_id, str) or not tenant_id or
+        any(not _DRIVE_ID.fullmatch(x) for x in (
+            drive_file_id, drive_thumbnail_id,
+            drive_folder_id, drive_thumbnail_folder_id)) or
+        drive_file_id == drive_thumbnail_id or
+        any(not re.fullmatch(r"[0-9a-f]{64}", h) for h in (
+            output_sha256, thumbnail_sha256))):
+        raise HTTPException(422, "Invalid ImageGen Drive deletion identity")
+    provider, root = provider_and_folder()
+    if root != ROOT_FOLDER_ID:
+        raise HTTPException(503, "ImageGen Drive folder identity changed")
+    await verify_private_drive_destination(provider, root)
+    try:
+        token = await provider.get_access_token()
+    except StorageProviderError as exc:
+        raise HTTPException(503, "ImageGen Drive connection unavailable") from exc
+
+    targets = (
+        ("original", drive_file_id, drive_folder_id, output_sha256),
+        ("thumbnail", drive_thumbnail_id, drive_thumbnail_folder_id,
+         thumbnail_sha256),
+    )
+    url = "https://www.googleapis.com/drive/v3/files/"
+    existing: list[tuple[str, str]] = []
+    verified_assets: list[str] = []
+    try:
+        async with httpx.AsyncClient(
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=httpx.Timeout(30, connect=8),
+        ) as client:
+            for label, file_id, expected_parent, expected_sha in targets:
+                response = await client.get(
+                    url + file_id, params={
+                        "supportsAllDrives": "true",
+                        "fields": "id,parents,trashed,appProperties",
+                    },
+                )
+                if response.status_code == 404:
+                    # A retry after a partial Drive delete is idempotent.
+                    continue
+                if response.status_code != 200:
+                    raise HTTPException(503, "Google Drive image proof unavailable")
+                data = response.json()
+                props = data.get("appProperties") or {}
+                base = f"{pack_id}:listing-{slot:02d}:{label}"
+                asset_id = str(props.get("cam_asset_id") or "")
+                suffix = asset_id[len(base):] if asset_id.startswith(base) else None
+                if (data.get("id") != file_id or data.get("trashed") or
+                    expected_parent not in (data.get("parents") or []) or
+                    not isinstance(props, dict) or
+                    props.get("cam_tenant_id") != tenant_id or
+                    props.get("cam_content_hash") != expected_sha or
+                    suffix is None or
+                    (suffix and (slot != 1 or not
+                                 re.fullmatch(r":rev-[0-9]{4}", suffix)))):
+                    raise HTTPException(
+                        409, "Drive image identity or ownership mismatch")
+                existing.append((label, file_id))
+                verified_assets.append(asset_id)
+            # A revised Main must have the same revision suffix for original
+            # and thumbnail, or this could select unrelated Drive files.
+            if len(verified_assets) == 2:
+                bases = [f"{pack_id}:listing-{slot:02d}:{label}"
+                         for label in ("original", "thumbnail")]
+                if (verified_assets[0][len(bases[0]):] !=
+                    verified_assets[1][len(bases[1]):]):
+                    raise HTTPException(409, "Drive Main revision identity differs")
+            for label, file_id in existing:
+                response = await client.delete(
+                    url + file_id, params={"supportsAllDrives": "true"})
+                if response.status_code not in (200, 204, 404):
+                    raise HTTPException(503, "Google Drive image deletion failed")
+    except (httpx.TimeoutException, httpx.NetworkError, ValueError) as exc:
+        raise HTTPException(503, "ImageGen Drive deletion unavailable; retry safely") from exc
+
+    return {"original_deleted": True, "thumbnail_deleted": True}
+
+
 async def store_listing_pack_manifest_to_drive(
     *, tenant_id: str, listing_id: str, pack_id: str,
     garment_code: str, placement: str, design_sha256: str,
