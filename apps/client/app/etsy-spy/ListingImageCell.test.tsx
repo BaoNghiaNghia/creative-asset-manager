@@ -179,6 +179,17 @@ describe("Listing Image saved output badges",()=>{
     expect(previewImage()?.getAttribute("src")).toContain("/1/preview");
     expect(previewImage()?.getAttribute("src")).not.toContain("/original");
     expect(previewImage()?.getAttribute("data-review-quality")).toBe("webp");
+    const frame=dialog?.querySelector<HTMLElement>(".etsy-listing-image-review-frame");
+    const fitToggle=frame?.querySelector<HTMLButtonElement>(".etsy-listing-image-fit-toggle");
+    expect(frame?.dataset.fitMode).toBe("cover");
+    expect(fitToggle?.getAttribute("aria-label")).toBe("Xem toàn bộ ảnh, không cắt");
+    await act(async()=>{fitToggle?.click();});
+    expect(frame?.dataset.fitMode).toBe("contain");
+    expect(fitToggle?.getAttribute("aria-pressed")).toBe("true");
+    expect(previewImage()?.getAttribute("src")).toContain("/1/preview");
+    await act(async()=>{fitToggle?.click();});
+    expect(frame?.dataset.fitMode).toBe("cover");
+    expect(fitToggle?.getAttribute("aria-pressed")).toBe("false");
     const next=document.querySelector<HTMLButtonElement>(".etsy-listing-image-nav.is-next");
     const previous=document.querySelector<HTMLButtonElement>(".etsy-listing-image-nav.is-prev");
     expect(next?.getAttribute("aria-label")).toBe("Ảnh tiếp theo");
@@ -336,6 +347,17 @@ describe("Listing Image saved output badges",()=>{
     expect(middle.defaultPrevented).toBe(true);
     expect(frame.dataset.zoomScale).toBe("1.000");
     expect(preview.style.transform).toBe("translate(0px, 0px) scale(1)");
+    // Switching the view mode also resets any wheel zoom, so the
+    // contain/cover toggle never opens at a stale cropped offset.
+    await act(async()=>{frame.dispatchEvent(new WheelEvent("wheel",{
+      bubbles:true,cancelable:true,deltaY:-200,clientX:430,clientY:160,
+    }));});
+    expect(Number(frame.dataset.zoomScale)).toBeGreaterThan(1);
+    await act(async()=>{
+      frame.querySelector<HTMLButtonElement>(".etsy-listing-image-fit-toggle")?.click();
+    });
+    expect(frame.dataset.fitMode).toBe("contain");
+    expect(frame.dataset.zoomScale).toBe("1.000");
     expect(link.getAttribute("href")).toContain("/original");
     expect(spy).toHaveBeenCalledTimes(1);
   });
