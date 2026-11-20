@@ -62,19 +62,22 @@
    Thumbnails are gallery-size derivatives, never original PNGs. */
 .etsy-listing-image-overlay{
   position:fixed;inset:0;z-index:2147483000;display:flex;
-  align-items:center;justify-content:center;padding:clamp(9px,2vw,24px);
+  align-items:center;justify-content:center;padding:8px;
   box-sizing:border-box;background:rgba(31,32,38,.68);backdrop-filter:blur(2px);
 }
 .etsy-listing-image-overlay *{box-sizing:border-box}
 .etsy-listing-image-dialog,.etsy-listing-image-dialog.is-sparse{
   display:flex;flex-direction:column;overflow:hidden;min-width:0;
-  width:min(1420px,100%);height:min(88dvh,820px);max-height:95dvh;
-  border-radius:17px;background:#fff;color:#302d36;
+  /* Use nearly all of the browser viewport like the reference screenshot.
+     The previous 820px height / 1420px width cap left a large unused area. */
+  width:min(1880px,100%);height:calc(100dvh - 16px);
+  max-height:calc(100dvh - 16px);
+  border-radius:12px;background:#fff;color:#302d36;
   box-shadow:0 24px 100px rgba(12,17,28,.32);
 }
 .etsy-listing-image-dialog-head{
   display:flex;align-items:center;justify-content:space-between;gap:12px;
-  flex:none;min-height:56px;padding:9px 17px 9px 20px;
+  flex:none;min-height:48px;padding:7px 14px 7px 18px;
   border-bottom:1px solid #e9e6e4;background:#fff;
 }
 .etsy-listing-image-dialog-head h2{
@@ -93,14 +96,15 @@
 }
 .etsy-listing-image-body{flex:1;min-width:0;min-height:0;overflow:hidden}
 .etsy-listing-image-workspace,.etsy-listing-image-workspace.is-sparse{
-  display:grid;grid-template-columns:94px minmax(0,1fr) clamp(280px,27vw,368px);
+  /* Slim filmstrip + dominant preview + compact SEO rail. */
+  display:grid;grid-template-columns:82px minmax(0,1fr) clamp(270px,21vw,320px);
   width:100%;height:100%;min-height:0;overflow:hidden;
 }
 /* Left: one portrait-oriented, independently scrolling filmstrip. */
 .etsy-listing-image-library{
   grid-column:1;grid-row:1;min-height:0;min-width:0;
   overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;
-  padding:12px 9px 18px;background:#f9f8f6;border-right:1px solid #e8e5e2;
+  padding:10px 6px 14px;background:#f9f8f6;border-right:1px solid #e8e5e2;
 }
 .etsy-listing-image-group{min-width:0;margin:0;padding:0 0 14px}
 .etsy-listing-image-group+.etsy-listing-image-group{
@@ -115,7 +119,7 @@
 .etsy-listing-image-design+.etsy-listing-image-design{
   margin-top:10px;padding-top:10px;border-top:1px dashed #e1ddd7;
 }
-.etsy-listing-image-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
+.etsy-listing-image-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:6px}
 .etsy-listing-image-tile{
   position:relative;isolation:isolate;display:block;width:100%;
   min-width:0;aspect-ratio:1;padding:3px;border:2px solid transparent;
@@ -139,7 +143,8 @@
 /* Middle: preview is centered like the Etsy primary product photograph. */
 .etsy-listing-image-preview{
   position:relative;grid-column:2;grid-row:1;display:flex;align-items:center;justify-content:center;
-  min-width:0;min-height:0;padding:clamp(6px,.8vw,12px);
+  /* The preview is the hero; the inset used to waste visible image area. */
+  min-width:0;min-height:0;padding:5px;
   overflow:hidden;background:#f6f5f3;
 }
 .etsy-listing-image-nav{
@@ -158,7 +163,7 @@
    users can switch to contain when they need to inspect every print edge. */
 .etsy-listing-image-review-frame{
   position:relative;flex:1 1 auto;width:100%;height:100%;min-width:0;min-height:0;
-  border-radius:10px;
+  border-radius:7px;
   overflow:hidden;background:#eeece9;
   box-shadow:0 1px 5px rgba(35,30,25,.08);
 }
@@ -200,7 +205,7 @@
 .etsy-listing-image-seo{
   grid-column:3;grid-row:1;display:flex;flex-direction:column;
   min-width:0;min-height:0;overflow-y:auto;overscroll-behavior:contain;
-  scrollbar-width:thin;padding:24px 23px 0;background:#fff;
+  scrollbar-width:thin;padding:18px 16px 0;background:#fff;
   border-left:1px solid #e9e6e3;overflow-wrap:anywhere;
 }
 .etsy-listing-image-seo-topline{
@@ -296,6 +301,15 @@
 .etsy-listing-image-notice button{
   margin-left:8px;padding:5px 9px;border:1px solid #e1d9d4;
   border-radius:7px;background:#fff;color:inherit;cursor:pointer;
+}
+/* On compact laptops retain all three columns without squeezing preview. */
+@media(min-width:851px) and (max-width:1150px){
+  .etsy-listing-image-workspace,.etsy-listing-image-workspace.is-sparse{
+    grid-template-columns:72px minmax(0,1fr) 252px;
+  }
+  .etsy-listing-image-library{padding:9px 5px 12px}
+  .etsy-listing-image-seo{padding:15px 12px 0}
+  .etsy-listing-image-seo-section h3{font-size:20px}
 }
 /* Tablet: strip and preview remain side-by-side, SEO moves below. */
 @media(max-width:850px){
