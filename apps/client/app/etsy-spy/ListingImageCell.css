@@ -361,3 +361,57 @@
   .etsy-listing-image-tile{width:60px;flex-basis:60px}
   .etsy-listing-image-preview{min-height:215px}
 }
+
+/* Single-slot destructive action: always visible for Etsy Spy managers,
+   never hidden over the source photo or coupled to the TikTok SEO panel. */
+.etsy-listing-image-dialog{position:relative}
+.etsy-listing-image-head-actions{display:flex;align-items:center;gap:10px;margin-left:auto}
+.etsy-listing-image-delete-trigger{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  min-height:32px;padding:6px 12px;border:1px solid #eac7c5;
+  border-radius:8px;background:#fff7f6;color:#a1322b;
+  font-size:12px;line-height:1.2;font-weight:750;cursor:pointer;
+}
+.etsy-listing-image-delete-trigger:hover{background:#ffebe8;border-color:#d88e86}
+.etsy-listing-image-delete-trigger:focus-visible,
+.etsy-listing-image-confirm button:focus-visible{
+  outline:2px solid #a1322b;outline-offset:2px;
+}
+.etsy-listing-image-delete-trigger:disabled,
+.etsy-listing-image-close:disabled{cursor:wait;opacity:.55}
+.etsy-listing-image-delete-notice{
+  flex:none;margin:0;padding:9px 18px;border-bottom:1px solid #e7eee3;
+  background:#f6faf4;color:#2f633d;font-size:12px;line-height:1.5;
+}
+.etsy-listing-image-confirm-backdrop{
+  position:absolute;inset:0;z-index:20;display:flex;
+  align-items:center;justify-content:center;padding:18px;
+  background:rgba(25,24,28,.48);backdrop-filter:blur(2px);
+}
+.etsy-listing-image-confirm{
+  width:min(470px,100%);max-height:calc(100% - 20px);overflow:auto;
+  padding:22px;border-radius:14px;background:#fff;
+  box-shadow:0 16px 55px rgba(20,18,22,.32);
+}
+.etsy-listing-image-confirm h3{margin:0 0 10px;color:#302b30;font-size:18px;font-weight:800}
+.etsy-listing-image-confirm p{margin:0 0 18px;color:#625d64;font-size:13px;line-height:1.65}
+.etsy-listing-image-confirm .etsy-listing-image-confirm-error{
+  margin-bottom:12px;color:#a82f28;font-weight:700;
+}
+.etsy-listing-image-confirm-actions{
+  display:flex;justify-content:flex-end;flex-wrap:wrap;gap:9px;
+}
+.etsy-listing-image-confirm-actions button{
+  min-height:37px;padding:9px 14px;border:1px solid #dad8d6;
+  border-radius:8px;background:#fff;color:#353136;cursor:pointer;
+  font-size:12px;font-weight:750;
+}
+.etsy-listing-image-confirm-actions button.is-danger{
+  border-color:#b03b33;background:#ad352d;color:#fff;
+}
+.etsy-listing-image-confirm-actions button.is-danger:hover{background:#922a24}
+.etsy-listing-image-confirm-actions button:disabled{opacity:.6;cursor:wait}
+@media(max-width:640px){
+  .etsy-listing-image-delete-trigger{padding:6px 8px;font-size:11px}
+  .etsy-listing-image-confirm{padding:17px}
+}

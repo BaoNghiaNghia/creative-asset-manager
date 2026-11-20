@@ -130,6 +130,25 @@ class EtsySpyListingImage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
+class EtsySpyListingImageDeletion(Base):
+    """Permanent, SHA-bound deletion receipt for one ImageGen output.
+
+    The slot remains available for a *different* newly generated PNG.
+    Previously saved PNG receipts cannot repopulate the gallery after
+    the user explicitly deleted the original and its Drive thumbnail.
+    """
+    __tablename__ = "etsy_spy_listing_image_deletions"
+
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    listing_key: Mapped[str] = mapped_column(String(150), primary_key=True)
+    pack_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    slot: Mapped[int] = mapped_column(Integer(), primary_key=True)
+    output_sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    deleted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False,
+    )
+
+
 class EtsySpySmsStatus(Base):
     """Windows SMS Idea Inbox receipt projection, distinct from Keyword SMS suggestions."""
     __tablename__ = "etsy_spy_sms_statuses"

@@ -5,7 +5,7 @@ import hashlib
 import io
 from types import SimpleNamespace
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from PIL import Image
 from sqlalchemy import create_engine
@@ -18,7 +18,8 @@ from app.modules.etsy_spy.listing_images import (
     listing_image_router, listing_badges, _ensure_pack_manifest,
     listing_preview_requires_review, verified_identity,
 )
-from app.modules.etsy_spy.model import EtsySpyAgent, EtsySpyPicked, EtsySpyListingImage
+from app.modules.etsy_spy.model import (EtsySpyAgent, EtsySpyPicked,
+    EtsySpyListingImage, EtsySpyListingImageDeletion)
 from app.modules.etsy_spy.service import create_agent
 
 
@@ -27,7 +28,7 @@ def test_gallery_only_counts_saved_outputs_and_enforces_tenant(monkeypatch):
                            poolclass=StaticPool)
     Base.metadata.create_all(engine, tables=[
         EtsySpyAgent.__table__, EtsySpyPicked.__table__,
-        EtsySpyListingImage.__table__])
+        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__])
     db = Session(engine)
     principal = SimpleNamespace(active_tenant_id="boostgame",
         effective_permissions=frozenset({"etsy_spy.read"}),
@@ -54,7 +55,7 @@ def test_gallery_only_counts_saved_outputs_and_enforces_tenant(monkeypatch):
     drive_root = "1JdCzemUBcLhfro5IbOq5jPze7rdDIJMl"
     async def mock_drive(*, tenant_id, pack_id, slot, digest, png,
                          listing_id, design_sha256, placement, garment_code,
-                         main_revision_number=0):
+                         main_revision_number=0, expected_slots=10):
         assert (listing_id, design_sha256, placement, garment_code) == (
             "1234567890", design_sha, "front_center", "C1717")
         sends.append((tenant_id, pack_id, slot, digest))
@@ -227,7 +228,7 @@ def test_partial_imagegen_pack_is_visible_before_main_is_uploaded():
                            poolclass=StaticPool)
     Base.metadata.create_all(engine, tables=[
         EtsySpyAgent.__table__, EtsySpyPicked.__table__,
-        EtsySpyListingImage.__table__])
+        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__])
     db = Session(engine)
     tenant, listing = "boostgame", "1234567890"
     pack = "sp-" + "c" * 40
@@ -268,7 +269,7 @@ def test_completed_native_preview_pack_never_claims_final_drive_manifest(monkeyp
                            poolclass=StaticPool)
     Base.metadata.create_all(engine, tables=[
         EtsySpyAgent.__table__, EtsySpyPicked.__table__,
-        EtsySpyListingImage.__table__])
+        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__])
     db = Session(engine)
     pack = "sp-" + "b" * 40
     tenant, listing = "boostgame", "1234567890"
@@ -313,7 +314,7 @@ def test_existing_private_r2_cache_only_after_picked_acl(monkeypatch):
                            poolclass=StaticPool)
     Base.metadata.create_all(engine, tables=[
         EtsySpyAgent.__table__, EtsySpyPicked.__table__,
-        EtsySpyListingImage.__table__])
+        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__])
     db = Session(engine)
     principal = SimpleNamespace(active_tenant_id="boostgame",
         effective_permissions=frozenset({"etsy_spy.read"}),
@@ -395,7 +396,7 @@ def test_read_only_agent_coverage_includes_only_picked_listing_with_saved_png():
                            poolclass=StaticPool)
     Base.metadata.create_all(engine, tables=[
         EtsySpyAgent.__table__, EtsySpyPicked.__table__,
-        EtsySpyListingImage.__table__])
+        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__])
     db = Session(engine)
     app = FastAPI()
     app.include_router(listing_image_router, prefix="/api/v1/etsy-spy")
@@ -437,7 +438,7 @@ def test_v13_complete_preview_pack_does_not_publish_final_manifest(monkeypatch):
                            poolclass=StaticPool)
     Base.metadata.create_all(engine, tables=[
         EtsySpyAgent.__table__, EtsySpyPicked.__table__,
-        EtsySpyListingImage.__table__])
+        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__])
     db = Session(engine)
     tenant, listing, pack = "boostgame", "1234567890", "sp-" + "e" * 40
     db.add(EtsySpyPicked(tenant_id=tenant, listing_key=listing))
@@ -465,6 +466,178 @@ def test_v13_complete_preview_pack_does_not_publish_final_manifest(monkeypatch):
             db, tenant, listing, pack, "C1717", "c" * 64, "d" * 64,
             "front_center", expected_slots=13)) is None
         assert listing_badges(db, tenant, {listing})[listing][0]["count"] == 13
+    finally:
+        db.close()
+        engine.dispose()
+
+
+
+def test_delete_listing_image_removes_exact_drive_png_and_defers_regeneration(monkeypatch):
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False},
+                           poolclass=StaticPool)
+    Base.metadata.create_all(engine, tables=[
+        EtsySpyAgent.__table__, EtsySpyPicked.__table__,
+        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__])
+    db = Session(engine)
+    principal = SimpleNamespace(active_tenant_id="boostgame",
+        effective_permissions=frozenset({"etsy_spy.read"}),
+        platform_admin=False, navigation_modules=frozenset({"etsy-spy"}))
+    app = FastAPI()
+    app.include_router(listing_image_router, prefix="/api/v1/etsy-spy")
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[require_authenticated_principal] = lambda: principal
+    pack = "sp-" + "a" * 40
+    listing, tenant = "1234567890", "boostgame"
+    db.add(EtsySpyPicked(tenant_id=tenant, listing_key=listing))
+    for slot in (1, 2):
+        db.add(EtsySpyListingImage(
+            tenant_id=tenant, listing_key=listing, pack_id=pack,
+            slot=slot, garment_code="C1717", design_sha256="a" * 64,
+            source_sha256="b" * 64, placement="front_center",
+            drive_folder_id="garmentFolderD12345",
+            drive_thumbnail_folder_id="thumbnailFolderD12345",
+            drive_manifest_id="manifestFileD12345",
+            output_sha256=(str(slot) * 64),
+            thumbnail_sha256=("d" * 64),
+            drive_file_id=f"originalFile{slot}123456",
+            drive_thumbnail_id=f"previewFile{slot}123456",
+            native_width=1254, native_height=1254))
+    db.commit()
+    agent, secret = create_agent(db, tenant, "ImageGen Delete Test")
+    delete_url = (f"/api/v1/etsy-spy/listings/{listing}/listing-images/"
+                  f"{pack}/1?sha256=" + "1" * 64)
+    gallery_url = f"/api/v1/etsy-spy/listings/{listing}/listing-images"
+    deleted = []
+
+    async def delete_remote(**kwargs):
+        deleted.append(kwargs)
+        return {"original_deleted": True, "thumbnail_deleted": True}
+
+    monkeypatch.setattr(
+        "app.modules.etsy_spy.imagegen_drive.delete_listing_output_files_from_drive",
+        delete_remote)
+    try:
+        with TestClient(app) as client:
+            # Read-only users cannot delete media, and no Drive files are
+            # touched by a forbidden, stale or cross-tenant request.
+            assert client.delete(delete_url).status_code == 403
+            principal.effective_permissions = frozenset({
+                "etsy_spy.read", "etsy_spy.manage"})
+            wrong = delete_url.replace("1" * 64, "f" * 64)
+            assert client.delete(wrong).status_code == 409
+            assert client.delete(delete_url.replace(listing, "9876543210")
+                                 ).status_code == 404
+            assert deleted == []
+
+            async def drive_down(**kwargs):
+                raise HTTPException(503, "Drive unavailable")
+            monkeypatch.setattr(
+                "app.modules.etsy_spy.imagegen_drive.delete_listing_output_files_from_drive",
+                drive_down)
+            assert client.delete(delete_url).status_code == 503
+            assert client.get(gallery_url).json()["total"] == 2
+            assert db.query(EtsySpyListingImageDeletion).count() == 0
+
+            monkeypatch.setattr(
+                "app.modules.etsy_spy.imagegen_drive.delete_listing_output_files_from_drive",
+                delete_remote)
+            response = client.delete(delete_url)
+            assert response.status_code == 200, response.text
+            assert response.json()["deleted"] is True
+            assert response.json()["drive_deleted"] is True
+            assert response.json()["auto_regenerated"] is False
+            assert deleted == [{
+                "tenant_id": tenant, "pack_id": pack, "slot": 1,
+                "drive_file_id": "originalFile1123456",
+                "drive_thumbnail_id": "previewFile1123456",
+                "drive_folder_id": "garmentFolderD12345",
+                "drive_thumbnail_folder_id": "thumbnailFolderD12345",
+                "output_sha256": "1" * 64,
+                "thumbnail_sha256": "d" * 64,
+            }]
+            assert db.get(EtsySpyListingImage, (tenant, listing, pack, 1)) is None
+            remaining = db.get(EtsySpyListingImage, (tenant, listing, pack, 2))
+            assert remaining is not None
+            assert remaining.drive_manifest_id is None
+            assert client.get(gallery_url).json()["total"] == 1
+            assert listing_badges(db, tenant, {listing})[listing][0]["count"] == 1
+            assert client.delete(delete_url).status_code == 404
+            assert len(deleted) == 1
+
+            pending = client.get(
+                f"/api/v1/etsy-spy/image-agents/{agent.id}/"
+                "listing-image-regeneration-pending",
+                headers={"Authorization": "Bearer " + secret})
+            assert pending.status_code == 200
+            assert pending.json()["auto_queued"] is False
+            assert pending.json()["total"] == 1
+            assert pending.json()["slots"] == [{
+                "listing_id": listing, "pack_id": pack, "slot": 1,
+                "deleted_sha256": "1" * 64}]
+            assert db.get(EtsySpyListingImageDeletion, (
+                tenant, listing, pack, 1, "1" * 64)) is not None
+
+            # Old local sync receipts must not put this same PNG back.
+            upload_url = (f"/api/v1/etsy-spy/image-agents/{agent.id}/"
+                          "listing-outputs")
+            again = client.post(upload_url, json={
+                "listing_id": listing, "pack_id": pack, "slot": 1,
+                "garment_code": "C1717", "sha256": "1" * 64,
+                "design_sha256": "a" * 64, "source_sha256": "b" * 64,
+                "placement": "front_center",
+                "drive_root_folder_id": "1JdCzemUBcLhfro5IbOq5jPze7rdDIJMl",
+            }, headers={"Authorization": "Bearer " + secret})
+            assert again.status_code == 409
+            assert db.query(EtsySpyListingImage).count() == 1
+    finally:
+        db.close()
+        engine.dispose()
+
+
+def test_delete_listing_image_never_deletes_shared_remote_drive_asset(monkeypatch):
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False},
+                           poolclass=StaticPool)
+    Base.metadata.create_all(engine, tables=[
+        EtsySpyAgent.__table__, EtsySpyPicked.__table__,
+        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__])
+    db = Session(engine)
+    tenant, pack = "boostgame", "sp-" + "b" * 40
+    principal = SimpleNamespace(active_tenant_id=tenant,
+        effective_permissions=frozenset({"etsy_spy.read", "etsy_spy.manage"}),
+        platform_admin=False, navigation_modules=frozenset({"etsy-spy"}))
+    app = FastAPI()
+    app.include_router(listing_image_router, prefix="/api/v1/etsy-spy")
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[require_authenticated_principal] = lambda: principal
+    db.add(EtsySpyPicked(tenant_id=tenant, listing_key="1234567890"))
+    for slot in (1, 2):
+        db.add(EtsySpyListingImage(
+            tenant_id=tenant, listing_key="1234567890", pack_id=pack,
+            slot=slot, garment_code="C1717", design_sha256="a" * 64,
+            source_sha256="b" * 64, placement="front_center",
+            drive_folder_id="garmentFolderD12345",
+            drive_thumbnail_folder_id="thumbnailFolderD12345",
+            output_sha256=("1" if slot == 1 else "2") * 64,
+            thumbnail_sha256="d" * 64,
+            drive_file_id="sharedOriginal12345",
+            drive_thumbnail_id=f"thumbnail{slot}123456",
+        ))
+    db.commit()
+    calls = []
+    async def fail_if_called(**kwargs):
+        calls.append(kwargs)
+        raise AssertionError("must not delete shared media")
+    monkeypatch.setattr(
+        "app.modules.etsy_spy.imagegen_drive.delete_listing_output_files_from_drive",
+        fail_if_called)
+    try:
+        with TestClient(app) as client:
+            response = client.delete(
+                f"/api/v1/etsy-spy/listings/1234567890/"
+                f"listing-images/{pack}/1?sha256=" + "1" * 64)
+            assert response.status_code == 409
+            assert not calls
+            assert db.query(EtsySpyListingImage).count() == 2
     finally:
         db.close()
         engine.dispose()
