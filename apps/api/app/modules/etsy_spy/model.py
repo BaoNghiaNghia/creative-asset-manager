@@ -130,6 +130,44 @@ class EtsySpyListingImage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
+class EtsySpyListingImageDeletion(Base):
+    """Durable per-SHA revocation: old PNG receipts may never resurrect a deleted slot.
+
+    A deletion starts as pending before any Google Drive I/O; completed rows
+    retain only asset identities and a future-regeneration request, never bytes.
+    No new generation is started automatically.
+    """
+    __tablename__ = "etsy_spy_listing_image_deletions"
+    __table_args__ = (
+        Index("ix_etsy_spy_listing_image_deletions_pending",
+              "state", "requested_at"),
+    )
+    tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    listing_key: Mapped[str] = mapped_column(String(150), primary_key=True)
+    pack_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    slot: Mapped[int] = mapped_column(Integer(), primary_key=True)
+    output_sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    garment_code: Mapped[str] = mapped_column(String(10), nullable=False)
+    design_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    placement: Mapped[str] = mapped_column(String(48), nullable=False)
+    thumbnail_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    drive_file_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    drive_thumbnail_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    drive_folder_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    drive_thumbnail_folder_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    drive_manifest_id: Mapped[str | None] = mapped_column(String(128))
+    original_deleted: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    thumbnail_deleted: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    manifest_deleted: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    regeneration_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="waiting")
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class EtsySpySmsStatus(Base):
     """Windows SMS Idea Inbox receipt projection, distinct from Keyword SMS suggestions."""
     __tablename__ = "etsy_spy_sms_statuses"
