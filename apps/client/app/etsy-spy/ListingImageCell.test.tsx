@@ -347,17 +347,9 @@ describe("Listing Image saved output badges",()=>{
     expect(middle.defaultPrevented).toBe(true);
     expect(frame.dataset.zoomScale).toBe("1.000");
     expect(preview.style.transform).toBe("translate(0px, 0px) scale(1)");
-    // Switching the view mode also resets any wheel zoom, so the
-    // contain/cover toggle never opens at a stale cropped offset.
-    await act(async()=>{frame.dispatchEvent(new WheelEvent("wheel",{
-      bubbles:true,cancelable:true,deltaY:-200,clientX:430,clientY:160,
-    }));});
-    expect(Number(frame.dataset.zoomScale)).toBeGreaterThan(1);
-    await act(async()=>{
-      frame.querySelector<HTMLButtonElement>(".etsy-listing-image-fit-toggle")?.click();
-    });
-    expect(frame.dataset.fitMode).toBe("contain");
-    expect(frame.dataset.zoomScale).toBe("1.000");
+    // No cover/contain switch: the preview always fits its square card.
+    expect(frame.querySelector(".etsy-listing-image-fit-toggle")).toBeNull();
+    expect(frame.dataset.fitMode).toBeUndefined();
     expect(link.getAttribute("href")).toContain("/original");
     expect(spy).toHaveBeenCalledTimes(1);
   });
