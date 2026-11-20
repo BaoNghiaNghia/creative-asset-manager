@@ -52,9 +52,6 @@ function ListingZoomPreview({ image, garmentCode }: {
   const suppressClickRef = useRef(false);
   const [zoom, setZoom] = useState<ImageZoom>(FIT_ZOOM);
   const [dragging, setDragging] = useState(false);
-  // Product photos fill the wide center card by default. Full-view mode
-  // remains available for infographics and prints near the image edges.
-  const [fitMode, setFitMode] = useState<"cover" | "contain">("cover");
   const resetZoom = () => {
     dragRef.current = null;
     suppressClickRef.current = false;
@@ -137,7 +134,7 @@ function ListingZoomPreview({ image, garmentCode }: {
   };
 
   return <div className="etsy-listing-image-review-frame" ref={frameRef}
-    data-zoom-scale={zoom.scale.toFixed(3)} data-fit-mode={fitMode}>
+    data-zoom-scale={zoom.scale.toFixed(3)}>
     <a className={"etsy-listing-image-fullsize" +
       (zoom.scale > 1 ? " is-zoomed" : "") + (dragging ? " is-dragging" : "")}
       href={image.originalUrl}
@@ -158,16 +155,6 @@ function ListingZoomPreview({ image, garmentCode }: {
         transform={`translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})`} />
       <span className="etsy-listing-image-open-icon" aria-hidden="true">↗</span>
     </a>
-    <button type="button" className="etsy-listing-image-fit-toggle"
-      aria-label={fitMode === "cover" ? "Xem toàn bộ ảnh, không cắt" : "Lấp đầy khung preview"}
-      aria-pressed={fitMode === "contain"}
-      title={fitMode === "cover" ? "Xem toàn ảnh" : "Lấp đầy khung"}
-      onClick={() => {
-        resetZoom();
-        setFitMode(current => current === "cover" ? "contain" : "cover");
-      }}>
-      {fitMode === "cover" ? "Toàn ảnh" : "Đầy khung"}
-    </button>
   </div>;
 }
 
