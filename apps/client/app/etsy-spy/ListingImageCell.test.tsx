@@ -462,8 +462,7 @@ describe("Listing Image saved output badges",()=>{
     expect(trigger?.textContent).toContain("Xóa ảnh 01");
     await act(async()=>trigger?.click());
     expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
-    expect(spy.mock.calls.some(x=>x[1]?.method==="DELETE")).toBe(false,
-      "no Drive mutation before second confirmation");
+    expect(spy.mock.calls.some(x=>x[1]?.method==="DELETE")).toBe(false);
     await act(async()=>document.querySelector<HTMLButtonElement>(
       ".etsy-listing-image-delete-buttons button:not(.is-danger)")?.click());
     expect(document.querySelector('[role="alertdialog"]')).toBeNull();
