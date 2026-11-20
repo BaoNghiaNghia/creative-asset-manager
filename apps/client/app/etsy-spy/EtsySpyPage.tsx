@@ -435,12 +435,12 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
         title={tmTooltip} onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
         {tmLabel}
       </button> : <span className={"etsy-pill etsy-tm-badge tm-" + tmClass(item.tm)} title={tmTooltip}>{tmLabel}</span>}
-      {item.tm === "no_match" && <small className="etsy-tm-disclaimer">
-        No matches found in source data; this does not mean trademark clearance.
-      </small>}
       <ReviewAssessmentBadge audit={item.reviewAssessment ?? item.metadata?.reviewAssessment}
         itemReviews={item.itemReviews} cartLowerBound={item.cartLowerBound}
         inCarts={item.inCarts} />
+      {item.tm === "no_match" && <small className="etsy-tm-disclaimer">
+        No matches found in source data; this does not mean trademark clearance.
+      </small>}
     </div>
     {expanded && hasMarks && <EvidenceMarks matches={tmMatches} />}
     </td>

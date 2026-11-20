@@ -815,6 +815,10 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(badgeStacks?.[1]?.querySelector(".tm-no-match")?.tagName).toBe("SPAN");
     expect(badgeStacks?.[1]?.querySelector(".etsy-tm-disclaimer")?.textContent).toContain(
       "does not mean trademark clearance");
+    // Long legal explanations belong after the compact badges, never between
+    // the TM status and review verdict in the same horizontal flex row.
+    expect(badgeStacks?.[1]?.lastElementChild?.classList.contains("etsy-tm-disclaimer"))
+      .toBe(true);
     const deadBadge = badgeStacks?.[2]?.querySelector(".tm-dead");
     expect(deadBadge?.textContent).toBe("TM DEAD · 2");
     expect(deadBadge?.tagName).toBe("BUTTON");

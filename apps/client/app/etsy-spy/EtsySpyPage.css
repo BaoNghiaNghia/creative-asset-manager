@@ -214,9 +214,28 @@ body:has(.etsy-spy-page) .app-route-content { background:#fff!important; }
 }
 .etsy-source-search{background:#f1f5fb;color:#446487}
 .etsy-source-shop{background:#f5f6f8;color:#596b81}
-/* Reference-style status tags: compact rectangles, soft fills, fine
-   borders, no star glyph. Etsy demand and TM status stack vertically. */
-.etsy-badge-stack{display:flex;flex-direction:column;align-items:flex-start;gap:5px}
+/* Compact status tags flow horizontally until the cell runs out of space.
+   Each badge remains a single item when wrapped; review evidence keeps
+   its existing disclosure, and the longer TM disclaimer stays underneath. */
+.etsy-badge-stack{
+  display:flex;flex-flow:row wrap;align-items:center;align-content:flex-start;
+  gap:6px 7px;min-width:0;
+}
+.etsy-badge-stack > .etsy-pill,
+.etsy-badge-stack > .etsy-review-proof,
+.etsy-badge-stack > .etsy-review-proof-waiting,
+.etsy-badge-stack > .etsy-muted{
+  flex:0 0 auto;max-width:100%;
+}
+.etsy-table-wrap td .etsy-badge-stack > .etsy-review-proof-waiting{
+  display:inline-flex;margin:0;white-space:normal;
+}
+.etsy-badge-stack > .etsy-review-proof summary{
+  max-width:100%;white-space:normal;overflow-wrap:anywhere;
+}
+.etsy-table-wrap td .etsy-badge-stack > small.etsy-tm-disclaimer{
+  flex:0 0 100%;max-width:min(100%,260px);margin:0;
+}
 .etsy-badge-stack .etsy-pill,
 .etsy-data-table.is-trademarks .etsy-pill{
   min-height:20px;padding:2px 6px;border-radius:4px;
@@ -1049,7 +1068,6 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-product-thumbnail-link{flex-basis:76px;width:76px;height:76px}
   .etsy-product-copy strong{font-size:13px;line-height:1.4}
   .etsy-product-copy .etsy-title-meta a{font-size:11px}
-  .etsy-badge-stack{flex-direction:row;align-items:center;flex-wrap:wrap;gap:6px}
   .etsy-sms-preview{max-width:none}
   .etsy-sms-list{font-size:12px;white-space:normal;overflow-wrap:anywhere}
   .etsy-action-cell a{width:37px;height:37px}
