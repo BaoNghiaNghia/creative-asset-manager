@@ -1,12 +1,12 @@
 """Track explicit Listing Image deletions and their Google Drive cleanup receipts.
 
-Revision ID: 0212_etsy_spy_listing_image_delete_drive
+Revision ID: 0212_etsy_image_delete
 Revises: 0211_video_cache_30d_retention
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0212_etsy_spy_listing_image_delete_drive"
+revision = "0212_etsy_image_delete"
 down_revision = "0211_video_cache_30d_retention"
 branch_labels = None
 depends_on = None
