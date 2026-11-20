@@ -418,7 +418,9 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
       onPreviewStart={() => setImagePreview(null)} /></td>}
     {item.picked && <TikTokListingCell item={item} canManage={canPick}
       optimizerEnabled={optimizerEnabled} onQueued={onListingQueued} />}
-    {item.picked && <ListingImageCell item={item} onPreviewStart={() => setImagePreview(null)} />}
+    {item.picked && <ListingImageCell item={item} canDelete={canPick}
+      onImageDeleted={onListingQueued}
+      onPreviewStart={() => setImagePreview(null)} />}
     <td className="etsy-sms-cell">
       {smsText ? <div className="etsy-sms-preview"
         title={smsStatus === "title_fallback" ? "Keyword mặc định lấy từ title · " + smsText : smsText}>
