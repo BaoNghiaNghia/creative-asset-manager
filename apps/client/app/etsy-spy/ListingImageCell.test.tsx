@@ -34,10 +34,13 @@ const gallery:ListingImageGallery={
   ],
 };
 let root:Root,container:HTMLDivElement;
-function mount(record:Listing=item) {
+function mount(record:Listing=item, canDelete=false, onImageDeleted?:()=>void) {
   container=document.createElement("div");document.body.append(container);
   root=createRoot(container);
-  act(()=>root.render(<table><tbody><tr><ListingImageCell item={record}/></tr></tbody></table>));
+  act(()=>root.render(<table><tbody><tr>
+    <ListingImageCell item={record} canDelete={canDelete}
+      onImageDeleted={onImageDeleted}/>
+  </tr></tbody></table>));
 }
 afterEach(()=>{act(()=>root?.unmount());container?.remove();
   document.querySelectorAll(".etsy-listing-image-overlay").forEach(node=>node.remove());spy.mockReset();});
@@ -432,4 +435,71 @@ describe("Listing Image saved output badges",()=>{
     expect(document.querySelector(".etsy-listing-image-badge")).toBeNull();
     expect(spy).not.toHaveBeenCalled();
   });
+  it("never offers Google Drive deletion to viewers without Manage permission",async()=>{
+    spy.mockResolvedValue(gallery);
+    mount();
+    await act(async()=>document.querySelector<HTMLButtonElement>(".etsy-listing-image-badge")?.click());
+    expect(document.querySelector(".etsy-listing-image-delete-trigger")).toBeNull();
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+  });
+  it("deletes only selected pack+slot+SHA after explicit confirmation and advances preview",async()=>{
+    const onDeleted=vi.fn();
+    const pruned={...gallery,total:1,groups:[{
+      ...gallery.groups[0],count:1,
+      images:[gallery.groups[0].images[1]],
+    }]};
+    spy.mockImplementation(async(_path,options)=>{
+      if(options?.method==="DELETE")return {
+        ok:true,deleted:true,regenerationStatus:"pending",
+      };
+      return spy.mock.calls.filter(x=>x[1]?.method==="DELETE").length
+        ? pruned : gallery;
+    });
+    mount(item,true,onDeleted);
+    await act(async()=>document.querySelector<HTMLButtonElement>(".etsy-listing-image-badge")?.click());
+    expect(document.querySelectorAll(".etsy-listing-image-tile")).toHaveLength(2);
+    const trigger=document.querySelector<HTMLButtonElement>(".etsy-listing-image-delete-trigger");
+    expect(trigger?.textContent).toContain("Xóa ảnh 01");
+    await act(async()=>trigger?.click());
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
+    expect(spy.mock.calls.some(x=>x[1]?.method==="DELETE")).toBe(false,
+      "no Drive mutation before second confirmation");
+    await act(async()=>document.querySelector<HTMLButtonElement>(
+      ".etsy-listing-image-delete-buttons button:not(.is-danger)")?.click());
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+    await act(async()=>document.querySelector<HTMLButtonElement>(
+      ".etsy-listing-image-delete-trigger")?.click());
+    await act(async()=>document.querySelector<HTMLButtonElement>(
+      ".etsy-listing-image-delete-buttons .is-danger")?.click());
+    const attempt=spy.mock.calls.find(x=>x[1]?.method==="DELETE");
+    expect(attempt?.[0]).toBe("/listings/1234567890/listing-images/"+pack+"/1");
+    expect(JSON.parse(String(attempt?.[1]?.body))).toEqual({
+      sha256:"a".repeat(64),confirm:true,
+    });
+    expect(document.querySelectorAll(".etsy-listing-image-tile")).toHaveLength(1);
+    expect(document.querySelector(".etsy-listing-image-review-frame img")
+      ?.getAttribute("src")).toContain("/2/preview");
+    expect(document.querySelector(".etsy-listing-image-delete-success")?.textContent)
+      .toContain("Google Drive");
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(onDeleted).toHaveBeenCalledTimes(1);
+  });
+  it("does not remove the selected PNG if Google Drive deletion fails",async()=>{
+    spy.mockImplementation(async(_path,options)=>{
+      if(options?.method==="DELETE")throw new Error("Drive owner authorization unavailable");
+      return gallery;
+    });
+    mount(item,true);
+    await act(async()=>document.querySelector<HTMLButtonElement>(".etsy-listing-image-badge")?.click());
+    await act(async()=>document.querySelector<HTMLButtonElement>(
+      ".etsy-listing-image-delete-trigger")?.click());
+    await act(async()=>document.querySelector<HTMLButtonElement>(
+      ".etsy-listing-image-delete-buttons .is-danger")?.click());
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
+    expect(document.querySelector(".etsy-listing-image-delete-error")?.textContent)
+      .toContain("Drive owner authorization unavailable");
+    expect(document.querySelectorAll(".etsy-listing-image-tile")).toHaveLength(2);
+    expect(document.querySelector(".etsy-listing-image-delete-success")).toBeNull();
+  });
+
 });
