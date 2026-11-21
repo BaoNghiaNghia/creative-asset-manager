@@ -551,7 +551,9 @@ function LogRow({ item }: { item: SpyLog }) {
   </tr>;
 }
 
-function EtsyTableViewport({ children, scope }: { children: ReactNode; scope: string }) {
+function EtsyTableViewport({ children, scope, fillViewport = false }: {
+  children: ReactNode; scope: string; fillViewport?: boolean;
+}) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ overflow: false, atStart: true, atEnd: true });
   const sync = useCallback(() => {
@@ -580,6 +582,48 @@ function EtsyTableViewport({ children, scope }: { children: ReactNode; scope: st
       window.removeEventListener("resize", sync);
     };
   }, [scope, sync]);
+  useEffect(() => {
+    if (!fillViewport) return;
+    const el = viewportRef.current;
+    if (!el) return;
+    const card = el.closest<HTMLElement>(".etsy-table-card");
+    const pager = card?.querySelector<HTMLElement>(".etsy-pager");
+    let frame = 0;
+    const fit = () => {
+      // Mobile uses the existing page-scrolling card layout, not a nested scroller.
+      if (window.matchMedia?.("(max-width: 680px)")?.matches) {
+        el.style.removeProperty("--etsy-picked-table-available-height");
+        return;
+      }
+      // Reserve space for the pager and the stage card's lower padding.
+      // Measuring the real table top works when the header, day filters or
+      // horizontal-scroll controls change height at different viewport sizes.
+      const available = (window.visualViewport?.height ?? window.innerHeight) -
+        el.getBoundingClientRect().top - (pager?.getBoundingClientRect().height ?? 56) - 28;
+      const height = Math.max(320, Math.floor(available)) + "px";
+      if (el.style.getPropertyValue("--etsy-picked-table-available-height") !== height) {
+        el.style.setProperty("--etsy-picked-table-available-height", height);
+      }
+    };
+    const schedule = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(fit);
+    };
+    const observer = typeof ResizeObserver !== "undefined" ?
+      new ResizeObserver(schedule) : null;
+    if (card) observer?.observe(card);
+    if (pager) observer?.observe(pager);
+    window.addEventListener("resize", schedule);
+    window.visualViewport?.addEventListener("resize", schedule);
+    schedule();
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener("resize", schedule);
+      window.visualViewport?.removeEventListener("resize", schedule);
+      el.style.removeProperty("--etsy-picked-table-available-height");
+    };
+  }, [scope, fillViewport]);
   const move = (direction: -1 | 1) => {
     const el = viewportRef.current;
     if (!el) return;
@@ -604,7 +648,8 @@ function EtsyTableViewport({ children, scope }: { children: ReactNode; scope: st
         </button>
       </div>
     </div>}
-    <div className="etsy-table-wrap" ref={viewportRef} onScroll={sync}>{children}</div>
+    <div className={"etsy-table-wrap" + (fillViewport ? " is-viewport-fit" : "")}
+      ref={viewportRef} onScroll={sync}>{children}</div>
   </>;
 }
 
@@ -1766,7 +1811,8 @@ export function EtsySpyPage() {
             <p className="etsy-empty-description">Thử điều chỉnh bộ lọc hoặc từ khóa tìm kiếm.</p>
           </>}
         </div>
-        : <EtsyTableViewport scope={selectionScope}>
+        : <EtsyTableViewport scope={selectionScope}
+            fillViewport={activeTab === "products" && options.pickState === "picked"}>
           <table className={"etsy-data-table is-" + activeTab +
             (selectable ? " is-selectable" : "") +
             (isPickedSelection ? " is-picked-listings" : "")}><thead><tr>
