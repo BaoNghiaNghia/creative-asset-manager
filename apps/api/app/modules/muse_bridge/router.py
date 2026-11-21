@@ -719,8 +719,9 @@ def create_operator_command(payload: CommandCreate,
         if prior:
             if (prior.action != "execute_task"
                     or not isinstance(prior.details, dict)
-                    or prior.details.get("taskType") != payload.taskType):
-                raise HTTPException(409, "requestId belongs to another job")
+                    or prior.details.get("taskType") != payload.taskType
+                    or prior.details.get("instructions") != payload.instructions):
+                raise HTTPException(409, "requestId belongs to another job or task content changed")
             return {"ok": True, "reused": True, **_command_status(prior)}
         count = db.scalar(select(func.count()).select_from(CamMuseCommand).where(
             CamMuseCommand.tenant_id == tenant,
