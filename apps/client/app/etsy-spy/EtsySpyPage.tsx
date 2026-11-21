@@ -1263,30 +1263,25 @@ export function EtsySpyPage() {
       : null,
   ].filter(Boolean).join(" · ");
   const overviewCards: {
-    title: string; value: number | string | null | undefined; hint: string;
+    title: string; value: number | string | null | undefined;
     tone: string; tab: VisibleSpyTab; filters?: Partial<Options>; selected: boolean;
   }[] = [
-    { title: "Eligible listings", value: summary?.listings, hint: "Ready to review",
+    { title: "Eligible listings", value: summary?.listings,
       tone: "total", tab: "products", filters: { observedDay: clockDay },
       selected: activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
         options.pickState === "eligible" && !options.source },
     { title: "Picked", value: summary?.picked ?? 0,
-      hint: extraction ? (extraction.enabled
-        ? extraction.storage?.ready === false ? "Selected · Extraction storage paused"
-          : `Extract ${extraction.claimed_today}/${extraction.daily_cap} · Q ${extraction.queued}`
-        : "Selected · Image Agent off")
-        : "Manually selected products",
       tone: "picked", tab: "products", filters: { pickState: "picked", observedDay: "all" },
       selected: activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
         options.pickState === "picked" },
-    { title: "Later", value: summary?.later ?? 0, hint: "Auto-grouped design themes",
+    { title: "Later", value: summary?.later ?? 0,
       tone: "later", tab: "products", filters: { pickState: "later" },
       selected: activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
         options.pickState === "later" },
-    { title: "Blacklist", value: blacklist.length, hint: "Blocked keyword phrases",
+    { title: "Blacklist", value: blacklist.length,
       tone: "blacklist", tab: "products", filters: { blacklistView: true },
       selected: isBlacklistView },
-    { title: "Win Keyword", value: winKeywords.length, hint: "Saved keyword notes",
+    { title: "Win Keyword", value: winKeywords.length,
       tone: "win-keyword", tab: "products", filters: { winKeywordsView: true },
       selected: isWinKeywordsView },
   ];
@@ -1351,7 +1346,6 @@ export function EtsySpyPage() {
               <span>{card.title}</span>
             </span>
             <strong>{typeof card.value === "number" ? card.value.toLocaleString() : card.value ?? "—"}</strong>
-            <small>{card.hint}</small>
           </button>)}
         </section>
         {activeTab === "products" && !showProductFacets && <div className="etsy-facet-context">

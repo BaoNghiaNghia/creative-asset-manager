@@ -492,11 +492,6 @@ body:has(.etsy-spy-page) .app-route-content{background:#ffffff!important}
   letter-spacing:-.02em;color:var(--etsy-stat-color);
   font-variant-numeric:tabular-nums;white-space:nowrap;
 }
-.etsy-stat>small{
-  display:block;max-width:100%;min-width:0;width:100%;
-  color:#8a99ad;line-height:1.25;font-size:8px;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-}
 .etsy-stat-total{--etsy-stat-color:#3d5e90;background:#f7f9fc}
 .etsy-stat-picked{--etsy-stat-color:#227654;background:#f0faf4}
 .etsy-stat-blacklist{--etsy-stat-color:#98566c;background:#fcf6f8}
@@ -991,7 +986,6 @@ body:has(.etsy-spy-page) .app-route-content{background:#ffffff!important}
   .etsy-stat{min-height:77px;gap:5px;padding:10px;border-radius:9px}
   .etsy-stat-heading>span:last-child{font-size:11px;letter-spacing:0}
   .etsy-stat>strong{font-size:23px}
-  .etsy-stat>small{font-size:10px}
   .etsy-stat-errors{grid-column:1/-1}
 
   .etsy-search-filters{
@@ -2715,8 +2709,6 @@ body:has(.etsy-spy-page) .app-route-content{background:#ffffff!important}
     min-width:0;font-size:20px;line-height:1.1;text-align:right;
     font-variant-numeric:tabular-nums;
   }
-  /* The heading and number are the useful information on a phone. */
-  .etsy-spy-page .etsy-stat>small {display:none}
   .etsy-spy-page .etsy-stat-errors {grid-column:auto}
   .etsy-spy-page .etsy-observed-days {min-width:0;margin:0 0 9px}
   .etsy-spy-page .etsy-observed-day-grid {

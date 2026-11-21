@@ -1224,7 +1224,11 @@ describe("Etsy Spy native CAM dashboard", () => {
     const cards = Array.from(container?.querySelectorAll(".etsy-stats .etsy-stat") || []);
     expect(cards).toHaveLength(5);
     expect(cards[1].querySelector(".etsy-picked-image-status")).toBeNull();
-    expect(cards.every(card => card.querySelectorAll("small").length === 1)).toBe(true);
+    // All five KPI tiles show only the title and count; no gray subtitle row.
+    expect(cards.every(card => card.querySelectorAll("small").length === 0)).toBe(true);
+    expect(cards.every(card => card.querySelector(".etsy-stat-heading") && card.querySelector("strong"))).toBe(true);
+    expect(container?.querySelector(".etsy-stats")?.textContent).not.toContain("Ready to review");
+    expect(container?.querySelector(".etsy-stats")?.textContent).not.toContain("Saved keyword notes");
     expect(cards[1].getAttribute("title")).toContain("URL ảnh: 0 thiếu · 0 đủ");
     extractionPilotOn = true;
     await act(async () => {
@@ -1232,8 +1236,9 @@ describe("Etsy Spy native CAM dashboard", () => {
       await new Promise(resolve => setTimeout(resolve, 65));
     });
     const pickedCard = container?.querySelector<HTMLButtonElement>(".etsy-stat-picked");
-    expect(pickedCard?.querySelector("small")?.textContent).toBe("Extract 0/1 · Q 246");
-    expect(pickedCard?.querySelectorAll("small")).toHaveLength(1);
+    expect(pickedCard?.querySelector("small")).toBeNull();
+    expect(pickedCard?.textContent).not.toContain("Extract 0/1");
+    // Extraction progress remains available through the existing title tooltip.
     expect(pickedCard?.getAttribute("title")).toContain("PNG 0 · AI 0");
     expect(pickedCard?.getAttribute("title")).toContain("URL ảnh: 0 thiếu · 0 đủ");
     expect(cards.map(card => card.textContent?.split(/[0-9]/)[0]?.trim())).toEqual([
