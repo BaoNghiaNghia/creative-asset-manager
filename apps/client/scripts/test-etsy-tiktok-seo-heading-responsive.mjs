@@ -19,7 +19,6 @@ function markup(cellWidth) {
     '<div class="etsy-tiktok-cell-stack"><button class="etsy-tiktok-listing-open has-preview" type="button">'+
     '<span class="etsy-tiktok-search-heading"><span>Search terms</span><small>2 gợi ý</small></span>'+
     '<span class="etsy-tiktok-term-list">'+terms.map(t=>'<span class="etsy-tiktok-term">'+t+'</span>').join("")+'</span>'+
-    '<span class="etsy-tiktok-preview-footer"><span class="etsy-tiktok-open-hint">Mở SEO ↗</span></span>'+
     '</button></div></td></tr></tbody></table></div></main></body></html>';
 }
 const browser=await chromium.launch({channel:"chrome",headless:true});

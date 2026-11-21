@@ -113,10 +113,6 @@
   padding: 2px 6px; border-radius: 5px; font-size: 9px; line-height: 1.2;
   font-weight: 700;
 }
-.etsy-tiktok-listing-open .etsy-tiktok-open-hint {
-  margin-left: auto; color: #2b62b2; font-size: 10px;
-  font-weight: 740; white-space: nowrap;
-}
 .etsy-tiktok-queue-action {
   justify-self: start; min-height: 27px; padding: 4px 8px;
   border-radius: 6px; font-size: 10px; font-weight: 700;
