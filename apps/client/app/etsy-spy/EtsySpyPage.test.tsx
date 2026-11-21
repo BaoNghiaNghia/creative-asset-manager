@@ -949,6 +949,10 @@ describe("Etsy Spy native CAM dashboard", () => {
       container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
       await new Promise(resolve => setTimeout(resolve, 55));
     });
+    // Picked should use a viewport-fitting scroll area; pagination is unchanged.
+    expect(container?.querySelector("#etsy-product-results .etsy-table-wrap.is-viewport-fit"))
+      .toBeTruthy();
+    expect(container?.querySelector("#etsy-product-results .etsy-pager")).toBeTruthy();
     const labels = [
       ["Product / Etsy", "pageTitle", "asc"],
       ["Design", "design", "desc"],
