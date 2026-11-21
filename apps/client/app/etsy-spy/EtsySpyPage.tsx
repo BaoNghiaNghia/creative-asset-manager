@@ -1334,27 +1334,27 @@ export function EtsySpyPage() {
       selected: isWinKeywordsView },
   ];
   return <main className="etsy-spy-page">
-    <div className="etsy-header-shell">
-    <WorkspacePageHeader route="etsy-spy" className="etsy-spy-topbar" actions={<>
-      <span className={"etsy-connection " + (summary?.source_status || "never_synced")}>{syncLabel}</span>
-      <button type="button" className="etsy-btn etsy-refresh" onClick={() => setRefresh(n => n + 1)}><span aria-hidden="true">↻</span> Refresh</button>
-      <WorkspaceBackToAssets />
-    </>} />
-
-    </div>
     <section id="etsy-spy-workspace"
       className="etsy-stage-canvas" aria-label="Etsy Spy workspace">
       <div className="etsy-stage-card">
-        <div className="etsy-stage-heading-row">
-          <div className="etsy-stage-heading">
-            <span className="etsy-stage-kicker">ETSY SPY · MARKET INTELLIGENCE</span>
-            <h2>{activeTab === "products" ? "Product Intelligence" : TABS.find(item => item.id === activeTab)?.title}</h2>
-            {activeTab !== "products" && <p>{activeTab === "keywords"
-              ? "Follow discovered keyword branches, priorities and source evidence."
-              : activeTab === "trademarks" ? "Review cached trademark results and attached USPTO evidence."
-              : "Monitor Windows Scout synchronization, warnings and processing errors."}</p>}
-          </div>
-          <div className="etsy-stage-heading-actions">
+        <WorkspacePageHeader route="etsy-spy" className="etsy-spy-topbar"
+          eyebrow="ETSY MARKET INTELLIGENCE"
+          description={activeTab === "products" ? "" : activeTab === "keywords"
+            ? "Follow discovered keyword branches, priorities and source evidence."
+            : activeTab === "trademarks"
+              ? "Review cached trademark results and attached USPTO evidence."
+              : "Monitor Windows Scout synchronization, warnings and processing errors."}
+          titleAddon={<h2 className="etsy-spy-context">
+            {activeTab === "products" ? "Product Intelligence" : TABS.find(tab => tab.id === activeTab)?.title}
+          </h2>}
+          actions={<>
+            <div className="etsy-header-quick-actions">
+              <span className={"etsy-connection " + (summary?.source_status || "never_synced")}>{syncLabel}</span>
+              <button type="button" className="etsy-btn etsy-refresh"
+                onClick={() => setRefresh(n => n + 1)}><span aria-hidden="true">↻</span> Refresh</button>
+              <WorkspaceBackToAssets />
+            </div>
+            <div className="etsy-stage-heading-actions">
             {activeTab === "products" && !isWinKeywordsView && <form className="etsy-blacklist-form"
               onSubmit={addBlacklist} aria-label="Blacklist product title phrases">
               <span className="etsy-blacklist-icon" aria-hidden="true">⊘</span>
@@ -1381,8 +1381,9 @@ export function EtsySpyPage() {
                   activeTab === "logs" ? "Search message or stack…" : "Search keyword, product or Listing ID…"}
                 value={typedSearch} onChange={event => setTypedSearch(event.target.value)} />
             </div>
-          </div>
-        </div>
+            </div>
+          </>}
+        />
         <section className="etsy-stats" aria-label="Etsy Spy overview filters">
           {overviewCards.map((card, index) => <button type="button"
             className={`etsy-stat etsy-stat-${card.tone}${card.selected ? " active" : ""}`}
