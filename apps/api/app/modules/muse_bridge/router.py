@@ -584,6 +584,12 @@ class TaskResult(BaseModel):
     links: list[TaskLink] = Field(default_factory=list, max_length=30)
 
 
+class CommandHeartbeat(BaseModel):
+    lease: str = Field(min_length=32, max_length=128)
+    state: Literal["started", "researching", "collecting", "validating", "uploading", "blocked"]
+    note: str | None = Field(default=None, max_length=180)
+
+
 class CommandAck(BaseModel):
     lease: str = Field(min_length=32, max_length=128)
     outcome: Literal["success", "failed"]
@@ -663,6 +669,13 @@ def _command_status(cmd: CamMuseCommand):
         "createdAt": cmd.created_at.isoformat() if cmd.created_at else None,
         "updatedAt": cmd.updated_at.isoformat() if cmd.updated_at else None,
         "finishedAt": cmd.finished_at.isoformat() if cmd.finished_at else None,
+        "leaseExpiresAt": cmd.lease_expires_at.isoformat() if cmd.lease_expires_at else None,
+        "leaseExpired": (cmd.status == "claimed" and cmd.lease_expires_at is not None
+                         and _aware(cmd.lease_expires_at) <= _utc()),
+        "lastHeartbeatAt": ((cmd.details or {}).get("lastHeartbeatAt")
+                            if isinstance(cmd.details, dict) else None),
+        "progressState": ((cmd.details or {}).get("progressState")
+                          if isinstance(cmd.details, dict) else None),
         "camLinked": False,
     }
 
@@ -898,6 +911,41 @@ def claim_muse_command(command_id: str, tenant: str = Depends(_muse),
                         "reviews" if phase == "review_artwork" else "jobs",
             "task": (cmd.details if cmd.action == "execute_task" else None),
             "artworkSha256": cmd.artwork_sha256}
+
+
+@router.post("/commands/{command_id}/heartbeat")
+def heartbeat_muse_command(
+    command_id: str, payload: CommandHeartbeat,
+    tenant: str = Depends(_muse), db: Session = Depends(get_db),
+):
+    """Lease-bound proof of real Muse progress; capped state, no history growth."""
+    try:
+        UUID(command_id)
+    except ValueError:
+        raise HTTPException(404, "Invalid command ID")
+    cmd = db.scalar(select(CamMuseCommand).where(
+        CamMuseCommand.tenant_id == tenant,
+        CamMuseCommand.command_id == command_id,
+    ).with_for_update())
+    if (cmd is None or cmd.status != "claimed"
+            or cmd.lease_expires_at is None
+            or _aware(cmd.lease_expires_at) <= _utc()
+            or not cmd.lease_hash
+            or not hmac.compare_digest(cmd.lease_hash,
+                hashlib.sha256(payload.lease.encode()).hexdigest())):
+        raise HTTPException(409, "Heartbeat rejected: command lease expired or invalid")
+    now = _utc()
+    details = dict(cmd.details) if isinstance(cmd.details, dict) else {}
+    details["lastHeartbeatAt"] = now.isoformat()
+    details["progressState"] = payload.state
+    details["progressNote"] = payload.note or ""
+    cmd.details = details
+    cmd.lease_expires_at = now + timedelta(minutes=30)
+    cmd.updated_at = now
+    db.commit()
+    return {"ok": True, "commandId": command_id,
+            "status": cmd.status, "progressState": payload.state,
+            "leaseExpiresAt": cmd.lease_expires_at.isoformat()}
 
 
 @router.post("/commands/{command_id}/complete")
