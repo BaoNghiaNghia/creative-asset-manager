@@ -589,6 +589,12 @@ def _eligible_phase(db: Session, tenant: str,
                     job: CamMuseJob, cmd: CamMuseCommand):
     if job.artwork_sha256 != cmd.artwork_sha256:
         return None
+    if (job.status == "qa_hold"
+            and job.listing_key != os.getenv(
+                "CAM_MUSE_QA_CANARY_LISTING_ID", "4456979256")):
+        # The visual review endpoint is a single-listing canary.
+        # Never queue reviews that Muse cannot submit back to CAM.
+        return None
     if cmd.action == "review_artwork":
         if job.status != "qa_hold":
             return None
@@ -600,7 +606,7 @@ def _eligible_phase(db: Session, tenant: str,
             db, tenant, job.listing_key, cmd.artwork_sha256
         ) and job.product_image_url else None)
     if (job.source_state == "ready_for_muse"
-            and job.status in ("pending", "claimed")
+            and job.status == "pending"
             and job.artwork_asset_path
             and isinstance(_qa_record(job), dict)
             and _qa_record(job).get("verdict") == "pass"
@@ -628,7 +634,7 @@ def create_operator_command(payload: CommandCreate,
         if prior.listing_key != payload.listingId or prior.action != payload.action:
             raise HTTPException(409, "requestId reused for a different task")
         return {"ok": True, "reused": True, **_command_status(prior)}
-    if (job.status in ("submitted", "completed")
+    if (job.status in ("claimed", "submitted", "completed")
             or job.source_state == "missing_source"):
         raise HTTPException(409, "Job already submitted or original source unavailable")
     if not job.artwork_sha256 or not HEX64.fullmatch(job.artwork_sha256):
