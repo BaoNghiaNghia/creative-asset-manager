@@ -8,6 +8,8 @@ never proof of Google Drive ingestion or CAM listing linkage.
 from __future__ import annotations
 
 import hashlib
+import json
+import ipaddress
 import hmac
 import os
 import re
@@ -21,7 +23,7 @@ from fastapi.responses import FileResponse
 from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel, Field, field_validator
 from typing import Literal
-from sqlalchemy import select, update, func, or_
+from sqlalchemy import delete, select, update, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -560,17 +562,97 @@ def _command_reader(authorization: str | None = Header(default=None)):
 
 
 class CommandCreate(BaseModel):
-    action: Literal["create_video", "review_artwork"]
-    listingId: str = Field(pattern=r"^[0-9]{5,20}$")
+    action: Literal["create_video", "review_artwork", "execute_task"]
+    listingId: str | None = Field(default=None, pattern=r"^[0-9]{5,20}$")
+    taskType: str | None = Field(default=None, min_length=5, max_length=80,
+        pattern=r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*){1,3}$")
+    instructions: str | None = Field(default=None, min_length=15, max_length=2000)
     requestId: str = Field(min_length=12, max_length=128,
                            pattern=r"^[A-Za-z0-9_-]+$")
     note: str | None = Field(default=None, max_length=300)
+
+
+class TaskLink(BaseModel):
+    title: str = Field(min_length=3, max_length=150)
+    url: str = Field(min_length=12, max_length=600)
+    imageUrl: str | None = Field(default=None, max_length=600)
+    description: str | None = Field(default=None, max_length=300)
+
+
+class TaskResult(BaseModel):
+    summary: str = Field(min_length=10, max_length=2000)
+    links: list[TaskLink] = Field(default_factory=list, max_length=30)
 
 
 class CommandAck(BaseModel):
     lease: str = Field(min_length=32, max_length=128)
     outcome: Literal["success", "failed"]
     notes: str = Field(min_length=10, max_length=800)
+    result: TaskResult | None = None
+
+
+def _safe_external_link(value: str) -> bool:
+    try:
+        loc = urlsplit(value)
+        host = loc.hostname or ""
+        if not host or loc.scheme != "https" or loc.username or loc.password or loc.port:
+            return False
+        if host.lower() in {"localhost", "metadata.google.internal"} or host.endswith((".local", ".internal")):
+            return False
+        try:
+            ipaddress.ip_address(host)
+            return False
+        except ValueError:
+            return True
+    except ValueError:
+        return False
+
+
+def _valid_task_result(task_type: str, result: TaskResult) -> bool:
+    links = result.links
+    if not all(_safe_external_link(ref.url) and
+               (ref.imageUrl is None or _safe_external_link(ref.imageUrl))
+               for ref in links):
+        return False
+    if task_type == "research.pinterest_poses":
+        pins = set()
+        for ref in links:
+            try:
+                pin = urlsplit(ref.url)
+                photo = urlsplit(ref.imageUrl or "")
+            except ValueError:
+                return False
+            if (pin.hostname not in {"www.pinterest.com", "pinterest.com"}
+                    or not re.fullmatch(r"/pin/[0-9]{8,20}/?", pin.path)
+                    or pin.query or pin.fragment or photo.hostname != "i.pinimg.com"
+                    or not photo.path.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))):
+                return False
+            pins.add(pin.path.strip("/"))
+        return len(links) == 20 and len(pins) == 20
+    return True
+
+
+def _purge_old_generic_tasks(db: Session, tenant: str):
+    """Bounded cleanup. Keep legacy garment QA/video audit trails untouched."""
+    db.execute(update(CamMuseCommand).where(
+        CamMuseCommand.tenant_id == tenant,
+        CamMuseCommand.action == "execute_task",
+        CamMuseCommand.status == "claimed",
+        CamMuseCommand.attempts >= 5,
+        CamMuseCommand.lease_expires_at < _utc(),
+    ).values(status="failed", finished_at=_utc(),
+             lease_hash=None, lease_expires_at=None, updated_at=_utc()))
+    expired = db.scalars(select(CamMuseCommand.command_id).where(
+        CamMuseCommand.tenant_id == tenant,
+        CamMuseCommand.action == "execute_task",
+        CamMuseCommand.status.in_(("completed", "failed")),
+        CamMuseCommand.finished_at < _utc() - timedelta(days=30),
+    ).limit(100)).all()
+    if expired:
+        db.execute(delete(CamMuseCommand).where(
+            CamMuseCommand.tenant_id == tenant,
+            CamMuseCommand.command_id.in_(expired),
+        ))
 
 
 def _command_status(cmd: CamMuseCommand):
@@ -620,6 +702,52 @@ def create_operator_command(payload: CommandCreate,
                             tenant: str = Depends(_operator),
                             db: Session = Depends(get_db)):
     """CodeLocal operator only: typed job intent; no free-form machine control."""
+    if payload.action == "execute_task":
+        if payload.listingId is not None or not payload.taskType or not payload.instructions:
+            raise HTTPException(422, "Generic tasks require taskType/instructions and no listingId")
+        group = payload.taskType.split(".", 1)[0]
+        if group not in {
+            "research", "analysis", "creative", "content", "design",
+            "media", "report", "document", "image", "video", "qa", "collect"
+        }:
+            raise HTTPException(422, "Muse generic tasks are non-destructive content/research only")
+        _purge_old_generic_tasks(db, tenant)
+        prior = db.scalar(select(CamMuseCommand).where(
+            CamMuseCommand.tenant_id == tenant,
+            CamMuseCommand.request_id == payload.requestId,
+        ).limit(1))
+        if prior:
+            if (prior.action != "execute_task"
+                    or not isinstance(prior.details, dict)
+                    or prior.details.get("taskType") != payload.taskType):
+                raise HTTPException(409, "requestId belongs to another job")
+            return {"ok": True, "reused": True, **_command_status(prior)}
+        count = db.scalar(select(func.count()).select_from(CamMuseCommand).where(
+            CamMuseCommand.tenant_id == tenant,
+            CamMuseCommand.action == "execute_task",
+            CamMuseCommand.status.in_(("pending", "claimed")),
+        ))
+        if (count or 0) >= 50:
+            raise HTTPException(429, "Generic Muse queue capacity reached")
+        cmd = CamMuseCommand(
+            tenant_id=tenant, command_id=str(uuid4()),
+            listing_key=None, artwork_sha256=None,
+            action="execute_task", request_id=payload.requestId,
+            status="pending", phase="execute_task",
+            details={
+                "taskType": payload.taskType,
+                "instructions": payload.instructions,
+                "note": payload.note or "",
+                "executor": "muse",
+                "openaiApiAllowed": False,
+                "createdVia": "codelocal",
+            },
+        )
+        db.add(cmd)
+        db.commit()
+        return {"ok": True, "reused": False, **_command_status(cmd)}
+    if payload.listingId is None:
+        raise HTTPException(422, "Etsy listing ID is required for garment jobs")
     job = db.scalar(select(CamMuseJob).where(
         CamMuseJob.tenant_id == tenant,
         CamMuseJob.listing_key == payload.listingId
@@ -682,6 +810,20 @@ def list_muse_commands(limit: int = Query(default=10, ge=1, le=20),
         if (cmd.status == "claimed" and cmd.lease_expires_at is not None
                 and _aware(cmd.lease_expires_at) > _utc()):
             continue
+        if cmd.action == "execute_task":
+            d = cmd.details if isinstance(cmd.details, dict) else {}
+            items.append({
+                **_command_status(cmd),
+                "phase": "execute_task",
+                "task": {
+                    "taskType": d.get("taskType"),
+                    "instructions": d.get("instructions"),
+                    "executor": "muse",
+                    "openaiApiAllowed": False,
+                    "resultContract": "summary plus max 30 HTTPS links (title/url/imageUrl/description)",
+                },
+            })
+            continue
         job = db.get(CamMuseJob, (tenant, cmd.listing_key))
         if job is None:
             continue
@@ -707,7 +849,13 @@ def read_operator_command(command_id: str, tenant: str = Depends(_command_reader
     cmd = db.get(CamMuseCommand, (tenant, command_id))
     if not cmd:
         raise HTTPException(404, "Unknown command")
-    return {"ok": True, **_command_status(cmd)}
+    response = {"ok": True, **_command_status(cmd)}
+    if cmd.action == "execute_task" and isinstance(cmd.details, dict):
+        response["taskType"] = cmd.details.get("taskType")
+        if cmd.status in ("completed", "failed"):
+            response["result"] = cmd.details.get("result")
+            response["completionNotes"] = cmd.details.get("notes")
+    return response
 
 
 @router.post("/commands/{command_id}/claim")
@@ -726,12 +874,15 @@ def claim_muse_command(command_id: str, tenant: str = Depends(_muse),
     if (cmd.status == "claimed" and cmd.lease_expires_at is not None
             and _aware(cmd.lease_expires_at) > _utc()):
         raise HTTPException(409, "Command already claimed")
-    job = db.get(CamMuseJob, (tenant, cmd.listing_key))
-    if not job:
-        raise HTTPException(409, "CAM listing no longer Picked")
-    phase = _eligible_phase(db, tenant, job, cmd)
-    if phase is None:
-        raise HTTPException(409, "Artwork QA / video workflow not eligible")
+    if cmd.action == "execute_task":
+        phase = "execute_task"
+    else:
+        job = db.get(CamMuseJob, (tenant, cmd.listing_key))
+        if not job:
+            raise HTTPException(409, "CAM listing no longer Picked")
+        phase = _eligible_phase(db, tenant, job, cmd)
+        if phase is None:
+            raise HTTPException(409, "Artwork QA / video workflow not eligible")
     lease = secrets.token_urlsafe(36)
     cmd.phase = phase
     cmd.lease_hash = hashlib.sha256(lease.encode()).hexdigest()
@@ -742,7 +893,9 @@ def claim_muse_command(command_id: str, tenant: str = Depends(_muse),
     db.commit()
     return {"ok": True, "command": _command_status(cmd),
             "lease": lease, "leaseExpiresAt": cmd.lease_expires_at,
-            "nextStep": "reviews" if phase == "review_artwork" else "jobs",
+            "nextStep": "execute_task" if phase == "execute_task" else
+                        "reviews" if phase == "review_artwork" else "jobs",
+            "task": (cmd.details if cmd.action == "execute_task" else None),
             "artworkSha256": cmd.artwork_sha256}
 
 
@@ -765,7 +918,35 @@ def complete_muse_command(command_id: str, payload: CommandAck,
             or not hmac.compare_digest(cmd.lease_hash,
                   hashlib.sha256(payload.lease.encode()).hexdigest())):
         raise HTTPException(409, "Command lease invalid or expired")
-    job = db.get(CamMuseJob, (tenant, cmd.listing_key))
+    job = None if cmd.action == "execute_task" else db.get(
+        CamMuseJob, (tenant, cmd.listing_key)
+    )
+    if cmd.action == "execute_task":
+        if payload.outcome == "success":
+            result = payload.result
+            d = cmd.details if isinstance(cmd.details, dict) else {}
+            if result is None or not _valid_task_result(d.get("taskType", ""), result):
+                raise HTTPException(422, "Task result failed validation")
+            stored = result.model_dump()
+            if len(json.dumps(stored, ensure_ascii=False).encode("utf-8")) > 24000:
+                raise HTTPException(422, "Task result exceeds 24KB")
+            cmd.details = {
+                **d, "result": stored, "notes": payload.notes,
+                "resultValidated": True,
+            }
+            cmd.status = "completed"
+        else:
+            cmd.details = {
+                **(cmd.details if isinstance(cmd.details, dict) else {}),
+                "notes": payload.notes,
+            }
+            cmd.status = "failed"
+        cmd.finished_at = _utc()
+        cmd.lease_hash = None
+        cmd.lease_expires_at = None
+        cmd.updated_at = _utc()
+        db.commit()
+        return {"ok": True, **_command_status(cmd)}
     if payload.outcome == "failed":
         cmd.status = "failed"
         cmd.finished_at = _utc()

@@ -48,11 +48,11 @@ class CamMuseCommand(Base):
         Index("ix_cam_muse_command_pending", "tenant_id", "status", "created_at"),
         UniqueConstraint("tenant_id", "request_id",
                          name="uq_cam_muse_command_request_id"),
-        CheckConstraint("action IN ('create_video','review_artwork')",
+        CheckConstraint("action IN ('create_video','review_artwork','execute_task')",
                         name="ck_cam_muse_command_action"),
-        CheckConstraint("status IN ('pending','claimed','receipt_submitted','reviewed','failed')",
+        CheckConstraint("status IN ('pending','claimed','receipt_submitted','reviewed','failed','completed')",
                         name="ck_cam_muse_command_status"),
-        CheckConstraint("phase IN ('review_artwork','create_video')",
+        CheckConstraint("phase IN ('review_artwork','create_video','execute_task')",
                         name="ck_cam_muse_command_phase"),
         CheckConstraint("attempts >= 0 AND attempts <= 5",
                         name="ck_cam_muse_command_attempts"),
@@ -64,12 +64,12 @@ class CamMuseCommand(Base):
     )
     tenant_id: Mapped[str] = mapped_column(String(255), primary_key=True)
     command_id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    listing_key: Mapped[str] = mapped_column(String(150), nullable=False)
+    listing_key: Mapped[str | None] = mapped_column(String(150), nullable=True)
     action: Mapped[str] = mapped_column(String(32), nullable=False)
     request_id: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(24), nullable=False)
     phase: Mapped[str] = mapped_column(String(32), nullable=False)
-    artwork_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    artwork_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     lease_hash: Mapped[str | None] = mapped_column(String(64))
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     attempts: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
