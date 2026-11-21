@@ -16,7 +16,7 @@
 
 .rrugc-shell.rrugc-evo-reviews .rrugc-main {
   padding: 16px clamp(12px, 2vw, 30px) 44px;
-  background: var(--cam-evo-page, #f6f8fb);
+  background: var(--cam-evo-page, #ffffff);
 }
 
 .rrugc-shell.rrugc-evo-reviews .rrugc-header {

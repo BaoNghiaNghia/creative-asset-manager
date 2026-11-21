@@ -8,10 +8,10 @@
   --platform-muted: var(--cam-evo-muted, #64748b);
   --platform-border: var(--cam-evo-hairline, #e8edf4);
   --platform-brand: var(--cam-evo-brand, #265cbd);
-  background: var(--cam-evo-page, #f6f8fb);
+  background: var(--cam-evo-page, #ffffff);
   color: var(--platform-ink);
 }
-.cam-evo-ai-operations .ops-main { min-width: 0; background: var(--cam-evo-page, #f6f8fb); }
+.cam-evo-ai-operations .ops-main { min-width: 0; background: var(--cam-evo-page, #ffffff); }
 .cam-evo-ai-operations .ops-header {
   min-height: 74px;
   gap: 12px;
@@ -157,7 +157,7 @@
   --platform-border: var(--cam-evo-hairline, #e8edf4);
   --platform-muted: var(--cam-evo-muted, #64748b);
   --platform-brand: var(--cam-evo-brand, #265cbd);
-  background: var(--cam-evo-page, #f6f8fb);
+  background: var(--cam-evo-page, #ffffff);
   color: var(--platform-ink);
 }
 .branding-dna-page .bdna-ops-header {
@@ -263,7 +263,7 @@
 .rrugc-shell.rrugc-tiktokshop-workspace .rrugc-main {
   min-width: 0;
   padding: 15px clamp(10px,2vw,27px) 38px;
-  background: var(--cam-evo-page, #f6f8fb);
+  background: var(--cam-evo-page, #ffffff);
 }
 .rrugc-shell.rrugc-tiktokshop-workspace .workspace-page-header {
   gap: 12px;
@@ -430,7 +430,7 @@
   --platform-border: var(--cam-evo-hairline, #e8edf4);
   --platform-muted: var(--cam-evo-muted, #64748b);
   --platform-brand: var(--cam-evo-brand, #265cbd);
-  background: var(--cam-evo-page, #f6f8fb);
+  background: var(--cam-evo-page, #ffffff);
   color: var(--platform-ink);
 }
 .review-board-shell .review-board-main {

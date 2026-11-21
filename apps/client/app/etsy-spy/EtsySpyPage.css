@@ -369,12 +369,12 @@ body:has(.etsy-spy-page) .app-route-content { background:#fff!important; }
 
 /* Etsy Spy Stage 0 parity: shared CAM shell, stage navigation, compact KPI
    filters and dense marketplace table. Route-scoped; other modules untouched. */
-.etsy-spy-route-main{background:#f3f5f9}
+.etsy-spy-route-main{background:#ffffff}
 body:has(.etsy-spy-page),body:has(.etsy-spy-page) #root,
-body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
+body:has(.etsy-spy-page) .app-route-content{background:#ffffff!important}
 .etsy-spy-page{
   max-width:none;min-height:100vh;padding:0 0 28px;margin:0;
-  background:#f3f5f9;font-size:11px;color:#263753;
+  background:#ffffff;font-size:11px;color:#263753;
 }
 .etsy-spy-page > .workspace-page-header{
   padding:17px clamp(18px,2vw,32px) 13px;min-height:83px;margin:0;
@@ -1072,7 +1072,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-data-table.is-products .etsy-product-row td:nth-child(7){grid-column:1/2;align-self:center}
   .etsy-data-table.is-products .etsy-product-row td:nth-child(8){grid-column:2/-1;justify-self:end}
   .etsy-data-table.is-products .etsy-product-row td:nth-child(2)::before{content:"Keyword SMS"}
-  .etsy-data-table.is-products .etsy-product-row td:nth-child(3)::before{content:"Etsy badge + TM"}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(3)::before{content:"Etsy badge"}
   .etsy-data-table.is-products .etsy-product-row td:nth-child(4)::before{content:"Bought / 24h"}
   .etsy-data-table.is-products .etsy-product-row td:nth-child(5)::before{content:"Views / 24h"}
   .etsy-data-table.is-products .etsy-product-row td:nth-child(6)::before{content:"Carts"}
@@ -3049,7 +3049,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   }
   .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(2)::before{content:none}
   .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(3)::before{content:"Keyword SMS"}
-  .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(4)::before{content:"Etsy badge + TM"}
+  .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(4)::before{content:"Etsy badge"}
   .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(5)::before{content:"Bought / 24h"}
   .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(6)::before{content:"Views / 24h"}
   .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(7)::before{content:"Carts"}
@@ -3263,7 +3263,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(4)::before { content: "TikTok Listing Optimizer"; }
   .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(5)::before { content: "Media · Ảnh + UGC"; }
   .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(6)::before { content: "Keyword SMS"; }
-  .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(7)::before { content: "Etsy badge + TM"; }
+  .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(7)::before { content: "Etsy badge"; }
   .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(8)::before { content: "Bought / 24h"; }
   .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(9)::before { content: "Views / 24h"; }
   .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(10)::before { content: "Carts"; }

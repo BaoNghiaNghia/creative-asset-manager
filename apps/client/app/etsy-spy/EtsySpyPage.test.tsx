@@ -766,7 +766,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(preview?.querySelector<HTMLImageElement>("img")?.style.maxHeight).toBe("206px");
   });
 
-  it("displays offline last known data with distinct Etsy badge and TM status", async () => {
+  it("displays offline last known data and Etsy badges without trademark UI", async () => {
     await start();
     const html = container?.innerHTML || "";
     expect(html).toContain("Agent offline");
@@ -777,7 +777,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       .map(x => x.querySelector(".etsy-column-sort-label")?.textContent ??
         (x.textContent || "").trim());
     expect(headings).toEqual([
-      "Product / Etsy", "Keyword SMS", "Etsy Badge + TM",
+      "Product / Etsy", "Keyword SMS", "Etsy Badge",
       "Bought / 24h", "Views / 24h", "Carts", "Observed", "Action",
     ]);
     expect(container?.querySelectorAll(".etsy-product-row")[0]?.querySelectorAll("td")).toHaveLength(9);
@@ -791,18 +791,13 @@ describe("Etsy Spy native CAM dashboard", () => {
       "mama christian shirt, mama christian hoodie, mama christian sweatshirt");
     expect(smsList?.parentElement?.getAttribute("title")).toBe(smsList?.textContent);
     expect(container?.querySelector(".etsy-sms-expand")).toBeNull();
-    expect(html).toContain("LIVE");
     expect(html).toContain("GMT+7");
     expect(html).not.toContain("Listings reconciled");
     expect(html).not.toContain("Search + Shop");
-    expect(html).not.toContain("Safe");
-    const pill = Array.from(container?.querySelectorAll("button") || [])
-      .find(button => button.textContent === "LIVE");
-    expect(pill?.disabled).toBe(false);
-    await act(async () => {pill?.click();});
-    expect(container?.textContent).toContain("12345678");
-    expect(container?.querySelector("a[href*='tsdr.uspto.gov']"))
-      .toHaveProperty("rel", "noopener noreferrer");
+    expect(container?.querySelector(".etsy-tm-badge")).toBeNull();
+    expect(container?.querySelector(".etsy-tm-disclaimer")).toBeNull();
+    expect(container?.querySelector("a[href*='tsdr.uspto.gov']")).toBeNull();
+    expect(observed.some(url => url.includes("/trademarks"))).toBe(false);
   });
 
   it("renders Carts 20+ without changing numeric values or other rows", async () => {
@@ -814,25 +809,16 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(deadListing.inCarts).toBeNull();
   });
 
-  it("renders reference-style badges with clear TM meanings and no false safety claim", async () => {
+  it("renders Etsy demand badges without TMHunt status or evidence", async () => {
     await start();
-    const badgeStacks = container?.querySelectorAll(".etsy-product-row .etsy-badge-stack");
-    expect(badgeStacks).toHaveLength(3);
-    expect(badgeStacks?.[0]?.querySelector(".etsy-demand.bestseller")?.textContent).toBe("Bestseller");
-    expect(badgeStacks?.[1]?.querySelector(".etsy-demand.popular")?.textContent).toBe("Popular now");
-    expect(badgeStacks?.[1]?.querySelector(".tm-no-match")?.textContent).toBe("TM: No match*");
-    expect(badgeStacks?.[1]?.querySelector(".tm-no-match")?.tagName).toBe("SPAN");
-    expect(badgeStacks?.[1]?.querySelector(".etsy-tm-disclaimer")?.textContent).toContain(
-      "does not mean trademark clearance");
-    // Long legal explanations belong after the compact badges, never between
-    // the TM status and review verdict in the same horizontal flex row.
-    expect(badgeStacks?.[1]?.lastElementChild?.classList.contains("etsy-tm-disclaimer"))
-      .toBe(true);
-    const deadBadge = badgeStacks?.[2]?.querySelector(".tm-dead");
-    expect(deadBadge?.textContent).toBe("TM DEAD · 2");
-    expect(deadBadge?.tagName).toBe("BUTTON");
-    await act(async () => { (deadBadge as HTMLButtonElement).click(); });
-    expect(container?.textContent).toContain("11111111");
+    const stacks = container?.querySelectorAll(".etsy-product-row .etsy-badge-stack");
+    expect(stacks).toHaveLength(3);
+    expect(stacks?.[0]?.querySelector(".etsy-demand.bestseller")?.textContent).toBe("Bestseller");
+    expect(stacks?.[1]?.querySelector(".etsy-demand.popular")?.textContent).toBe("Popular now");
+    expect(container?.querySelectorAll(".etsy-tm-badge, .etsy-tm-disclaimer, .etsy-mark-items")).toHaveLength(0);
+    expect(container?.textContent).not.toContain("TM DEAD");
+    expect(container?.textContent).not.toContain("TM: No match");
+    expect(observed.some(url => url.includes("/trademarks"))).toBe(false);
   });
 
   it("keeps the white, compact table controls accessible without losing product actions", async () => {
@@ -959,7 +945,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       ["TikTok SEO", "tiktokListing", "desc"],
       ["Media", "listingImage", "desc"],
       ["Keyword SMS", "keywordSms", "asc"],
-      ["Etsy Badge + TM", "badge", "asc"],
+      ["Etsy Badge", "badge", "asc"],
       ["Bought / 24h", "bought24h", "desc"],
       ["Views / 24h", "views24h", "desc"],
       ["Carts", "inCarts", "desc"],
@@ -1256,30 +1242,14 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelector(".etsy-agents")).toBeNull();
   });
 
-  it("does not crash the Trademark tab for null or omitted matched evidence", async () => {
-    // Legacy direct links are preserved, but the Trademark tab is hidden.
-    await start({initialUrl: "/etsy-spy?tab=trademarks"});
-    expect(container?.querySelector('[role="tab"][id="etsy-tab-trademarks"]')).toBeNull();
-    // A deep link must not display stale Product rows as Trademark rows.
-    // Either a skeleton or the final Trademark rows may be visible when
-    // the request resolves quickly; stale Product rows must never be shown.
-    expect(container?.querySelector(".etsy-data-table.is-products")).toBeNull();
-    expect(Boolean(container?.querySelector(".etsy-skeleton") ||
-      container?.querySelector(".etsy-data-table.is-trademarks"))).toBe(true);
+  it("ignores legacy Trademark bookmarks and does not request TMHunt endpoints", async () => {
+    await start({initialUrl: "/etsy-spy?tab=trademarks&tm=LIVE"});
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 65)); });
-    expect(observed.some(url => url.includes("/trademarks?"))).toBe(true);
-    expect(new URLSearchParams(window.location.search).get("tab")).toBe("trademarks");
-    expect(container?.textContent).toContain("No cached marks");
-    expect(container?.textContent).toContain("Legacy TM entry");
-    expect(container?.textContent).toContain("Rudolph");
-    expect(container?.querySelectorAll(".etsy-data-table.is-trademarks tbody tr")).toHaveLength(3);
-    // Only the row with actual cached marks may offer the evidence expansion.
-    const expand = container?.querySelectorAll(".etsy-data-table.is-trademarks .etsy-details-trigger") || [];
-    expect(expand).toHaveLength(1);
-    await act(async () => {(expand[0] as HTMLButtonElement).click();});
-    expect(container?.querySelector("a[href*='tsdr.uspto.gov']"))
-      .toHaveProperty("rel", "noopener noreferrer");
-    expect(container?.querySelectorAll(".etsy-tm-counts")).toHaveLength(3);
+    expect(new URLSearchParams(window.location.search).get("tab")).toBe("products");
+    expect(container?.querySelector(".etsy-data-table.is-products")).toBeTruthy();
+    expect(container?.querySelector(".etsy-lookup, .etsy-tm-badge, .etsy-tm-counts")).toBeNull();
+    expect(observed.some(url => url.includes("/trademarks"))).toBe(false);
+    expect(observed.some(url => url.includes("tm=LIVE"))).toBe(false);
   });
 
   it("renders and toggles the full keyword hierarchy with unsynced parent groups", async () => {

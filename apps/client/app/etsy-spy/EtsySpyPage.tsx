@@ -5,7 +5,7 @@ import { fetchAccessIdentity } from "../../features/access_management";
 import {
   spyFetch, readableTime,
   type SpyTab, type Page, type Summary, type ExtractionOverview, type ImageAgentStatus, type Listing, type ReviewAssessment,
-  type Keyword, type Trademark, type SpyLog, type Mark, type AgentStatus,
+  type Keyword, type SpyLog, type AgentStatus,
   type ObservedDaysSummary, type ObservedDayBucket, type DayGroupsSummary,
 } from "./api";
 import "./EtsySpyPage.css";
@@ -27,18 +27,17 @@ import { TikTokListingCell, canQueueTikTokDraft } from "./TikTokListingCell";
 // from Etsy Spy. Actions remain available through the rest of CAM and APIs.
 const SHOW_ETSY_OPERATIONS_PANELS = false;
 
-const TABS: { id: SpyTab; title: string; subtitle: string }[] = [
+type VisibleSpyTab = Exclude<SpyTab, "trademarks">;
+const TABS: { id: VisibleSpyTab; title: string; subtitle: string }[] = [
   { id: "products", title: "Products", subtitle: "Eligible Etsy listings" },
   { id: "keywords", title: "Keyword Tree", subtitle: "Discovery branches" },
-  { id: "trademarks", title: "Trademark", subtitle: "Cached TM evidence" },
   { id: "logs", title: "System Logs", subtitle: "Agent diagnostics" },
 ];
-// Products is the only navigation surface. Legacy keyword / trademark deep links
-// and all underlying Scout APIs remain available without a visible tab strip.
-const SORTS: Record<SpyTab, readonly { id: string; text: string }[]> = {
+// Products is the default navigation surface; TM-only UI and deep links are disabled.
+const SORTS: Record<VisibleSpyTab, readonly { id: string; text: string }[]> = {
   products: [
     { id: "pageTitle", text: "Product / Etsy" }, { id: "keywordSms", text: "Keyword SMS" },
-    { id: "badge", text: "Etsy Badge + TM" },
+    { id: "badge", text: "Etsy Badge" },
     { id: "bought24h", text: "Bought / 24h" }, { id: "views24h", text: "Views / 24h" },
     { id: "inCarts", text: "Carts" }, { id: "observedAt", text: "Observed" },
   ],
@@ -46,10 +45,6 @@ const SORTS: Record<SpyTab, readonly { id: string; text: string }[]> = {
     { id: "keyword", text: "Keyword" }, { id: "depth", text: "Depth" },
     { id: "priority", text: "Priority" }, { id: "status", text: "Status" },
     { id: "matchedCount", text: "Listings" },
-  ],
-  trademarks: [
-    { id: "keyword", text: "Trademark / Keyword" }, { id: "status", text: "Check status" },
-    { id: "liveCount", text: "Evidence · LIVE / DEAD / UNKNOWN" }, { id: "checkedAt", text: "Last checked" },
   ],
   logs: [
     { id: "at", text: "Time (GMT+7)" }, { id: "level", text: "Level" },
@@ -63,11 +58,11 @@ type TikTokListingOverview = {
   keyword_source: string; counts: Record<string, number>;
 };
 type Options = {
-  tab: SpyTab; page: number; pageSize: number; q: string;
+  tab: VisibleSpyTab; page: number; pageSize: number; q: string;
   pickState: "eligible" | "picked" | "later";
   blacklistView: boolean; winKeywordsView: boolean;
   observedDay: string; group: string;
-  sessionId: string; source: string; badge: string; tm: string;
+  sessionId: string; source: string; badge: string;
   status: string; level: string; phase: string; sort: string; dir: "asc" | "desc";
 };
 export function titleKeywordFallback(title: string | null | undefined): string {
@@ -99,14 +94,14 @@ export function recentObservedDays(today: string): string[] {
 const baseOptions: Options = {
   tab: "products", page: 1, pageSize: 50, q: "", pickState: "eligible",
   blacklistView: false, winKeywordsView: false, observedDay: vietnamCalendarDay(), group: "",
-  sessionId: "", source: "", badge: "", tm: "", status: "", level: "", phase: "",
+  sessionId: "", source: "", badge: "", status: "", level: "", phase: "",
   sort: "observedAt", dir: "desc",
 };
 function fromLocation(): Options {
   if (typeof window === "undefined") return baseOptions;
   const p = new URLSearchParams(window.location.search);
-  // Old System Logs bookmarks now land on Products. Other legacy deep links stay intact.
-  const wasLogsTab = p.get("tab") === "logs";
+  // Old TM/Logs bookmarks safely land on Products; never load TMHunt UI.
+  const wasLogsTab = p.get("tab") === "logs" || p.get("tab") === "trademarks";
   const tab = wasLogsTab ? "products" : TABS.find(t => t.id === p.get("tab"))?.id || "products";
   return {
     ...baseOptions, tab,
@@ -123,7 +118,7 @@ function fromLocation(): Options {
     pageSize: [50, 100, 200].includes(Number(p.get("page_size"))) ? Number(p.get("page_size")) : 50,
     q: wasLogsTab ? "" : p.get("q") || "", sessionId: p.get("session_id") || "",
     source: p.get("source") || "", badge: p.get("badge") || "",
-    tm: p.get("tm") || "", status: p.get("status") || "",
+    status: p.get("status") || "",
     level: p.get("level") || "", phase: p.get("phase") || "",
     sort: wasLogsTab ? "observedAt" : p.get("sort") || (tab === "products" ? "observedAt" : "updatedAt"),
     dir: p.get("dir") === "asc" ? "asc" : "desc",
@@ -145,7 +140,6 @@ function queryFor(o: Options): URLSearchParams {
   if (o.sessionId) query.set("session_id", o.sessionId);
   if (o.source) query.set("source", o.source);
   if (o.badge) query.set("badge", o.badge);
-  if (o.tm) query.set("tm", o.tm);
   if (o.status) query.set("status", o.status);
   if (o.level) query.set("level", o.level);
   if (o.phase) query.set("phase", o.phase);
@@ -158,17 +152,13 @@ function apiQuery(o: Options): URLSearchParams {
   result.delete("panel");
   result.delete("source");
   result.delete("badge");
-  result.delete("tm");
   result.delete("status");
   result.delete("level");
   result.delete("phase");
   if (o.tab === "products") {
     if (result.get("observed_day") === "all") result.delete("observed_day");
-    for (const key of ["source", "badge", "tm"] as const) if (o[key]) result.set(key, o[key]);
+    for (const key of ["source", "badge"] as const) if (o[key]) result.set(key, o[key]);
   } else if (o.tab === "keywords") {
-    if (o.status) result.set("status", o.status);
-  } else if (o.tab === "trademarks") {
-    result.delete("session_id");
     if (o.status) result.set("status", o.status);
   } else {
     if (o.level) result.set("level", o.level);
@@ -176,17 +166,6 @@ function apiQuery(o: Options): URLSearchParams {
     if (o.phase) result.set("phase", o.phase);
   }
   return result;
-}
-function tmClass(status: string) {
-  return status === "LIVE" ? "live" : status === "DEAD" ? "dead"
-    : status === "no_match" ? "no-match"
-    : status === "unverified" ? "unverified" : "neutral";
-}
-function tmDescription(status: string, deadMatches = 0) {
-  return status === "no_match" ? "TM: No match*"
-    : status === "DEAD" ? `TM DEAD${deadMatches ? " · " + deadMatches : ""}`
-    : status === "pending" ? "Pending"
-    : status === "unverified" ? "Unverified" : status;
 }
 const SUMMARY_ICONS = [
   "M20 12.5 12.5 20a2 2 0 0 1-2.8 0l-6.7-6.7a2 2 0 0 1-.6-1.4V4a2 2 0 0 1 2-2h7.9a2 2 0 0 1 1.4.6l6.3 6.3a2 2 0 0 1 0 2.8ZM7.5 7.5h.01",
@@ -201,26 +180,6 @@ const SUMMARY_ICONS = [
   "M10.3 3.5 1.9 18a2 2 0 0 0 1.7 3h16.8a2 2 0 0 0 1.7-3L13.7 3.5a2 2 0 0 0-3.4 0ZM12 9v4m0 4h.01",
   "M12 9v4m0 4h.01M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20",
 ] as const;
-function safeMarks(matches: Mark[] | null | undefined): Mark[] {
-  // Older Windows snapshots may omit matched evidence entirely or store null.
-  // Runtime normalization is necessary even when the API type expects an array.
-  return Array.isArray(matches)
-    ? matches.filter((mark): mark is Mark => Boolean(mark && typeof mark === "object"))
-    : [];
-}
-function EvidenceMarks({ matches }: { matches?: Mark[] | null }) {
-  const validMarks = safeMarks(matches);
-  if (!validMarks.length) return <span className="etsy-muted">No trademark evidence attached</span>;
-  return <div className="etsy-mark-items">
-    {validMarks.slice(0, 30).map((item, index) => <div key={(item.serialNumber || item.markText) + index}>
-      <strong>{item.markText || "Unnamed mark"}</strong>
-      <span>{item.liveStatus || "UNKNOWN"}</span>
-      {item.serialNumber && <a href={"https://tsdr.uspto.gov/#caseNumber=" + encodeURIComponent(item.serialNumber) + "&caseSearchType=US_APPLICATION&caseType=DEFAULT&searchType=statusSearch"} target="_blank" rel="noopener noreferrer">
-        USPTO #{item.serialNumber}
-      </a>}
-    </div>)}
-  </div>;
-}
 function safeEtsyImageUrl(value: unknown): string | null {
   if (typeof value !== "string" || value.length > 1600) return null;
   try {
@@ -300,7 +259,6 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
   onSelect: (listingKey: string, checked: boolean) => void;
   onListingQueued: () => void; optimizerEnabled: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const [imagePreview, setImagePreview] = useState<{
     left: number; bottom: number; width: number; maxHeight: number; imageMaxHeight: number;
   } | null>(null);
@@ -342,12 +300,6 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
   const smsStatus = sourceSms.length
     ? item.keywordSmsStatus || item.metadata?.keywordSmsStatus || "ready"
     : fallback ? "title_fallback" : item.keywordSmsStatus || item.metadata?.keywordSmsStatus || "not_checked";
-  const tmMatches = safeMarks(item.tmMatches);
-  const hasMarks = tmMatches.length > 0;
-  const deadMatches = tmMatches.filter(mark => mark.liveStatus?.toUpperCase() === "DEAD").length;
-  const tmTooltip = [item.tmSource || "TM status", item.tmCheckedAt ? readableTime(item.tmCheckedAt) : "",
-    item.tmSourceAsOf ? "Source as of " + readableTime(item.tmSourceAsOf) : ""].filter(Boolean).join(" · ");
-  const tmLabel = tmDescription(item.tm, deadMatches);
   return <>
     <tr className={"etsy-product-row" + (selected ? " is-selected" : "")}
       onPointerEnter={showImagePreview}
@@ -432,18 +384,10 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
     </td>
     <td><div className="etsy-badge-stack">
       {item.badge || item.searchBadge ? <span className={"etsy-pill etsy-demand " + (/popular/i.test(item.badge || item.searchBadge || "") ? "popular" : "bestseller")}>{item.badge || item.searchBadge}</span> : <span className="etsy-muted">—</span>}
-      {hasMarks ? <button type="button" className={"etsy-pill etsy-tm-badge tm-" + tmClass(item.tm)}
-        title={tmTooltip} onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
-        {tmLabel}
-      </button> : <span className={"etsy-pill etsy-tm-badge tm-" + tmClass(item.tm)} title={tmTooltip}>{tmLabel}</span>}
       <ReviewAssessmentBadge audit={item.reviewAssessment ?? item.metadata?.reviewAssessment}
         itemReviews={item.itemReviews} cartLowerBound={item.cartLowerBound}
         inCarts={item.inCarts} />
-      {item.tm === "no_match" && <small className="etsy-tm-disclaimer">
-        No matches found in source data; this does not mean trademark clearance.
-      </small>}
     </div>
-    {expanded && hasMarks && <EvidenceMarks matches={tmMatches} />}
     </td>
     <td className="etsy-num">{item.bought24h ?? "—"}</td>
     <td className="etsy-num">{item.views24h ?? "—"}</td>
@@ -511,30 +455,6 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
   </>;
 }
 
-function TrademarkRow({ item }: { item: Trademark }) {
-  const [expanded, setExpanded] = useState(false);
-  const matches = safeMarks(item.matched);
-  return <tr>
-    <td><strong>{item.keyword || item.title || "—"}</strong>
-      {item.title && item.keyword && <small>{item.title}</small>}
-      <small>{item.kind} · {item.source || "source unknown"}</small>
-      {matches.length > 0 && <button type="button" className="etsy-details-trigger"
-        aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
-        {expanded ? "Hide" : "Show"} {matches.length} marks
-      </button>}
-      {expanded && matches.length > 0 && <EvidenceMarks matches={matches} />}
-    </td>
-    <td><span className={"etsy-pill tm-" + tmClass(item.status || "")}>{item.status || "pending"}</span>
-      <small>{item.risk || "Not verified"}</small>
-    </td>
-    <td><div className="etsy-tm-counts" aria-label="Trademark evidence counts">
-      <span className="etsy-tm-count-live" title="LIVE trademark records"><strong>{item.liveCount ?? "—"}</strong> LIVE</span>
-      <span className="etsy-tm-count-dead" title="DEAD trademark records"><strong>{item.deadCount ?? "—"}</strong> DEAD</span>
-      <span className="etsy-tm-count-unknown" title="Unknown trademark records"><strong>{item.unknownCount ?? "—"}</strong> Unknown</span>
-    </div></td>
-    <td className="etsy-checked-at"><strong>{readableTime(item.checkedAt)}</strong><small>Source: {readableTime(item.sourceAsOf)}</small></td>
-  </tr>;
-}
 function LogRow({ item }: { item: SpyLog }) {
   const [expanded, setExpanded] = useState(false);
   return <tr>
@@ -797,15 +717,11 @@ export function EtsySpyPage() {
   const [canManage, setCanManage] = useState(false);
   const [tableResult, setTableResult] = useState<{
     requestKey: string; selectionScope: string;
-    data: Page<Listing | Keyword | Trademark | SpyLog> | null;
+    data: Page<Listing | Keyword | SpyLog> | null;
   } | null>(null);
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
-  const [tmText, setTmText] = useState("");
-  const [tmMode, setTmMode] = useState<"exactMatch" | "partialMatch">("exactMatch");
-  const [tmResult, setTmResult] = useState<Mark[] | null>(null);
-  const [tmLookupError, setTmLookupError] = useState("");
   const [pairing, setPairing] = useState<{ agent_id: string; token: string } | null>(null);
   const [pairName, setPairName] = useState("DESKTOP-3FR0LF0");
   const [pairError, setPairError] = useState("");
@@ -1006,9 +922,8 @@ export function EtsySpyPage() {
       (options.tab === "products" && (options.blacklistView || options.winKeywordsView))) return;
     let alive = true;
     setFetching(true); setError("");
-    const endpoint = { products: "/listings", keywords: "/keywords",
-      trademarks: "/trademarks", logs: "/logs" }[options.tab];
-    spyFetch<Page<Listing | Keyword | Trademark | SpyLog>>(endpoint + "?" + apiQuery(options).toString())
+    const endpoint = { products: "/listings", keywords: "/keywords", logs: "/logs" }[options.tab];
+    spyFetch<Page<Listing | Keyword | SpyLog>>(endpoint + "?" + apiQuery(options).toString())
       .then(value => { if (alive) {
         setTableResult({ requestKey, selectionScope, data: value });
         setFetching(false);
@@ -1251,7 +1166,6 @@ export function EtsySpyPage() {
          { id: "listingImage", text: "Media" }, ...SORTS.products.slice(1)]
       : SORTS.products;
     if (options.tab === "keywords") return SORTS.keywords;
-    if (options.tab === "trademarks") return SORTS.trademarks;
     return SORTS.logs;
   }, [options.tab, options.pickState]);
   const syncLabel = summary?.source_status === "online" ? "Agent online"
@@ -1292,7 +1206,6 @@ export function EtsySpyPage() {
     }
     if (options.q.trim()) activeProductFilters.push("Tìm: " + options.q.trim());
     if (options.badge) activeProductFilters.push("Badge: " + options.badge);
-    if (options.tm) activeProductFilters.push("TM: " + options.tm);
     if (options.source) activeProductFilters.push("Nguồn: " + options.source);
     if (options.sessionId) activeProductFilters.push("Session: " + options.sessionId);
   }
@@ -1309,7 +1222,7 @@ export function EtsySpyPage() {
   const clearProductFilters = () => {
     cancelPendingSearch();
     setTypedSearch("");
-    update({ q: "", observedDay: "all", group: "", badge: "", tm: "",
+    update({ q: "", observedDay: "all", group: "", badge: "",
       source: "", sessionId: "" });
   };
   // Render only buckets actually returned while upgrading 10-, 14-, and
@@ -1328,17 +1241,16 @@ export function EtsySpyPage() {
     phrase.toLowerCase().includes(typedSearch.trim().toLowerCase()));
   const filteredWinKeywords = winKeywords.filter(keyword =>
     keyword.toLocaleLowerCase().includes(typedSearch.trim().toLocaleLowerCase()));
-  const selectTab = (tab: SpyTab, filters: Partial<Options> = {}) => {
+  const selectTab = (tab: VisibleSpyTab, filters: Partial<Options> = {}) => {
     cancelPendingSearch();
     setTypedSearch("");
     update({
-      tab, q: "", sessionId: "", source: "", badge: "", tm: "", group: "",
+      tab, q: "", sessionId: "", source: "", badge: "", group: "",
       status: "", level: "", phase: "", pickState: "eligible",
       blacklistView: false, winKeywordsView: false,
       // Each product KPI card starts at Today + All groups, not the previous date/theme.
       observedDay: clockDay,
-      sort: tab === "products" ? "observedAt" : tab === "logs" ? "at"
-        : tab === "trademarks" ? "checkedAt" : "updatedAt",
+      sort: tab === "products" ? "observedAt" : tab === "logs" ? "at" : "updatedAt",
       dir: "desc", page: 1, ...filters,
     });
   };
@@ -1352,12 +1264,12 @@ export function EtsySpyPage() {
   ].filter(Boolean).join(" · ");
   const overviewCards: {
     title: string; value: number | string | null | undefined; hint: string;
-    tone: string; tab: SpyTab; filters?: Partial<Options>; selected: boolean;
+    tone: string; tab: VisibleSpyTab; filters?: Partial<Options>; selected: boolean;
   }[] = [
     { title: "Eligible listings", value: summary?.listings, hint: "Ready to review",
       tone: "total", tab: "products", filters: { observedDay: clockDay },
       selected: activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
-        options.pickState === "eligible" && !options.source && !options.tm },
+        options.pickState === "eligible" && !options.source },
     { title: "Picked", value: summary?.picked ?? 0,
       hint: extraction ? (extraction.enabled
         ? extraction.storage?.ready === false ? "Selected · Extraction storage paused"
@@ -1386,8 +1298,6 @@ export function EtsySpyPage() {
           eyebrow="ETSY MARKET INTELLIGENCE"
           description={activeTab === "products" ? "" : activeTab === "keywords"
             ? "Follow discovered keyword branches, priorities and source evidence."
-            : activeTab === "trademarks"
-              ? "Review cached trademark results and attached USPTO evidence."
               : "Monitor Windows Scout synchronization, warnings and processing errors."}
           titleAddon={<h2 className="etsy-spy-context">
             {activeTab === "products" ? "Product Intelligence" : TABS.find(tab => tab.id === activeTab)?.title}
@@ -1614,7 +1524,7 @@ export function EtsySpyPage() {
           <div className="etsy-blacklist-panel-header">
             <div>
               <h2 id="etsy-win-keyword-heading">Win Keyword <span>({winKeywords.length})</span></h2>
-              <p>Save keywords for reference. These entries do not affect Scout, product filtering or trademark checks.
+              <p>Save keywords for reference. These entries do not affect Scout or product filtering.
                 Add keywords using the Win Keyword field above and press Enter.</p>
             </div>
             <span className="etsy-blacklist-panel-counter">{winKeywords.length} saved</span>
@@ -1632,33 +1542,6 @@ export function EtsySpyPage() {
               ? "No Win Keywords match your search."
               : "No Win Keywords yet. Enter a keyword phrase above and press Enter."}</p>}
         </section> : <>
-    {activeTab === "trademarks" && <section className="etsy-lookup">
-      <div><strong>Cached trademark lookup</strong>
-        <small>Exact / partial · 1–30 lines · evidence from Windows. No live USPTO/TMHunt request.</small>
-      </div>
-      <textarea aria-label="Trademark queries" rows={2} placeholder={"Example phrase 1\nExample phrase 2"}
-        value={tmText} onChange={event => setTmText(event.target.value)} />
-      <div className="etsy-lookup-actions">
-        <select value={tmMode} onChange={event => setTmMode(event.target.value as typeof tmMode)}>
-          <option value="exactMatch">Exact</option><option value="partialMatch">Partial</option>
-        </select>
-        <button className="etsy-btn etsy-primary" onClick={async () => {
-          const queries = tmText.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
-          setTmLookupError(""); setTmResult(null);
-          try {
-            const result = await spyFetch<{ matched: Mark[] }>("/trademarks/lookup", {
-              method: "POST", body: JSON.stringify({ queries, mode: tmMode }),
-            });
-            setTmResult(safeMarks(result.matched));
-          } catch (e) { setTmLookupError(e instanceof Error ? e.message : "Lookup failed"); }
-        }}>Lookup cache</button>
-      </div>
-      {tmLookupError && <p role="alert" className="etsy-error">{tmLookupError}</p>}
-      {tmResult && <div className="etsy-lookup-results"><strong>{tmResult.length} cached matches</strong>
-        <EvidenceMarks matches={tmResult} /></div>}
-      <small>LIVE is a potential warning. DEAD or no match never proves trademark clearance. Verify at <a
-        target="_blank" rel="noopener noreferrer" href="https://tsdr.uspto.gov/">USPTO TSDR</a>.</small>
-    </section>}
     {SHOW_ETSY_OPERATIONS_PANELS && activeTab === "products" && options.pickState === "picked" &&
       !isBlacklistView && !isWinKeywordsView && <section className="etsy-extraction-backfill"
         aria-label="Picked design extraction queue">
@@ -1856,8 +1739,6 @@ export function EtsySpyPage() {
                 onPick={togglePicked} onLater={toggleLater}
                 optimizerEnabled={Boolean(tiktokOverview?.enabled)}
                 onListingQueued={() => setRefresh(value => value + 1)} />)
-              : activeTab === "trademarks" ? (rows.items as Trademark[]).map(item =>
-                <TrademarkRow key={item.checkId} item={item} />)
               : (rows.items as SpyLog[]).map(item => <LogRow key={item.eventId} item={item} />)}
           </tbody></table>
         </EtsyTableViewport>}
