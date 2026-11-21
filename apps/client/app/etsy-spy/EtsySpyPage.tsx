@@ -1354,18 +1354,6 @@ export function EtsySpyPage() {
             <small>{card.hint}</small>
           </button>)}
         </section>
-        {activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
-          activeProductFilters.length > 0 && <div className="etsy-filter-context"
-            aria-label="Bộ lọc sản phẩm đang áp dụng">
-            <span className="etsy-filter-context-heading">Đang lọc</span>
-            {activeProductFilters.map(label => <span className="etsy-filter-chip"
-              title={label} key={label}>{label}</span>)}
-            <button type="button" className="etsy-filter-reset"
-              onClick={clearProductFilters}
-              aria-label="Xóa bộ lọc, giữ nguyên tab sản phẩm đang xem">
-              Xóa lọc
-            </button>
-          </div>}
         {activeTab === "products" && !showProductFacets && <div className="etsy-facet-context">
           {isBlacklistView
             ? "Blacklist · quản lý cụm từ bị chặn, không sử dụng phân nhóm sản phẩm theo ngày."
@@ -1460,25 +1448,14 @@ export function EtsySpyPage() {
     {laterError && <div role="alert" className="etsy-error">Cannot update Later: {laterError}</div>}
     {bulkError && <div role="alert" className="etsy-error">Không thể cập nhật sản phẩm đã chọn: {bulkError}</div>}
     {bulkMessage && <div role="status" className="etsy-bulk-feedback">{bulkMessage}</div>}
-    {selectable && !loading && pageListingKeys.length > 0 && <section
-      className={"etsy-bulk-bar" + (selectedOnPage.length ? " has-selection" : "")}
+    {selectable && !loading && selectedOnPage.length > 0 && <section
+      className="etsy-bulk-bar has-selection"
       aria-label={isPickedSelection ? "Tạo TikTok SEO cho Picked đã chọn" :
         "Thao tác hàng loạt cho sản phẩm Etsy"}>
-      <label className="etsy-bulk-select-all">
-        <input type="checkbox" aria-label={isPickedSelection
-          ? "Chọn tối đa 5 Picked chưa tạo TikTok SEO" : "Chọn tất cả sản phẩm trong trang"}
-          checked={allSelectedOnPage} disabled={!canManage || bulkBusy ||
-            tiktokSelectedBusy || (isPickedSelection && !tiktokOverview?.enabled)}
-          ref={node => { if (node) node.indeterminate = selectedOnPage.length > 0 && !allSelectedOnPage; }}
-          onChange={event => updatePageSelection(event.target.checked)} />
-        {isPickedSelection ? "Chọn tối đa 5" : "Chọn trang này"}
-      </label>
       <div className="etsy-bulk-indicator" aria-live="polite">
-        <strong>{selectedOnPage.length ? selectedOnPage.length + " đã chọn" : "Chọn sản phẩm"}</strong>
-        <span>{isPickedSelection ? pageListingKeys.length + " Picked chưa tạo hoặc bị lỗi" :
-          "trong " + pageListingKeys.length + " sản phẩm ở trang hiện tại"}</span>
+        <strong>{selectedOnPage.length + " đã chọn"}</strong>
       </div>
-      {selectedOnPage.length > 0 && <div className="etsy-bulk-actions">
+      <div className="etsy-bulk-actions">
         {isPickedSelection ? <button type="button" className="etsy-btn etsy-primary"
           onClick={() => void queueSelectedTikTok()}
           disabled={!canManage || !tiktokOverview?.enabled || tiktokSelectedBusy || bulkBusy}>
@@ -1497,7 +1474,7 @@ export function EtsySpyPage() {
         <button type="button" className="etsy-bulk-clear"
           disabled={bulkBusy || tiktokSelectedBusy}
           onClick={() => updatePageSelection(false)}>Bỏ chọn</button>
-      </div>}
+      </div>
       {isPickedSelection && tiktokSelectedProgress &&
         <span role="status" className="etsy-tiktok-batch-progress">{tiktokSelectedProgress}</span>}
     </section>}

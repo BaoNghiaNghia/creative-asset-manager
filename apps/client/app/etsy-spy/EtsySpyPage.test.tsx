@@ -577,16 +577,15 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelector(".etsy-product-row")).toBeTruthy();
   });
 
-  it("explains applied Picked filters and clears day, group and search without changing the Picked scope", async () => {
-    await start({initialUrl: "/etsy-spy?tab=products&pick_state=picked&observed_day=2026-11-11&group=christmas&q=Santa&page=3"});
-    const context = container?.querySelector<HTMLElement>(".etsy-filter-context");
-    expect(context?.textContent).toContain("Đang lọc");
-    expect(context?.textContent).toContain("Ngày:");
-    expect(context?.textContent).toContain("Nhóm:");
-    expect(context?.textContent).toContain("Tìm: Santa");
+  it("hides redundant applied-filter chips and still clears a no-results Picked filter", async () => {
+    await start({initialUrl: "/etsy-spy?tab=products&pick_state=picked&observed_day=2026-11-11&group=christmas&q=Santa&page=1"});
+    expect(container?.querySelector(".etsy-filter-context")).toBeNull();
     expect(container?.querySelector(".etsy-stat-picked[aria-pressed='true']")).toBeTruthy();
+    expect(container?.querySelector<HTMLInputElement>('input[aria-label="Search Spy records"]')?.value).toBe("Santa");
+    const reset = container?.querySelector<HTMLButtonElement>(".etsy-empty-action");
+    expect(reset?.textContent).toContain("Xóa lọc");
     await act(async () => {
-      context?.querySelector<HTMLButtonElement>(".etsy-filter-reset")?.click();
+      reset?.click();
       await new Promise(resolve => setTimeout(resolve, 450));
     });
     const params = new URLSearchParams(window.location.search);
@@ -611,13 +610,16 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(observed.some(url => url.includes("/logs?"))).toBe(false);
   });
 
-  it("shows the current Eligible day as a filter with a keyboard-accessible clear action", async () => {
+  it("keeps the current-day filter operable without a redundant filter bar", async () => {
     await start();
-    const context = container?.querySelector<HTMLElement>(".etsy-filter-context");
-    expect(context?.textContent).toContain("Ngày: Hôm nay");
-    const clear = context?.querySelector<HTMLButtonElement>(".etsy-filter-reset");
-    expect(clear?.getAttribute("aria-label")).toContain("giữ nguyên tab");
-    expect(clear?.type).toBe("button");
+    expect(container?.querySelector(".etsy-filter-context")).toBeNull();
+    expect(container?.querySelector(".etsy-bulk-bar")).toBeNull();
+    const day = container?.querySelector<HTMLButtonElement>(".etsy-observed-day[aria-pressed='true']");
+    expect(day?.getAttribute("data-observed-day")).toBe(vietnamCalendarDay());
+    expect(day?.type).toBe("button");
+    await act(async () => { day?.click(); });
+    expect(new URLSearchParams(window.location.search).get("observed_day")).toBe("all");
+    expect(container?.querySelector(".etsy-filter-context")).toBeNull();
   });
 
   it("preserves deep-linked pagination and avoids an unchanged mount-time search refresh", async () => {
@@ -841,11 +843,11 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelector(".etsy-search-box input[aria-label='Search Spy records']")).toBeTruthy();
     const stageChildren = Array.from(container?.querySelector("#etsy-spy-workspace")?.children || []);
     const location = (selector: string) => stageChildren.findIndex(child => child.matches(selector));
-    // Flat layout follows screenshot 2: KPI > applied filters > selection > day facets > table.
+    // Flat layout: no redundant filter or idle bulk-selection bars.
     expect(location(".etsy-stats")).toBeGreaterThan(-1);
-    expect(location(".etsy-filter-context")).toBeGreaterThan(location(".etsy-stats"));
-    expect(location(".etsy-bulk-bar")).toBeGreaterThan(location(".etsy-filter-context"));
-    expect(location(".etsy-facet-explorer")).toBeGreaterThan(location(".etsy-bulk-bar"));
+    expect(location(".etsy-filter-context")).toBe(-1);
+    expect(location(".etsy-bulk-bar")).toBe(-1);
+    expect(location(".etsy-facet-explorer")).toBeGreaterThan(location(".etsy-stats"));
     expect(location(".etsy-table-card")).toBeGreaterThan(location(".etsy-facet-explorer"));
     expect(container?.querySelector(".etsy-table-wrap th button[aria-label='Sort by Carts']")).toBeTruthy();
     const cartsCells = container?.querySelectorAll(".etsy-product-row td:nth-child(7)");
@@ -1672,7 +1674,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(pickedKeys.size).toBe(0);
     expect(container?.querySelectorAll(".etsy-product-row")).toHaveLength(1);
     expect(container?.querySelector(".etsy-bulk-feedback")?.textContent).toContain("2/2");
-    expect(container?.querySelector(".etsy-bulk-indicator strong")?.textContent).toBe("Chọn sản phẩm");
+    expect(container?.querySelector(".etsy-bulk-bar")).toBeNull();
     const only = container?.querySelector<HTMLInputElement>(".etsy-row-checkbox");
     await act(async () => { only?.click(); });
     expect(container?.querySelector(".etsy-bulk-indicator strong")?.textContent).toBe("1 đã chọn");
@@ -1685,7 +1687,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       container?.querySelector<HTMLButtonElement>(".etsy-stat-total")?.click();
       await new Promise(resolve => setTimeout(resolve, 80));
     });
-    expect(container?.querySelector(".etsy-bulk-indicator strong")?.textContent).toBe("Chọn sản phẩm");
+    expect(container?.querySelector(".etsy-bulk-bar")).toBeNull();
   });
 
   it("uses one lightweight active Picked poll without refreshing the whole dashboard", async () => {
