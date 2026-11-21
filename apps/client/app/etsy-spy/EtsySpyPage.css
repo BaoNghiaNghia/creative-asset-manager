@@ -369,12 +369,12 @@ body:has(.etsy-spy-page) .app-route-content { background:#fff!important; }
 
 /* Etsy Spy Stage 0 parity: shared CAM shell, stage navigation, compact KPI
    filters and dense marketplace table. Route-scoped; other modules untouched. */
-.etsy-spy-route-main{background:#f3f5f9}
+.etsy-spy-route-main{background:#ffffff}
 body:has(.etsy-spy-page),body:has(.etsy-spy-page) #root,
-body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
+body:has(.etsy-spy-page) .app-route-content{background:#ffffff!important}
 .etsy-spy-page{
   max-width:none;min-height:100vh;padding:0 0 28px;margin:0;
-  background:#f3f5f9;font-size:11px;color:#263753;
+  background:#ffffff;font-size:11px;color:#263753;
 }
 .etsy-spy-page > .workspace-page-header{
   padding:17px clamp(18px,2vw,32px) 13px;min-height:83px;margin:0;
@@ -425,11 +425,6 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 .etsy-tab-copy strong{font-size:10.5px;font-weight:800;line-height:1.15}
 .etsy-tab-copy small{font-size:8px;font-weight:600;color:#8c99ab;line-height:1.2}
 .etsy-stage-canvas{min-width:0;padding:18px clamp(12px,1.6vw,26px)}
-.etsy-stage-card{
-  max-width:none;min-width:0;padding:19px clamp(12px,1.1vw,22px) 16px;
-  border:1px solid #e4eaf3;border-radius:12px;background:#fff;
-  box-shadow:0 2px 14px rgba(42,66,109,.035);
-}
 .etsy-stage-heading-row{
   display:flex;align-items:center;justify-content:space-between;gap:18px;
   min-width:0;min-height:68px;margin:0 0 13px;
@@ -744,7 +739,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-tab-copy strong{font-size:10px}
   .etsy-tab-copy small{font-size:7px}
   .etsy-stage-canvas{padding:10px 8px}
-  .etsy-stage-card{padding:13px 9px}
+
   .etsy-stage-heading h2{font-size:16px}
   .etsy-stage-heading .etsy-freshness{flex-wrap:wrap}
   .etsy-stage-heading-actions .etsy-search-box{width:100%;max-width:none}
@@ -970,7 +965,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-spy-page .workspace-page-header .workspace-page-header-description{font-size:12px}
   .etsy-spy-page .workspace-page-header-actions{gap:7px;flex-wrap:wrap}
   .etsy-stage-canvas{padding:9px 8px}
-  .etsy-stage-card{padding:13px 10px 16px}
+
   .etsy-stage-heading-row{margin-bottom:12px;gap:12px}
   .etsy-stage-kicker{font-size:10px;letter-spacing:.1em}
   .etsy-stage-heading h2{font-size:19px}
@@ -1072,7 +1067,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-data-table.is-products .etsy-product-row td:nth-child(7){grid-column:1/2;align-self:center}
   .etsy-data-table.is-products .etsy-product-row td:nth-child(8){grid-column:2/-1;justify-self:end}
   .etsy-data-table.is-products .etsy-product-row td:nth-child(2)::before{content:"Keyword SMS"}
-  .etsy-data-table.is-products .etsy-product-row td:nth-child(3)::before{content:"Etsy badge + TM"}
+  .etsy-data-table.is-products .etsy-product-row td:nth-child(3)::before{content:"Etsy badge"}
   .etsy-data-table.is-products .etsy-product-row td:nth-child(4)::before{content:"Bought / 24h"}
   .etsy-data-table.is-products .etsy-product-row td:nth-child(5)::before{content:"Views / 24h"}
   .etsy-data-table.is-products .etsy-product-row td:nth-child(6)::before{content:"Carts"}
@@ -2974,7 +2969,6 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   background:#f8fafd;border:1px solid #e4eaf3;border-radius:10px;
 }
 .etsy-bulk-bar.has-selection{background:#f0f5ff;border-color:#cbdcf8}
-.etsy-bulk-select-all{display:none;align-items:center;gap:7px;color:#3b5271;font-weight:720}
 .etsy-bulk-indicator{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-width:0}
 .etsy-bulk-indicator strong{font-size:11px;color:#294b87;font-weight:800}
 .etsy-bulk-indicator span{color:#7d8da3;font-size:10px}
@@ -2986,7 +2980,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 .etsy-bulk-clear{min-height:31px;padding:5px 9px;border:0;background:transparent;color:#667b98;font-weight:700}
 .etsy-bulk-clear:hover{color:#184b99;text-decoration:underline}
 .etsy-bulk-feedback{margin:4px 0 10px;padding:9px 12px;border:1px solid #d5e8df;border-radius:9px;background:#f3faf6;color:#306c4c;font-size:11px}
-.etsy-row-checkbox,.etsy-select-header input,.etsy-bulk-select-all input{
+.etsy-row-checkbox,.etsy-select-header input{
   width:17px;height:17px;margin:0;accent-color:#2e63bf;cursor:pointer;
 }
 .etsy-row-checkbox:disabled,.etsy-select-header input:disabled{cursor:not-allowed}
@@ -3049,7 +3043,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   }
   .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(2)::before{content:none}
   .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(3)::before{content:"Keyword SMS"}
-  .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(4)::before{content:"Etsy badge + TM"}
+  .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(4)::before{content:"Etsy badge"}
   .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(5)::before{content:"Bought / 24h"}
   .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(6)::before{content:"Views / 24h"}
   .etsy-data-table.is-products.is-selectable .etsy-product-row td:nth-child(7)::before{content:"Carts"}
@@ -3263,7 +3257,7 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
   .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(4)::before { content: "TikTok Listing Optimizer"; }
   .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(5)::before { content: "Media · Ảnh + UGC"; }
   .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(6)::before { content: "Keyword SMS"; }
-  .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(7)::before { content: "Etsy badge + TM"; }
+  .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(7)::before { content: "Etsy badge"; }
   .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(8)::before { content: "Bought / 24h"; }
   .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(9)::before { content: "Views / 24h"; }
   .etsy-data-table.is-products.is-picked-listings .etsy-product-row td:nth-child(10)::before { content: "Carts"; }

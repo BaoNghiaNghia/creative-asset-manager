@@ -577,16 +577,15 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelector(".etsy-product-row")).toBeTruthy();
   });
 
-  it("explains applied Picked filters and clears day, group and search without changing the Picked scope", async () => {
-    await start({initialUrl: "/etsy-spy?tab=products&pick_state=picked&observed_day=2026-11-11&group=christmas&q=Santa&page=3"});
-    const context = container?.querySelector<HTMLElement>(".etsy-filter-context");
-    expect(context?.textContent).toContain("Đang lọc");
-    expect(context?.textContent).toContain("Ngày:");
-    expect(context?.textContent).toContain("Nhóm:");
-    expect(context?.textContent).toContain("Tìm: Santa");
+  it("hides redundant applied-filter chips and still clears a no-results Picked filter", async () => {
+    await start({initialUrl: "/etsy-spy?tab=products&pick_state=picked&observed_day=2026-11-11&group=christmas&q=Santa&page=1"});
+    expect(container?.querySelector(".etsy-filter-context")).toBeNull();
     expect(container?.querySelector(".etsy-stat-picked[aria-pressed='true']")).toBeTruthy();
+    expect(container?.querySelector<HTMLInputElement>('input[aria-label="Search Spy records"]')?.value).toBe("Santa");
+    const reset = container?.querySelector<HTMLButtonElement>(".etsy-empty-action");
+    expect(reset?.textContent).toContain("Xóa lọc");
     await act(async () => {
-      context?.querySelector<HTMLButtonElement>(".etsy-filter-reset")?.click();
+      reset?.click();
       await new Promise(resolve => setTimeout(resolve, 450));
     });
     const params = new URLSearchParams(window.location.search);
@@ -611,13 +610,16 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(observed.some(url => url.includes("/logs?"))).toBe(false);
   });
 
-  it("shows the current Eligible day as a filter with a keyboard-accessible clear action", async () => {
+  it("keeps the current-day filter operable without a redundant filter bar", async () => {
     await start();
-    const context = container?.querySelector<HTMLElement>(".etsy-filter-context");
-    expect(context?.textContent).toContain("Ngày: Hôm nay");
-    const clear = context?.querySelector<HTMLButtonElement>(".etsy-filter-reset");
-    expect(clear?.getAttribute("aria-label")).toContain("giữ nguyên tab");
-    expect(clear?.type).toBe("button");
+    expect(container?.querySelector(".etsy-filter-context")).toBeNull();
+    expect(container?.querySelector(".etsy-bulk-bar")).toBeNull();
+    const day = container?.querySelector<HTMLButtonElement>(".etsy-observed-day[aria-pressed='true']");
+    expect(day?.getAttribute("data-observed-day")).toBe(vietnamCalendarDay());
+    expect(day?.type).toBe("button");
+    await act(async () => { day?.click(); });
+    expect(new URLSearchParams(window.location.search).get("observed_day")).toBe("all");
+    expect(container?.querySelector(".etsy-filter-context")).toBeNull();
   });
 
   it("preserves deep-linked pagination and avoids an unchanged mount-time search refresh", async () => {
@@ -766,7 +768,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(preview?.querySelector<HTMLImageElement>("img")?.style.maxHeight).toBe("206px");
   });
 
-  it("displays offline last known data with distinct Etsy badge and TM status", async () => {
+  it("displays offline last known data and Etsy badges without trademark UI", async () => {
     await start();
     const html = container?.innerHTML || "";
     expect(html).toContain("Agent offline");
@@ -777,7 +779,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       .map(x => x.querySelector(".etsy-column-sort-label")?.textContent ??
         (x.textContent || "").trim());
     expect(headings).toEqual([
-      "Product / Etsy", "Keyword SMS", "Etsy Badge + TM",
+      "Product / Etsy", "Keyword SMS", "Etsy Badge",
       "Bought / 24h", "Views / 24h", "Carts", "Observed", "Action",
     ]);
     expect(container?.querySelectorAll(".etsy-product-row")[0]?.querySelectorAll("td")).toHaveLength(9);
@@ -791,18 +793,13 @@ describe("Etsy Spy native CAM dashboard", () => {
       "mama christian shirt, mama christian hoodie, mama christian sweatshirt");
     expect(smsList?.parentElement?.getAttribute("title")).toBe(smsList?.textContent);
     expect(container?.querySelector(".etsy-sms-expand")).toBeNull();
-    expect(html).toContain("LIVE");
     expect(html).toContain("GMT+7");
     expect(html).not.toContain("Listings reconciled");
     expect(html).not.toContain("Search + Shop");
-    expect(html).not.toContain("Safe");
-    const pill = Array.from(container?.querySelectorAll("button") || [])
-      .find(button => button.textContent === "LIVE");
-    expect(pill?.disabled).toBe(false);
-    await act(async () => {pill?.click();});
-    expect(container?.textContent).toContain("12345678");
-    expect(container?.querySelector("a[href*='tsdr.uspto.gov']"))
-      .toHaveProperty("rel", "noopener noreferrer");
+    expect(container?.querySelector(".etsy-tm-badge")).toBeNull();
+    expect(container?.querySelector(".etsy-tm-disclaimer")).toBeNull();
+    expect(container?.querySelector("a[href*='tsdr.uspto.gov']")).toBeNull();
+    expect(observed.some(url => url.includes("/trademarks"))).toBe(false);
   });
 
   it("renders Carts 20+ without changing numeric values or other rows", async () => {
@@ -814,25 +811,16 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(deadListing.inCarts).toBeNull();
   });
 
-  it("renders reference-style badges with clear TM meanings and no false safety claim", async () => {
+  it("renders Etsy demand badges without TMHunt status or evidence", async () => {
     await start();
-    const badgeStacks = container?.querySelectorAll(".etsy-product-row .etsy-badge-stack");
-    expect(badgeStacks).toHaveLength(3);
-    expect(badgeStacks?.[0]?.querySelector(".etsy-demand.bestseller")?.textContent).toBe("Bestseller");
-    expect(badgeStacks?.[1]?.querySelector(".etsy-demand.popular")?.textContent).toBe("Popular now");
-    expect(badgeStacks?.[1]?.querySelector(".tm-no-match")?.textContent).toBe("TM: No match*");
-    expect(badgeStacks?.[1]?.querySelector(".tm-no-match")?.tagName).toBe("SPAN");
-    expect(badgeStacks?.[1]?.querySelector(".etsy-tm-disclaimer")?.textContent).toContain(
-      "does not mean trademark clearance");
-    // Long legal explanations belong after the compact badges, never between
-    // the TM status and review verdict in the same horizontal flex row.
-    expect(badgeStacks?.[1]?.lastElementChild?.classList.contains("etsy-tm-disclaimer"))
-      .toBe(true);
-    const deadBadge = badgeStacks?.[2]?.querySelector(".tm-dead");
-    expect(deadBadge?.textContent).toBe("TM DEAD · 2");
-    expect(deadBadge?.tagName).toBe("BUTTON");
-    await act(async () => { (deadBadge as HTMLButtonElement).click(); });
-    expect(container?.textContent).toContain("11111111");
+    const stacks = container?.querySelectorAll(".etsy-product-row .etsy-badge-stack");
+    expect(stacks).toHaveLength(3);
+    expect(stacks?.[0]?.querySelector(".etsy-demand.bestseller")?.textContent).toBe("Bestseller");
+    expect(stacks?.[1]?.querySelector(".etsy-demand.popular")?.textContent).toBe("Popular now");
+    expect(container?.querySelectorAll(".etsy-tm-badge, .etsy-tm-disclaimer, .etsy-mark-items")).toHaveLength(0);
+    expect(container?.textContent).not.toContain("TM DEAD");
+    expect(container?.textContent).not.toContain("TM: No match");
+    expect(observed.some(url => url.includes("/trademarks"))).toBe(false);
   });
 
   it("keeps the white, compact table controls accessible without losing product actions", async () => {
@@ -844,7 +832,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(cards[3].classList.contains("etsy-stat-blacklist")).toBe(true);
     expect(container?.querySelector(".etsy-blacklist-chips")).toBeNull();
     expect(container?.querySelectorAll(".etsy-stage-nav [role='tab']")).toHaveLength(0);
-    expect(container?.querySelector(".etsy-stage-card > .etsy-spy-topbar .etsy-spy-context")?.textContent).toBe("Product Intelligence");
+    expect(container?.querySelector(".etsy-stage-canvas > .etsy-spy-topbar .etsy-spy-context")?.textContent).toBe("Product Intelligence");
     expect(container?.querySelector(".etsy-stat-total[aria-pressed='true']")).toBeTruthy();
     expect(container?.querySelectorAll(".etsy-observed-day")).toHaveLength(28);
     expect(container?.querySelector(".etsy-pager select[aria-label='Rows per page']")).toBeTruthy();
@@ -853,6 +841,14 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelector(".etsy-title-meta a[href*='etsy.com/listing']")).toBeTruthy();
     expect(container?.querySelector(".etsy-time")?.textContent).toContain("6/11/26");
     expect(container?.querySelector(".etsy-search-box input[aria-label='Search Spy records']")).toBeTruthy();
+    const stageChildren = Array.from(container?.querySelector("#etsy-spy-workspace")?.children || []);
+    const location = (selector: string) => stageChildren.findIndex(child => child.matches(selector));
+    // Flat layout: no redundant filter or idle bulk-selection bars.
+    expect(location(".etsy-stats")).toBeGreaterThan(-1);
+    expect(location(".etsy-filter-context")).toBe(-1);
+    expect(location(".etsy-bulk-bar")).toBe(-1);
+    expect(location(".etsy-facet-explorer")).toBeGreaterThan(location(".etsy-stats"));
+    expect(location(".etsy-table-card")).toBeGreaterThan(location(".etsy-facet-explorer"));
     expect(container?.querySelector(".etsy-table-wrap th button[aria-label='Sort by Carts']")).toBeTruthy();
     const cartsCells = container?.querySelectorAll(".etsy-product-row td:nth-child(7)");
     expect(cartsCells).toHaveLength(3);
@@ -959,7 +955,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       ["TikTok SEO", "tiktokListing", "desc"],
       ["Media", "listingImage", "desc"],
       ["Keyword SMS", "keywordSms", "asc"],
-      ["Etsy Badge + TM", "badge", "asc"],
+      ["Etsy Badge", "badge", "asc"],
       ["Bought / 24h", "bought24h", "desc"],
       ["Views / 24h", "views24h", "desc"],
       ["Carts", "inCarts", "desc"],
@@ -1256,30 +1252,14 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelector(".etsy-agents")).toBeNull();
   });
 
-  it("does not crash the Trademark tab for null or omitted matched evidence", async () => {
-    // Legacy direct links are preserved, but the Trademark tab is hidden.
-    await start({initialUrl: "/etsy-spy?tab=trademarks"});
-    expect(container?.querySelector('[role="tab"][id="etsy-tab-trademarks"]')).toBeNull();
-    // A deep link must not display stale Product rows as Trademark rows.
-    // Either a skeleton or the final Trademark rows may be visible when
-    // the request resolves quickly; stale Product rows must never be shown.
-    expect(container?.querySelector(".etsy-data-table.is-products")).toBeNull();
-    expect(Boolean(container?.querySelector(".etsy-skeleton") ||
-      container?.querySelector(".etsy-data-table.is-trademarks"))).toBe(true);
+  it("ignores legacy Trademark bookmarks and does not request TMHunt endpoints", async () => {
+    await start({initialUrl: "/etsy-spy?tab=trademarks&tm=LIVE"});
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 65)); });
-    expect(observed.some(url => url.includes("/trademarks?"))).toBe(true);
-    expect(new URLSearchParams(window.location.search).get("tab")).toBe("trademarks");
-    expect(container?.textContent).toContain("No cached marks");
-    expect(container?.textContent).toContain("Legacy TM entry");
-    expect(container?.textContent).toContain("Rudolph");
-    expect(container?.querySelectorAll(".etsy-data-table.is-trademarks tbody tr")).toHaveLength(3);
-    // Only the row with actual cached marks may offer the evidence expansion.
-    const expand = container?.querySelectorAll(".etsy-data-table.is-trademarks .etsy-details-trigger") || [];
-    expect(expand).toHaveLength(1);
-    await act(async () => {(expand[0] as HTMLButtonElement).click();});
-    expect(container?.querySelector("a[href*='tsdr.uspto.gov']"))
-      .toHaveProperty("rel", "noopener noreferrer");
-    expect(container?.querySelectorAll(".etsy-tm-counts")).toHaveLength(3);
+    expect(new URLSearchParams(window.location.search).get("tab")).toBe("products");
+    expect(container?.querySelector(".etsy-data-table.is-products")).toBeTruthy();
+    expect(container?.querySelector(".etsy-lookup, .etsy-tm-badge, .etsy-tm-counts")).toBeNull();
+    expect(observed.some(url => url.includes("/trademarks"))).toBe(false);
+    expect(observed.some(url => url.includes("tm=LIVE"))).toBe(false);
   });
 
   it("renders and toggles the full keyword hierarchy with unsynced parent groups", async () => {
@@ -1378,7 +1358,8 @@ describe("Etsy Spy native CAM dashboard", () => {
 
   it("opens Products directly without tab navigation or the Windows Scout description", async () => {
     await start();
-    const stage = container?.querySelector("#etsy-spy-workspace .etsy-stage-card");
+    const stage = container?.querySelector("#etsy-spy-workspace");
+    expect(container?.querySelector(".etsy-stage-card")).toBeNull();
     const header = stage?.querySelector(".etsy-spy-topbar");
     expect(stage?.firstElementChild).toBe(header);
     expect(container?.querySelectorAll(".etsy-spy-page header")).toHaveLength(1);
@@ -1693,7 +1674,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(pickedKeys.size).toBe(0);
     expect(container?.querySelectorAll(".etsy-product-row")).toHaveLength(1);
     expect(container?.querySelector(".etsy-bulk-feedback")?.textContent).toContain("2/2");
-    expect(container?.querySelector(".etsy-bulk-indicator strong")?.textContent).toBe("Chọn sản phẩm");
+    expect(container?.querySelector(".etsy-bulk-bar")).toBeNull();
     const only = container?.querySelector<HTMLInputElement>(".etsy-row-checkbox");
     await act(async () => { only?.click(); });
     expect(container?.querySelector(".etsy-bulk-indicator strong")?.textContent).toBe("1 đã chọn");
@@ -1706,7 +1687,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       container?.querySelector<HTMLButtonElement>(".etsy-stat-total")?.click();
       await new Promise(resolve => setTimeout(resolve, 80));
     });
-    expect(container?.querySelector(".etsy-bulk-indicator strong")?.textContent).toBe("Chọn sản phẩm");
+    expect(container?.querySelector(".etsy-bulk-bar")).toBeNull();
   });
 
   it("uses one lightweight active Picked poll without refreshing the whole dashboard", async () => {
