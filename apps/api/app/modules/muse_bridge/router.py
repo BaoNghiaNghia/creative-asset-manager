@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from fastapi.responses import FileResponse
+from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, update, func, or_
 from sqlalchemy.orm import Session
@@ -129,7 +130,38 @@ def _row_view(job):
             "artworkUrl": f"/api/v1/muse-bridge/jobs/{job.listing_key}/artwork" if job.artwork_asset_path else None,
             "productImageUrl": job.product_image_url, "attempts": job.attempts}
 
-@router.post("/agents/{agent_id}/sync")
+@router.get("/health", include_in_schema=False)
+def health():
+    """Non-sensitive liveness probe for Muse connectors."""
+    _configured()
+    return {
+        "ok": True, "service": "cam-muse-bridge", "version": "1.1.0",
+        "authentication": "Bearer", "queuePath": "/api/v1/muse-bridge/queue",
+        "videoGenerationEnabled": False,
+    }
+
+
+@router.get("/openapi.json", include_in_schema=False)
+def scoped_openapi():
+    """Publish only the Muse-facing contract, never internal CAM agent routes."""
+    schema = get_openapi(
+        title="CAM Muse Bridge", version="1.1.0",
+        routes=router.routes,
+        servers=[{"url": "https://creative-assets.ddns.net"}],
+    )
+    schema.setdefault("components", {}).setdefault("securitySchemes", {})["MuseBearer"] = {
+        "type": "http", "scheme": "bearer",
+    }
+    schema["security"] = [{"MuseBearer": []}]
+    # The internal Windows-agent sync route must never be published
+    # as an action Muse can request.
+    for uri in list(schema["paths"]):
+        if "/agents/" in uri:
+            del schema["paths"][uri]
+    return schema
+
+
+@router.post("/agents/{agent_id}/sync", include_in_schema=False)
 def sync_agent(agent_id: str, payload: SyncRequest, authorization: str | None = Header(default=None),
                db: Session = Depends(get_db)):
     agent = authenticate_agent(db, agent_id, authorization)
@@ -189,6 +221,15 @@ def pending_jobs(limit: int = Query(default=10, ge=1, le=50),
             ((CamMuseJob.status == "claimed") & (CamMuseJob.lease_expires_at < _utc())))
     ).order_by(CamMuseJob.picked_at.asc()).limit(limit)
     return {"items": [_row_view(x) for x in db.scalars(query).all()]}
+
+@router.get("/queue")
+def muse_queue(limit: int = Query(default=10, ge=1, le=50),
+               tenant: str = Depends(_muse), db: Session = Depends(get_db)):
+    """Compatibility alias for Muse background connector's /queue probe."""
+    results = pending_jobs(limit=limit, tenant=tenant, db=db)
+    return {"ok": True, "items": results["items"],
+            "jobs": results["items"], "count": len(results["items"])}
+
 
 @router.post("/jobs/{listing_id}/claim")
 def claim(listing_id: str, payload: ClaimRequest,
