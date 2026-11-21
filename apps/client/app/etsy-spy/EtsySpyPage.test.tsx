@@ -944,7 +944,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       ["Product / Etsy", "pageTitle", "asc"],
       ["Design", "design", "desc"],
       ["TikTok SEO", "tiktokListing", "desc"],
-      ["Listing Image", "listingImage", "desc"],
+      ["Media", "listingImage", "desc"],
       ["Keyword SMS", "keywordSms", "asc"],
       ["Etsy Badge + TM", "badge", "asc"],
       ["Bought / 24h", "bought24h", "desc"],

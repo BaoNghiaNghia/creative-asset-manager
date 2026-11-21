@@ -1,17 +1,19 @@
 /* Picked table: Main preview stays in the left grid track, all model-count
    badges live in the right track. Never stack badges below the thumbnail. */
-.etsy-listing-image-cell{min-width:192px;vertical-align:middle}
+.etsy-listing-image-cell{min-width:185px;vertical-align:middle}
 .etsy-listing-image-layout{
-  display:grid;grid-template-columns:80px minmax(85px,1fr);
-  align-items:center;column-gap:8px;min-width:0;max-width:225px;
+  display:grid;grid-template-columns:72px minmax(95px,1fr);
+  align-items:center;column-gap:6px;min-width:0;max-width:205px;
 }
-.etsy-listing-image-primary{width:80px;min-width:0}
+.etsy-listing-image-primary{
+  display:flex;flex-direction:column;gap:3px;width:72px;min-width:0;
+}
 .etsy-listing-image-main{
   /* Absolute deferred-image skeletons MUST be anchored to this thumbnail.
      Without a positioned ancestor, inset:3px paints a page-wide overlay that
      hides every other Etsy Spy cell while the image is loading. */
   position:relative;isolation:isolate;
-  box-sizing:border-box;display:block;width:80px;height:80px;
+  box-sizing:border-box;display:block;width:72px;height:72px;
   padding:0;border:0;border-radius:6px;background:transparent;
   color:inherit;cursor:pointer;overflow:hidden;
 }
@@ -26,17 +28,17 @@
   outline:2px solid #327ec4;outline-offset:2px;
 }
 .etsy-listing-image-pending{
-  box-sizing:border-box;display:grid;place-items:center;width:80px;min-height:80px;
+  box-sizing:border-box;display:grid;place-items:center;width:72px;min-height:72px;
   padding:6px;border:0;background:transparent;
   font-size:10px;font-weight:650;color:#9ba9ba;line-height:1.35;text-align:center;
 }
 .etsy-listing-image-badges{
   display:grid;grid-template-columns:minmax(0,1fr);align-content:center;
-  justify-items:stretch;gap:4px;min-width:0;margin:0;
+  justify-items:stretch;gap:3px;min-width:0;margin:0;
 }
 .etsy-listing-image-badge{
   box-sizing:border-box;display:flex;align-items:center;justify-content:flex-start;
-  gap:3px;width:100%;min-width:0;min-height:22px;padding:3px 6px;
+  gap:3px;width:100%;min-width:0;min-height:19px;padding:2px 5px;
   border:1px solid #bcd7eb;border-radius:6px;
   color:#23598a;background:#edf7ff;white-space:nowrap;font-size:10px;font-weight:700;
   cursor:pointer;line-height:1.2;
@@ -45,6 +47,14 @@
 .etsy-listing-image-badge:hover,.etsy-listing-image-badge:focus-visible{
   background:#dbeeff;border-color:#6dabe1;
 }
+.etsy-listing-media-ugc{
+  display:flex;align-items:center;justify-content:flex-start;gap:2px;
+  min-width:0;min-height:15px;padding:0;
+  color:#7d8795;font-size:9px;font-weight:650;line-height:1.2;
+  white-space:nowrap;
+}
+.etsy-listing-media-ugc svg{flex:0 0 11px;width:11px;height:11px}
+.etsy-listing-media-ugc > span{min-width:0;overflow:hidden;text-overflow:ellipsis}
 /* In mobile card mode, the Picked column must span the row, instead of
    inheriting the generic 3-column KPI slot for the fifth table cell. */
 @media(max-width:680px){
@@ -54,7 +64,7 @@
   }
   .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products
     .etsy-product-row td.etsy-listing-image-cell::before{
-    content:"Listing Image";
+    content:"Media · Ảnh + UGC";
   }
 }
 /* Etsy-inspired three-column listing workspace:
