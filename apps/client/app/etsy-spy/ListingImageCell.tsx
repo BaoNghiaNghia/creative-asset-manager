@@ -469,16 +469,6 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
                 : "Ảnh ImageGen " + primaryBadge?.garmentCode} />
           </button> : <span className="etsy-listing-image-pending"
             title="Chưa nhận được ảnh đã lưu từ ImageGen Extension">Chưa đồng bộ ảnh</span>}
-          <span className="etsy-listing-media-ugc"
-            aria-label="Video UGC: Chưa có video"
-            title="Chưa có video UGC liên kết với listing này">
-            <svg viewBox="0 0 20 20" width="12" height="12"
-              fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-              <rect x="1.5" y="4" width="12" height="12" rx="2" />
-              <path d="M13.5 8L18.5 5.5V14.5L13.5 12" />
-            </svg>
-            <span>UGC: chưa có</span>
-          </span>
         </div>
         {badges.length > 0 && <div className="etsy-listing-image-badges"
           aria-label="Số ảnh theo mã áo">

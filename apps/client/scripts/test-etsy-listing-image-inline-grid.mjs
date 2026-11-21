@@ -19,9 +19,8 @@ function markup(scenario){
   const badges=scenario.codes.length
     ? '<div class="etsy-listing-image-badges">'+scenario.codes.map(code=>
       '<button class="etsy-listing-image-badge"><span>10</span> '+code+'</button>').join("")+'</div>' : "";
-  const ugc='<span class="etsy-listing-media-ugc"><svg viewBox="0 0 20 20" width="12" height="12"></svg><span>UGC: chưa có</span></span>';
   const td='<td class="etsy-listing-image-cell"><div class="etsy-listing-image-layout">'+
-    '<div class="etsy-listing-image-primary">'+main+ugc+'</div>'+badges+'</div></td>';
+    '<div class="etsy-listing-image-primary">'+main+'</div>'+badges+'</div></td>';
   return '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">'+
     '<style>'+css+'</style></head><body><main class="etsy-spy-page">'+
     '<div class="etsy-table-card"><div class="etsy-table-wrap">'+
@@ -47,7 +46,7 @@ try{
           const buttons=[...document.querySelectorAll(".etsy-listing-image-badge")];
           const mainButton=get(".etsy-listing-image-main");
           const mainStyle=mainButton?getComputedStyle(mainButton):null;
-          const ugc=get(".etsy-listing-media-ugc > span");
+          const ugc=get(".etsy-listing-media-ugc");
           return {layout:rect(layout),main:rect(main),badges:rect(badges),
             mainHasOnlyImage:Boolean(mainButton && mainButton.children.length===1 &&
               mainButton.children[0].tagName==="IMG" && mainButton.textContent.trim()===""),
@@ -55,14 +54,14 @@ try{
             mainPadding:mainStyle?.paddingTop??null,
             cell:rect(get(".etsy-listing-image-cell")),
             fits:buttons.every(b=>b.scrollWidth<=b.clientWidth+1),
-            ugcFits:Boolean(ugc && ugc.scrollWidth<=ugc.clientWidth+1),
+            ugcRemoved:ugc===null,
             label:getComputedStyle(get(".etsy-listing-image-cell"),"::before").content,
             gridStart:getComputedStyle(get(".etsy-listing-image-cell")).gridColumnStart};
         });
         assert.ok(result.layout.height<=s.limit,
           width+"px "+s.name+" grid too tall: "+JSON.stringify(result));
         assert.ok(result.layout.right<=result.cell.right+2,width+"px grid overflows cell");
-        assert.ok(result.ugcFits,width+"px UGC label clipped: "+JSON.stringify(result));
+        assert.ok(result.ugcRemoved,width+"px empty UGC placeholder still exists: "+JSON.stringify(result));
         if(s.image){
           assert.ok(result.mainHasOnlyImage,width+"px Main includes extra text");
           assert.equal(result.mainBorder,"0px",width+"px Main still has outer card");
@@ -76,7 +75,7 @@ try{
           assert.ok(result.fits,width+"px clipped badges");
         }
         if(width<=680){
-          assert.equal(result.label,'"Media · Ảnh + UGC"');
+          assert.equal(result.label,'"Media · Ảnh"');
           assert.equal(result.gridStart,"1");
         }
         console.log("PASS "+width+"px "+s.name+" - "+Math.round(result.layout.height)+"px");
