@@ -162,3 +162,46 @@ async def ensure_listing_output_folders(
                 f"listing_{listing_id}/design_{design_sha256[:16]}_{placement}/"
                 f"{garment_code}"
             )}
+
+async def ensure_listing_video_folder(
+    *, provider, root_folder_id: str, tenant_id: str,
+    listing_id: str, design_sha256: str,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> dict[str, str]:
+    """Keep Muse MP4 output alongside the correct ImageGen listing/design.
+
+    Root -> listing_ID -> design_SHA16_front -> video_ugc.
+    Do not create one folder per attempt and do not put MP4s at Drive root.
+    """
+    if (root_folder_id != ROOT_FOLDER_ID or
+        not _LISTING.fullmatch(listing_id) or not _SHA.fullmatch(design_sha256)
+        or not tenant_id or len(tenant_id) > 255):
+        raise HTTPException(422, "Invalid Muse video destination identity")
+    token = await provider.get_access_token()
+    async with httpx.AsyncClient(
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=httpx.Timeout(30, connect=8), transport=transport,
+    ) as client:
+        listing_folder = await _ensure_child(
+            client, root_folder_id, "listing_" + listing_id,
+            {"cam_imagegen_node": "listing-v1", "cam_tenant": tenant_id,
+             "cam_listing": listing_id},
+        )
+        design_folder = await _ensure_child(
+            client, listing_folder, "design_" + design_sha256[:16] + "_front",
+            {"cam_imagegen_node": "design-v1", "cam_tenant": tenant_id,
+             "cam_listing": listing_id, "cam_design_sha": design_sha256,
+             "cam_placement": "front"},
+        )
+        video_folder = await _ensure_child(
+            client, design_folder, "video_ugc",
+            {"cam_imagegen_node": "video-ugc-v1", "cam_tenant": tenant_id,
+             "cam_listing": listing_id, "cam_design_sha": design_sha256},
+        )
+    return {
+        "listing_folder_id": listing_folder, "design_folder_id": design_folder,
+        "video_folder_id": video_folder,
+        "relative_path": (
+            f"listing_{listing_id}/design_{design_sha256[:16]}_front/video_ugc"
+        ),
+    }

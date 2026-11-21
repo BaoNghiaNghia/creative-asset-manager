@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel, Field, field_validator
@@ -183,7 +183,24 @@ def _row_view(job):
             "pickedAt": job.picked_at, "artworkSha256": job.artwork_sha256,
             "artworkAssetPath": job.artwork_asset_path,
             "artworkUrl": f"/api/v1/muse-bridge/jobs/{job.listing_key}/artwork" if job.artwork_asset_path else None,
-            "productImageUrl": job.product_image_url, "attempts": job.attempts}
+            "productImageUrl": job.product_image_url, "attempts": job.attempts,
+            "videoSpec": {
+                "formats": ["9:16", "16:9"], "targetDurationSeconds": 12,
+                "garment": "Comfort Colors C1717", "printPosition": "front_center",
+                "designTopBelowCollarCm": 10,
+                "artworkShaStrict": True,
+                "posing": "varied natural male/female; no hair touching or hands covering front print",
+                "lighting": "directional sunlight and natural backlight",
+                "preserveArtworkScaleAcrossShots": True,
+                "noOpenAiApi": True,
+                "videoUploadPaths": {
+                    "9:16": f"/api/v1/muse-bridge/jobs/{job.listing_key}/videos/vertical",
+                    "16:9": f"/api/v1/muse-bridge/jobs/{job.listing_key}/videos/horizontal",
+                },
+                "uploadContentType": "video/mp4",
+                "uploadLeaseHeader": "X-Muse-Lease",
+            },
+        }
 
 @router.get("/health", include_in_schema=False)
 def health():
@@ -312,7 +329,7 @@ def visual_review_queue(
     if listing_id:
         query = query.where(CamMuseJob.listing_key == listing_id)
     rows = db.scalars(query.order_by(CamMuseJob.picked_at.asc()).limit(
-        1 if listing_id else 150)).all()
+        1 if listing_id else 500)).all()
     items = []
     for row in rows:
         if len(items) >= limit:
@@ -334,7 +351,7 @@ def visual_review_queue(
             "printReady": False,
         })
     return {"ok": True, "items": items, "count": len(items),
-            "canaryListingId": os.getenv("CAM_MUSE_QA_CANARY_LISTING_ID", "4456979256")}
+            "visualQaRequired": True, "rightsVerified": False}
 
 
 @router.get("/reviews/{listing_id}/artwork")
@@ -380,9 +397,8 @@ def submit_visual_review(
     """Muse-only visual QA canary; preserves rights/print QA as unverified."""
     if not LISTING_ID.fullmatch(listing_id):
         raise HTTPException(404)
-    canary = os.getenv("CAM_MUSE_QA_CANARY_LISTING_ID", "4456979256")
-    if listing_id != canary:
-        raise HTTPException(409, "Only first canary review may be promoted")
+    # Preview-only batch progression: each listing still requires its own
+    # source-vs-artwork visual QA, exact Native SHA, and recorded evidence.
     row = db.scalar(select(CamMuseJob).where(
         CamMuseJob.tenant_id == tenant,
         CamMuseJob.listing_key == listing_id,
@@ -517,10 +533,12 @@ def submit(listing_id: str, payload: SubmitRequest,
     if not hmac.compare_digest(row.lease_hash,
                                hashlib.sha256(payload.lease.encode()).hexdigest()):
         raise HTTPException(409, "Invalid lease")
+    receipts = dict(row.output_receipts) if isinstance(row.output_receipts, dict) else {}
+    if receipts.get("drive_uploads"):
+        raise HTTPException(409, "Do not overwrite CAM-verified video uploads with external receipts")
     row.status = "submitted"
     row.lease_hash = None
     row.lease_expires_at = None
-    receipts = dict(row.output_receipts) if isinstance(row.output_receipts, dict) else {}
     receipts["videos"] = [r.model_dump() for r in payload.videos]
     row.output_receipts = receipts
     row.submitted_at = _utc()
@@ -528,6 +546,104 @@ def submit(listing_id: str, payload: SubmitRequest,
     db.commit()
     return {"ok": True, "status": "submitted", "camLinked": False,
             "message": "Video receipts await content QA and CAM ingestion"}
+
+@router.post(
+    "/jobs/{listing_id}/videos/{aspect}",
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {"video/mp4": {"schema": {"type": "string", "format": "binary"}}},
+        },
+    },
+)
+async def upload_ugc_video(
+    listing_id: str, aspect: Literal["vertical", "horizontal"],
+    request: Request, x_muse_lease: str | None = Header(default=None),
+    tenant: str = Depends(_muse), db: Session = Depends(get_db),
+):
+    """Muse uploads the actual MP4; CAM verifies and saves to listing/design Drive.
+
+    This is separate from the legacy receipt-only submit endpoint. It does
+    not call any AI model, and bytes are held in bounded memory, never saved
+    as persistent files on the VPS. Video content QA remains pending.
+    """
+    from .video_storage import MAX_VIDEO_BYTES, store_muse_video
+    if not LISTING_ID.fullmatch(listing_id):
+        raise HTTPException(404, "Listing not found")
+    lease = x_muse_lease or ""
+    if not 32 <= len(lease) <= 120 or request.headers.get("content-type", "").split(";")[0].lower() != "video/mp4":
+        raise HTTPException(422, "Muse lease and video/mp4 required")
+    row = db.get(CamMuseJob, (tenant, listing_id))
+    if (row is None or row.status != "claimed" or row.source_state != "ready_for_muse"
+            or not row.artwork_sha256 or not row.lease_hash
+            or _aware(row.lease_expires_at) is None
+            or _aware(row.lease_expires_at) <= _utc()
+            or not hmac.compare_digest(row.lease_hash, hashlib.sha256(lease.encode()).hexdigest())):
+        raise HTTPException(409, "Muse job not claimable or video lease invalid")
+    parts = bytearray()
+    async for chunk in request.stream():
+        parts.extend(chunk)
+        if len(parts) > MAX_VIDEO_BYTES:
+            raise HTTPException(413, "MP4 exceeds 40 MiB limit")
+    if len(parts) < 2048:
+        raise HTTPException(422, "Missing MP4")
+    ratio = "9:16" if aspect == "vertical" else "16:9"
+    digest = hashlib.sha256(parts).hexdigest()
+    existing_receipts = row.output_receipts if isinstance(row.output_receipts, dict) else {}
+    previous = (existing_receipts.get("drive_uploads") or {}).get(ratio)
+    if isinstance(previous, dict):
+        if previous.get("sha256") != digest:
+            raise HTTPException(409, "An alternate video for this aspect was already saved")
+        return {"ok": True, "reused": True, "status": row.status,
+                "aspectRatio": ratio, "storageVerified": True,
+                "driveFolder": previous.get("relativeFolder")}
+    expected_artwork_sha = row.artwork_sha256
+    stored = await store_muse_video(
+        tenant_id=tenant, listing_id=listing_id,
+        artwork_sha256=expected_artwork_sha, aspect=aspect, mp4=bytes(parts),
+    )
+    # A second upload might have been received while Google Drive was saving:
+    # validate the exact lease and content hash after obtaining a row lock.
+    db.expire_all()
+    locked = db.scalar(select(CamMuseJob).where(
+        CamMuseJob.tenant_id == tenant,
+        CamMuseJob.listing_key == listing_id,
+    ).with_for_update())
+    if (locked is None or locked.status != "claimed" or
+            locked.artwork_sha256 != expected_artwork_sha or
+            not locked.lease_hash or
+            _aware(locked.lease_expires_at) is None or
+            _aware(locked.lease_expires_at) <= _utc() or
+            not hmac.compare_digest(locked.lease_hash,
+                hashlib.sha256(lease.encode()).hexdigest())):
+        db.rollback()
+        raise HTTPException(409, "Muse lease changed during upload")
+    receipts = dict(locked.output_receipts) if isinstance(locked.output_receipts, dict) else {}
+    uploads = dict(receipts.get("drive_uploads") or {})
+    if ratio in uploads and uploads[ratio].get("sha256") != digest:
+        db.rollback()
+        raise HTTPException(409, "Conflicting video variant")
+    uploads[ratio] = stored
+    receipts["drive_uploads"] = uploads
+    if set(uploads) == {"9:16", "16:9"}:
+        # Storage verified != video content approved. Listing UI can preview it,
+        # but must flag both variants as pending video content review.
+        receipts["videos"] = [uploads["9:16"], uploads["16:9"]]
+        receipts["camLinked"] = True
+        receipts["videoContentQa"] = "pending_review"
+        locked.status = "submitted"
+        locked.submitted_at = _utc()
+        locked.lease_hash = None
+        locked.lease_expires_at = None
+    locked.output_receipts = receipts
+    locked.updated_at = _utc()
+    db.commit()
+    return {"ok": True, "reused": False, "status": locked.status,
+            "aspectRatio": ratio, "storedCount": len(uploads),
+            "storageVerified": True, "driveFolder": stored["relativeFolder"],
+            "camLinked": bool(receipts.get("camLinked", False)),
+            "videoContentQa": "pending_review"}
+
 
 # ---- Limited ChatGPT / CodeLocal -> CAM -> Muse command handoff ----
 # This API does NOT execute models or machine commands. Only two predeclared

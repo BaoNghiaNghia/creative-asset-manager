@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+import httpx
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, asc, case, desc, func, or_, select, not_, literal
@@ -22,6 +23,8 @@ from sqlalchemy.orm import Session, aliased
 from app.core.database import get_db
 from app.core.config import get_settings
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.muse_bridge.model import CamMuseJob
+from app.modules.muse_bridge.ui import video_ugc_view
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from .model import (
     EtsySpyAgent as Agent, EtsySpyBlacklist as Blacklist, EtsySpyPicked as Picked,
@@ -1057,6 +1060,16 @@ def listings(
     listing_image_badges = listing_badges(
         db, tenant, {listing.listing_key for listing, _ in rows}
     ) if pick_state == "picked" and rows else {}
+    video_ugc_by_key = {}
+    if pick_state == "picked" and rows:
+        ids = {listing.listing_key for listing, _ in rows}
+        video_ugc_by_key = {
+            job.listing_key: video_ugc_view(job)
+            for job in db.scalars(select(CamMuseJob).where(
+                CamMuseJob.tenant_id == tenant,
+                CamMuseJob.listing_key.in_(ids),
+            )).all()
+        }
     # Single tenant-scoped query across the current Picked page; never N+1.
     tiktok_by_key: dict[str, dict] = {}
     if pick_state == "picked" and rows:
@@ -1077,6 +1090,8 @@ def listings(
              "smsPush": sms_by_key.get(listing.listing_key),
              "designs": designs_by_key.get(listing.listing_key, []),
              "listingImages": listing_image_badges.get(listing.listing_key, []),
+             "videoUgc": video_ugc_by_key.get(listing.listing_key,
+                 {"status": "not_queued", "count": 0, "videos": []}),
              "extraction": extraction_by_key.get(listing.listing_key,
               {"status": "source_missing" if extraction_enabled() else "disabled", "manual_qa_required": True})}
             if pick_state == "picked" else {})}
@@ -2456,3 +2471,89 @@ async def ingest_agent(
 from .image_agent import image_router
 router.include_router(image_router)
 router.include_router(listing_image_router)
+
+@router.get("/video-ugc/{listing_id}/{aspect}")
+async def read_muse_ugc_video(
+    listing_id: str, aspect: str, request: Request,
+    principal: CurrentPrincipal = Depends(READ), db: Session = Depends(get_db),
+):
+    """Private CAM-authenticated playback; never expose Muse/Drive credentials.
+
+    Only CAM-verified MP4s under the right listing/design Drive folder can play.
+    Range requests are passed to Google Drive for normal browser seeking.
+    """
+    from app.modules.etsy_spy.imagegen_drive import provider_and_folder
+    from app.modules.etsy_spy.listing_drive_folders import (
+        ROOT_FOLDER_ID, verify_listing_file_provenance,
+    )
+    if not re.fullmatch(r"[0-9]{5,20}", listing_id) or aspect not in ("vertical", "horizontal"):
+        raise HTTPException(404, "Video not found")
+    tenant = principal.active_tenant_id
+    if not db.get(Picked, (tenant, listing_id)):
+        raise HTTPException(404, "Listing no longer Picked")
+    job = db.get(CamMuseJob, (tenant, listing_id))
+    receipt = job.output_receipts if job and isinstance(job.output_receipts, dict) else {}
+    uploads = receipt.get("drive_uploads") or {}
+    ratio = "9:16" if aspect == "vertical" else "16:9"
+    video = uploads.get(ratio) if isinstance(uploads, dict) else None
+    if (not isinstance(video, dict) or video.get("storageVerified") is not True
+            or video.get("storage_provider") != "google_drive_managed"
+            or not job or not job.artwork_sha256):
+        raise HTTPException(404, "CAM-verified MP4 unavailable")
+    remote_id = str(video.get("drive_file_id") or "")
+    folder_id = str(video.get("drive_folder_id") or "")
+    sha = str(video.get("sha256") or "")
+    expected_asset_id = f"muse-ugc:{listing_id}:{job.artwork_sha256}:{aspect}"
+    if (not re.fullmatch(r"[A-Za-z0-9_-]{10,128}", remote_id)
+            or not re.fullmatch(r"[A-Za-z0-9_-]{10,128}", folder_id)
+            or not re.fullmatch(r"[a-f0-9]{64}", sha)):
+        raise HTTPException(404, "Video metadata invalid")
+    provider, root = provider_and_folder()
+    if root != ROOT_FOLDER_ID:
+        raise HTTPException(503, "Video storage misconfigured")
+    await verify_listing_file_provenance(
+        provider=provider, remote_file_id=remote_id,
+        folder_id=folder_id, tenant_id=tenant,
+        asset_id=expected_asset_id, sha256=sha,
+    )
+    requested_range = request.headers.get("range", "")
+    if requested_range and not re.fullmatch(r"bytes=\d*-\d*", requested_range):
+        raise HTTPException(416, "Invalid media range")
+    token = await provider.get_access_token()
+    client = httpx.AsyncClient(
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=httpx.Timeout(90, connect=10, read=90),
+    )
+    try:
+        upstream = await client.send(client.build_request(
+            "GET", f"https://www.googleapis.com/drive/v3/files/{remote_id}",
+            params={"alt": "media", "supportsAllDrives": "true"},
+            headers={"Range": requested_range} if requested_range else {},
+        ), stream=True)
+        if upstream.status_code not in (200, 206):
+            await upstream.aclose()
+            await client.aclose()
+            raise HTTPException(503, "Private Drive MP4 playback unavailable")
+    except (httpx.RequestError, httpx.TimeoutException) as exc:
+        await client.aclose()
+        raise HTTPException(503, "Private Drive stream unavailable") from exc
+
+    async def stream():
+        try:
+            async for chunk in upstream.aiter_bytes():
+                yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    headers = {
+        "Cache-Control": "private, max-age=60",
+        "X-Content-Type-Options": "nosniff",
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f'inline; filename="ugc-{aspect}.mp4"',
+    }
+    for key in ("content-range", "content-length"):
+        if upstream.headers.get(key):
+            headers[key.title()] = upstream.headers[key]
+    return StreamingResponse(stream(), status_code=upstream.status_code,
+                             media_type="video/mp4", headers=headers)

@@ -131,11 +131,24 @@ export type ReviewAssessment = {
   concerns: { key: string; label: string; count: number }[];
   evidence: { stars: number | null; text: string }[];
 };
+export type VideoUgcItem = {
+  aspectRatio: "9:16" | "16:9"; url: string;
+  width?: number; height?: number; durationSeconds?: number;
+  qaStatus: "pending_review";
+};
+export type VideoUgcView = {
+  status: "not_queued" | "missing_source" | "qa_hold" | "queued" |
+          "rendering" | "submitted" | "receipt_only" | "saved" |
+          "partial" | "completed" | string;
+  count: number; videos: VideoUgcItem[];
+  contentQa?: string | null; artworkSha256?: string | null;
+};
 export type Listing = {
   sessionId: string; keyword: string; sourceKind: string; sourceKinds?: string[]; listingKey: string;
   picked: boolean;
   designs?: DesignAsset[];
   listingImages?: ListingImageBadge[];
+  videoUgc?: VideoUgcView;
   tiktokListing?: TikTokListingView;
   smsPush?: { status: string; code?: string | null; sentAt?: string | null;
     updatedAt?: string | null } | null;
