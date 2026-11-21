@@ -830,7 +830,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(cards[3].classList.contains("etsy-stat-blacklist")).toBe(true);
     expect(container?.querySelector(".etsy-blacklist-chips")).toBeNull();
     expect(container?.querySelectorAll(".etsy-stage-nav [role='tab']")).toHaveLength(0);
-    expect(container?.querySelector(".etsy-stage-card > .etsy-spy-topbar .etsy-spy-context")?.textContent).toBe("Product Intelligence");
+    expect(container?.querySelector(".etsy-stage-canvas > .etsy-spy-topbar .etsy-spy-context")?.textContent).toBe("Product Intelligence");
     expect(container?.querySelector(".etsy-stat-total[aria-pressed='true']")).toBeTruthy();
     expect(container?.querySelectorAll(".etsy-observed-day")).toHaveLength(28);
     expect(container?.querySelector(".etsy-pager select[aria-label='Rows per page']")).toBeTruthy();
@@ -839,6 +839,14 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelector(".etsy-title-meta a[href*='etsy.com/listing']")).toBeTruthy();
     expect(container?.querySelector(".etsy-time")?.textContent).toContain("6/11/26");
     expect(container?.querySelector(".etsy-search-box input[aria-label='Search Spy records']")).toBeTruthy();
+    const stageChildren = Array.from(container?.querySelector("#etsy-spy-workspace")?.children || []);
+    const location = (selector: string) => stageChildren.findIndex(child => child.matches(selector));
+    // Flat layout follows screenshot 2: KPI > applied filters > selection > day facets > table.
+    expect(location(".etsy-stats")).toBeGreaterThan(-1);
+    expect(location(".etsy-filter-context")).toBeGreaterThan(location(".etsy-stats"));
+    expect(location(".etsy-bulk-bar")).toBeGreaterThan(location(".etsy-filter-context"));
+    expect(location(".etsy-facet-explorer")).toBeGreaterThan(location(".etsy-bulk-bar"));
+    expect(location(".etsy-table-card")).toBeGreaterThan(location(".etsy-facet-explorer"));
     expect(container?.querySelector(".etsy-table-wrap th button[aria-label='Sort by Carts']")).toBeTruthy();
     const cartsCells = container?.querySelectorAll(".etsy-product-row td:nth-child(7)");
     expect(cartsCells).toHaveLength(3);
@@ -1348,7 +1356,8 @@ describe("Etsy Spy native CAM dashboard", () => {
 
   it("opens Products directly without tab navigation or the Windows Scout description", async () => {
     await start();
-    const stage = container?.querySelector("#etsy-spy-workspace .etsy-stage-card");
+    const stage = container?.querySelector("#etsy-spy-workspace");
+    expect(container?.querySelector(".etsy-stage-card")).toBeNull();
     const header = stage?.querySelector(".etsy-spy-topbar");
     expect(stage?.firstElementChild).toBe(header);
     expect(container?.querySelectorAll(".etsy-spy-page header")).toHaveLength(1);

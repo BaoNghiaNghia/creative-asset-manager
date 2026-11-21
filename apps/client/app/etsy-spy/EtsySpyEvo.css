@@ -62,13 +62,7 @@ body:has(.etsy-spy-page) .etsy-tiktok-dialog button:focus-visible {
 .etsy-spy-page .etsy-tab-copy small { font-size: 9.5px; color: var(--cam-evo-muted); }
 .etsy-spy-page .etsy-tab-number { color: #7d899a; }
 
-/* Use one card surface for the stage, then hairlines within it. */
-.etsy-spy-page .etsy-stage-card {
-  border: 1px solid var(--cam-evo-hairline);
-  border-radius: var(--cam-evo-radius-card);
-  background: var(--cam-evo-surface);
-  box-shadow: none;
-}
+/* Flat Etsy Spy workspace: section borders only, no outer card. */
 .etsy-spy-page .etsy-stage-heading h2 {
   font-size: clamp(17px, 1.4vw, 21px);
   font-weight: 790;
@@ -535,7 +529,6 @@ body:has(.etsy-spy-page) .etsy-tiktok-copy-title button {
     min-width: 0; min-height: 43px; padding: 7px 4px;
   }
   .etsy-spy-page .etsy-stage-canvas { padding: 8px 6px; }
-  .etsy-spy-page .etsy-stage-card { padding: 11px 9px; }
   .etsy-spy-page .etsy-stats {
     display: grid;
     grid-auto-flow: column;

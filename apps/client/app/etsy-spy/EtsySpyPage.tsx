@@ -1293,7 +1293,6 @@ export function EtsySpyPage() {
   return <main className="etsy-spy-page">
     <section id="etsy-spy-workspace"
       className="etsy-stage-canvas" aria-label="Etsy Spy workspace">
-      <div className="etsy-stage-card">
         <WorkspacePageHeader route="etsy-spy" className="etsy-spy-topbar"
           eyebrow="ETSY MARKET INTELLIGENCE"
           description={activeTab === "products" ? "" : activeTab === "keywords"
@@ -1355,136 +1354,6 @@ export function EtsySpyPage() {
             <small>{card.hint}</small>
           </button>)}
         </section>
-        {showProductFacets && <section className="etsy-facet-explorer"
-          aria-label="Bộ lọc ngày và nhóm sản phẩm">
-          <div className="etsy-adaptive-controls">
-            <button type="button" id="etsy-facet-toggle"
-              className="etsy-facet-toggle" aria-controls="etsy-facet-details"
-              aria-expanded={facetsExpanded} onClick={() => setFacetsExpanded(open => !open)}>
-              <span className="etsy-facet-toggle-copy">
-                <strong>Ngày và nhóm sản phẩm</strong>
-                <small title={facetDayLabel + " · " + facetGroupLabel}>
-                  {facetDayLabel} · {facetGroupLabel}
-                </small>
-              </span>
-              <span aria-hidden="true" className="etsy-facet-chevron">{facetsExpanded ? "⌃" : "⌄"}</span>
-            </button>
-            <div className="etsy-adaptive-quick-actions">
-              <label htmlFor="etsy-quick-sort">Sắp xếp</label>
-              <select id="etsy-quick-sort" aria-label="Sắp xếp sản phẩm"
-                value={columns.some(column => column.id === options.sort) ? options.sort : "observedAt"}
-                onChange={event => update({ sort: event.target.value, dir: "desc" })}>
-                <option value="observedAt">Mới quan sát</option>
-                <option value="views24h">Views / 24h</option>
-                <option value="bought24h">Bought / 24h</option>
-                <option value="inCarts">Carts</option>
-                <option value="badge">Badge Etsy</option>
-                <option value="pageTitle">Tên sản phẩm</option>
-                <option value="keywordSms">Keyword SMS · A–Z</option>
-                {options.pickState === "picked" && <>
-                  <option value="design">Design · job hoàn tất</option>
-                  <option value="tiktokListing">TikTok SEO · trạng thái</option>
-                  <option value="listingImage">Media · số ảnh</option>
-                </>}
-              </select>
-              <button type="button" className="etsy-adaptive-sort-direction"
-                aria-label={options.dir === "desc" ? "Sắp xếp tăng dần" : "Sắp xếp giảm dần"}
-                title={options.dir === "desc" ? "Đổi sang tăng dần" : "Đổi sang giảm dần"}
-                onClick={() => update({ dir: options.dir === "desc" ? "asc" : "desc" })}>
-                <span aria-hidden="true">{options.dir === "desc" ? "↓" : "↑"}</span>
-              </button>
-              <button type="button" className="etsy-adaptive-jump"
-                onClick={() => document.getElementById("etsy-product-results")?.scrollIntoView?.({
-                  behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-                    ? "auto" : "smooth", block: "start",
-                })}>
-                Đến danh sách <span aria-hidden="true">↓</span>
-              </button>
-            </div>
-          </div>
-          <div id="etsy-facet-details"
-            className={"etsy-facet-details" + (facetsExpanded ? " is-open" : "")}>
-          <section className="etsy-observed-days"
-            aria-label={"Phân loại " + facetScope + " theo ngày, 06:00 đến 06:00 giờ Việt Nam"}>
-            <ObservedDayCarousel>
-              {dailyCards.map(({ day, index, count, pickedCount }) => {
-                const label = index === 0 ? "Hôm nay" : index === 1 ? "Hôm qua"
-                  : day.slice(8, 10) + "/" + day.slice(5, 7);
-                const selected = options.observedDay === day;
-                // A genuinely empty day is muted, but a loading day is not.
-                // Eligible has two activity counters: either one can be useful.
-                const dayLoaded = count !== null &&
-                  (facetScope !== "eligible" || pickedCount !== null);
-                const hasActivity = dayLoaded &&
-                  (count > 0 || (facetScope === "eligible" && (pickedCount ?? 0) > 0));
-                const activityState = !dayLoaded ? "loading"
-                  : hasActivity ? "nonempty" : "empty";
-                const statusLabel = facetScope === "eligible" ? "Khả dụng"
-                  : facetScope === "picked" ? "Picked" : "Later";
-                const dateBasis = facetScope === "picked" ? "ngày Pick"
-                  : facetScope === "later" ? "ngày phân loại Later" : "ngày quan sát";
-                const dateRange = "06:00 ngày " + day + " đến trước 06:00 ngày tiếp theo (GMT+7)";
-                return <button type="button" key={day}
-                  className={"etsy-observed-day" + (selected ? " active" : "") +
-                    (activityState === "empty" ? " is-empty" :
-                      activityState === "nonempty" ? " has-activity" : " is-loading")}
-                  data-observed-day={day} data-pick-state={facetScope}
-                  data-day-activity={activityState} aria-pressed={selected}
-                  aria-label={label + ": " + (count ?? "Chưa tải") + " " + statusLabel +
-                    (facetScope === "eligible" ? ", " + (pickedCount ?? "Chưa tải") + " sản phẩm đã Pick" : "") +
-                    "; " + dateRange + ". Nhấn để lọc theo " + dateBasis}
-                  title={"Ngày " + day + " · " + dateBasis + " · " + dateRange}
-                  onClick={() => update({ observedDay: selected ? "all" : day, group: "" })}>
-                  <span className="etsy-observed-day-label">{label}</span>
-                  <span className="etsy-observed-day-metrics">
-                    <span className="etsy-observed-day-eligible">
-                      <strong>{count === null ? "—" : count.toLocaleString("vi-VN")}</strong>
-                      <small>{statusLabel}</small>
-                    </span>
-                    {facetScope === "eligible" && <span className={"etsy-observed-day-pick" + (pickedCount ? " has-picks" : "")}>
-                      <strong>{pickedCount === null ? "—" : pickedCount.toLocaleString("vi-VN")}</strong>
-                      <small>Picked</small>
-                    </span>}
-                  </span>
-                </button>;
-              })}
-            </ObservedDayCarousel>
-          </section>
-          <section className="etsy-day-groups" aria-label={"Nhóm " + facetScope + " ngày " + (facetDay ?? "tất cả")}>
-            <span className="etsy-day-groups-title">Nhóm · {
-              !facetDay ? "Tất cả ngày" :
-              facetDay === clockDay ? "Hôm nay" :
-              facetDay === recentObservedDays(clockDay)[1] ? "Hôm qua" :
-              facetDay.slice(8, 10) + "/" + facetDay.slice(5, 7)
-            }</span>
-            {!facetDay ? <span className="etsy-day-groups-empty">Chọn một ngày phía trên để xem nhóm {facetScope}.</span>
-              : dayGroups?.day === facetDay && dayGroups.pick_state === facetScope ? (
-              dayGroups.total > 0 ? <div className="etsy-day-groups-list">
-                {[{key: "", label: "Tất cả", count: dayGroups.total}, ...dayGroups.items]
-                  .map(item => {
-                    const pressed = options.observedDay === facetDay && options.group === item.key;
-                    return <button type="button" key={item.key || "all"}
-                      className={"etsy-day-group" + (pressed ? " active" : "")}
-                      aria-pressed={pressed}
-                      title={"Lọc " + facetScope + " · " + item.label + " trong ngày " + facetDay}
-                      onClick={() => update({
-                        group: item.key === options.group && pressed ? "" : item.key,
-                      })}>
-                      <span>{item.label}</span><strong>{item.count.toLocaleString("vi-VN")}</strong>
-                    </button>;
-                  })}
-              </div> : <span className="etsy-day-groups-empty">Không có sản phẩm {facetScope} trong ngày này</span>
-            ) : <span className="etsy-day-groups-empty">
-              {dayGroupError ? "Chưa tải được nhóm" : "Đang tải nhóm…"}
-            </span>}
-          </section>
-          </div>
-        </section>}
-        {activeTab === "products" && !showProductFacets && <div className="etsy-facet-context">
-          {isBlacklistView
-            ? "Blacklist · quản lý cụm từ bị chặn, không sử dụng phân nhóm sản phẩm theo ngày."
-            : "Win Keyword · danh sách ghi chú keyword, không sử dụng phân nhóm sản phẩm theo ngày."}
-        </div>}
         {activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
           activeProductFilters.length > 0 && <div className="etsy-filter-context"
             aria-label="Bộ lọc sản phẩm đang áp dụng">
@@ -1497,6 +1366,11 @@ export function EtsySpyPage() {
               Xóa lọc
             </button>
           </div>}
+        {activeTab === "products" && !showProductFacets && <div className="etsy-facet-context">
+          {isBlacklistView
+            ? "Blacklist · quản lý cụm từ bị chặn, không sử dụng phân nhóm sản phẩm theo ngày."
+            : "Win Keyword · danh sách ghi chú keyword, không sử dụng phân nhóm sản phẩm theo ngày."}
+        </div>}
         {isBlacklistView ? <section className="etsy-blacklist-panel"
           aria-label="Blacklist keyword management" aria-labelledby="etsy-blacklist-heading">
           <div className="etsy-blacklist-panel-header">
@@ -1627,6 +1501,131 @@ export function EtsySpyPage() {
       {isPickedSelection && tiktokSelectedProgress &&
         <span role="status" className="etsy-tiktok-batch-progress">{tiktokSelectedProgress}</span>}
     </section>}
+        {showProductFacets && <section className="etsy-facet-explorer"
+          aria-label="Bộ lọc ngày và nhóm sản phẩm">
+          <div className="etsy-adaptive-controls">
+            <button type="button" id="etsy-facet-toggle"
+              className="etsy-facet-toggle" aria-controls="etsy-facet-details"
+              aria-expanded={facetsExpanded} onClick={() => setFacetsExpanded(open => !open)}>
+              <span className="etsy-facet-toggle-copy">
+                <strong>Ngày và nhóm sản phẩm</strong>
+                <small title={facetDayLabel + " · " + facetGroupLabel}>
+                  {facetDayLabel} · {facetGroupLabel}
+                </small>
+              </span>
+              <span aria-hidden="true" className="etsy-facet-chevron">{facetsExpanded ? "⌃" : "⌄"}</span>
+            </button>
+            <div className="etsy-adaptive-quick-actions">
+              <label htmlFor="etsy-quick-sort">Sắp xếp</label>
+              <select id="etsy-quick-sort" aria-label="Sắp xếp sản phẩm"
+                value={columns.some(column => column.id === options.sort) ? options.sort : "observedAt"}
+                onChange={event => update({ sort: event.target.value, dir: "desc" })}>
+                <option value="observedAt">Mới quan sát</option>
+                <option value="views24h">Views / 24h</option>
+                <option value="bought24h">Bought / 24h</option>
+                <option value="inCarts">Carts</option>
+                <option value="badge">Badge Etsy</option>
+                <option value="pageTitle">Tên sản phẩm</option>
+                <option value="keywordSms">Keyword SMS · A–Z</option>
+                {options.pickState === "picked" && <>
+                  <option value="design">Design · job hoàn tất</option>
+                  <option value="tiktokListing">TikTok SEO · trạng thái</option>
+                  <option value="listingImage">Media · số ảnh</option>
+                </>}
+              </select>
+              <button type="button" className="etsy-adaptive-sort-direction"
+                aria-label={options.dir === "desc" ? "Sắp xếp tăng dần" : "Sắp xếp giảm dần"}
+                title={options.dir === "desc" ? "Đổi sang tăng dần" : "Đổi sang giảm dần"}
+                onClick={() => update({ dir: options.dir === "desc" ? "asc" : "desc" })}>
+                <span aria-hidden="true">{options.dir === "desc" ? "↓" : "↑"}</span>
+              </button>
+              <button type="button" className="etsy-adaptive-jump"
+                onClick={() => document.getElementById("etsy-product-results")?.scrollIntoView?.({
+                  behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+                    ? "auto" : "smooth", block: "start",
+                })}>
+                Đến danh sách <span aria-hidden="true">↓</span>
+              </button>
+            </div>
+          </div>
+          <div id="etsy-facet-details"
+            className={"etsy-facet-details" + (facetsExpanded ? " is-open" : "")}>
+          <section className="etsy-observed-days"
+            aria-label={"Phân loại " + facetScope + " theo ngày, 06:00 đến 06:00 giờ Việt Nam"}>
+            <ObservedDayCarousel>
+              {dailyCards.map(({ day, index, count, pickedCount }) => {
+                const label = index === 0 ? "Hôm nay" : index === 1 ? "Hôm qua"
+                  : day.slice(8, 10) + "/" + day.slice(5, 7);
+                const selected = options.observedDay === day;
+                // A genuinely empty day is muted, but a loading day is not.
+                // Eligible has two activity counters: either one can be useful.
+                const dayLoaded = count !== null &&
+                  (facetScope !== "eligible" || pickedCount !== null);
+                const hasActivity = dayLoaded &&
+                  (count > 0 || (facetScope === "eligible" && (pickedCount ?? 0) > 0));
+                const activityState = !dayLoaded ? "loading"
+                  : hasActivity ? "nonempty" : "empty";
+                const statusLabel = facetScope === "eligible" ? "Khả dụng"
+                  : facetScope === "picked" ? "Picked" : "Later";
+                const dateBasis = facetScope === "picked" ? "ngày Pick"
+                  : facetScope === "later" ? "ngày phân loại Later" : "ngày quan sát";
+                const dateRange = "06:00 ngày " + day + " đến trước 06:00 ngày tiếp theo (GMT+7)";
+                return <button type="button" key={day}
+                  className={"etsy-observed-day" + (selected ? " active" : "") +
+                    (activityState === "empty" ? " is-empty" :
+                      activityState === "nonempty" ? " has-activity" : " is-loading")}
+                  data-observed-day={day} data-pick-state={facetScope}
+                  data-day-activity={activityState} aria-pressed={selected}
+                  aria-label={label + ": " + (count ?? "Chưa tải") + " " + statusLabel +
+                    (facetScope === "eligible" ? ", " + (pickedCount ?? "Chưa tải") + " sản phẩm đã Pick" : "") +
+                    "; " + dateRange + ". Nhấn để lọc theo " + dateBasis}
+                  title={"Ngày " + day + " · " + dateBasis + " · " + dateRange}
+                  onClick={() => update({ observedDay: selected ? "all" : day, group: "" })}>
+                  <span className="etsy-observed-day-label">{label}</span>
+                  <span className="etsy-observed-day-metrics">
+                    <span className="etsy-observed-day-eligible">
+                      <strong>{count === null ? "—" : count.toLocaleString("vi-VN")}</strong>
+                      <small>{statusLabel}</small>
+                    </span>
+                    {facetScope === "eligible" && <span className={"etsy-observed-day-pick" + (pickedCount ? " has-picks" : "")}>
+                      <strong>{pickedCount === null ? "—" : pickedCount.toLocaleString("vi-VN")}</strong>
+                      <small>Picked</small>
+                    </span>}
+                  </span>
+                </button>;
+              })}
+            </ObservedDayCarousel>
+          </section>
+          <section className="etsy-day-groups" aria-label={"Nhóm " + facetScope + " ngày " + (facetDay ?? "tất cả")}>
+            <span className="etsy-day-groups-title">Nhóm · {
+              !facetDay ? "Tất cả ngày" :
+              facetDay === clockDay ? "Hôm nay" :
+              facetDay === recentObservedDays(clockDay)[1] ? "Hôm qua" :
+              facetDay.slice(8, 10) + "/" + facetDay.slice(5, 7)
+            }</span>
+            {!facetDay ? <span className="etsy-day-groups-empty">Chọn một ngày phía trên để xem nhóm {facetScope}.</span>
+              : dayGroups?.day === facetDay && dayGroups.pick_state === facetScope ? (
+              dayGroups.total > 0 ? <div className="etsy-day-groups-list">
+                {[{key: "", label: "Tất cả", count: dayGroups.total}, ...dayGroups.items]
+                  .map(item => {
+                    const pressed = options.observedDay === facetDay && options.group === item.key;
+                    return <button type="button" key={item.key || "all"}
+                      className={"etsy-day-group" + (pressed ? " active" : "")}
+                      aria-pressed={pressed}
+                      title={"Lọc " + facetScope + " · " + item.label + " trong ngày " + facetDay}
+                      onClick={() => update({
+                        group: item.key === options.group && pressed ? "" : item.key,
+                      })}>
+                      <span>{item.label}</span><strong>{item.count.toLocaleString("vi-VN")}</strong>
+                    </button>;
+                  })}
+              </div> : <span className="etsy-day-groups-empty">Không có sản phẩm {facetScope} trong ngày này</span>
+            ) : <span className="etsy-day-groups-empty">
+              {dayGroupError ? "Chưa tải được nhóm" : "Đang tải nhóm…"}
+            </span>}
+          </section>
+          </div>
+        </section>}
     {activeTab === "products" && options.pickState === "later" && !isBlacklistView && !isWinKeywordsView &&
       <p className="etsy-later-help">Later groups similar design themes from your saved examples.
         Automatically matched products include a reason. Remove a seed to update its group,
@@ -1877,7 +1876,6 @@ export function EtsySpyPage() {
         </div>}
       </div>
     </details>}
-      </div>
     </section>
   </main>;
 }
