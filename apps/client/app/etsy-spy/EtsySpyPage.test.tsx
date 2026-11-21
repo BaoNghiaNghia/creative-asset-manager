@@ -7,9 +7,18 @@ import { fetchAccessIdentity } from "../../features/access_management";
 import type { DesignAsset } from "./api";
 
 vi.mock("../components/WorkspacePageHeader", () => ({
-  WorkspacePageHeader: ({ actions }: { actions: React.ReactNode }) =>
-    <header>CAM Etsy Spy {actions}</header>,
-  WorkspaceBackToAssets: () => <a href="/">Back</a>,
+  WorkspacePageHeader: ({ actions, className, eyebrow, titleAddon, description }: {
+    actions?: React.ReactNode; className?: string; eyebrow?: React.ReactNode;
+    titleAddon?: React.ReactNode; description?: React.ReactNode;
+  }) => <header className={"workspace-page-header " + (className || "")}>
+    <div className="workspace-page-header-copy">
+      <small className="workspace-page-header-eyebrow">{eyebrow}</small>
+      <div className="workspace-page-header-title-row"><h1>Etsy Spy</h1>{titleAddon}</div>
+      {description && <p className="workspace-page-header-description">{description}</p>}
+    </div>
+    <div className="workspace-page-header-actions">{actions}</div>
+  </header>,
+  WorkspaceBackToAssets: () => <a className="workspace-page-back-link" href="/">Back</a>,
 }));
 vi.mock("../../features/access_management", () => ({
   fetchAccessIdentity: vi.fn(async () => ({ permissions: ["etsy_spy.read"] })),
@@ -835,7 +844,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(cards[3].classList.contains("etsy-stat-blacklist")).toBe(true);
     expect(container?.querySelector(".etsy-blacklist-chips")).toBeNull();
     expect(container?.querySelectorAll(".etsy-stage-nav [role='tab']")).toHaveLength(0);
-    expect(container?.querySelector(".etsy-stage-card .etsy-stage-heading h2")?.textContent).toBe("Product Intelligence");
+    expect(container?.querySelector(".etsy-stage-card > .etsy-spy-topbar .etsy-spy-context")?.textContent).toBe("Product Intelligence");
     expect(container?.querySelector(".etsy-stat-total[aria-pressed='true']")).toBeTruthy();
     expect(container?.querySelectorAll(".etsy-observed-day")).toHaveLength(28);
     expect(container?.querySelector(".etsy-pager select[aria-label='Rows per page']")).toBeTruthy();
@@ -1365,13 +1374,24 @@ describe("Etsy Spy native CAM dashboard", () => {
 
   it("opens Products directly without tab navigation or the Windows Scout description", async () => {
     await start();
-    const headerShell = container?.querySelector(".etsy-header-shell");
-    expect(headerShell?.querySelector("header")).toBeTruthy();
-    expect(headerShell?.querySelector(".etsy-stage-nav")).toBeNull();
+    const stage = container?.querySelector("#etsy-spy-workspace .etsy-stage-card");
+    const header = stage?.querySelector(".etsy-spy-topbar");
+    expect(stage?.firstElementChild).toBe(header);
+    expect(container?.querySelectorAll(".etsy-spy-page header")).toHaveLength(1);
+    expect(container?.querySelector(".etsy-header-shell")).toBeNull();
+    expect(container?.querySelector(".etsy-stage-heading-row")).toBeNull();
+    expect(header?.querySelectorAll("h1")).toHaveLength(1);
+    expect(header?.querySelector("h1")?.textContent).toBe("Etsy Spy");
+    expect(header?.querySelector(".etsy-spy-context")?.textContent).toBe("Product Intelligence");
+    expect(header?.querySelector(".etsy-connection")).toBeTruthy();
+    expect(header?.querySelector(".etsy-refresh")).toBeTruthy();
+    expect(header?.querySelector(".workspace-page-back-link")).toBeTruthy();
+    expect(header?.querySelector('input[aria-label="Add blacklist phrases"]')).toBeTruthy();
+    expect(header?.querySelector('input[aria-label="Search Spy records"]')).toBeTruthy();
+    expect(container?.querySelector(".etsy-stage-nav")).toBeNull();
     expect(container?.querySelector('[role="tablist"]')).toBeNull();
     expect(container?.querySelector('[role="tabpanel"]')).toBeNull();
     expect(container?.querySelector("#etsy-spy-workspace")).toBeTruthy();
-    expect(container?.querySelector(".etsy-stage-heading h2")?.textContent).toBe("Product Intelligence");
     expect(container?.textContent).not.toContain(
       "Explore verified Etsy product demand and trademark evidence from the Windows Scout.");
     expect(container?.querySelector(".etsy-data-table.is-products")).toBeTruthy();
