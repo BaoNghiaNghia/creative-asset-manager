@@ -69,13 +69,11 @@ describe("Listing Image saved output badges",()=>{
       "10 C1717", "6 G180",
     ]);
     expect(badges.every(button => button.parentElement === layout?.lastElementChild)).toBe(true);
-    // Listing Image and Video UGC share one td; video is a non-interactive
-    // placeholder until the listing has an actual UGC video association.
+    // No empty UGC status row: the Media cell shows the saved image
+    // thumbnail and garment badges without introducing an inactive control.
     expect(container.querySelectorAll("td")).toHaveLength(1);
-    const ugc = layout?.querySelector(".etsy-listing-media-ugc");
-    expect(ugc?.getAttribute("aria-label")).toBe("Video UGC: Chưa có video");
-    expect(ugc?.textContent).toContain("UGC: chưa có");
-    expect(ugc?.querySelector("button,a")).toBeNull();
+    expect(layout?.querySelector(".etsy-listing-media-ugc")).toBeNull();
+    expect(layout?.textContent).not.toContain("UGC: chưa có");
     expect(spy).not.toHaveBeenCalled();
   });
   it("keeps the placeholder left and all four model badges to the right",()=>{
