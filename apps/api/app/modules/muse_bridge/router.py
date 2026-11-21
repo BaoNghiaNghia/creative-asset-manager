@@ -13,6 +13,7 @@ import os
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
+from uuid import UUID, uuid4
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
@@ -29,7 +30,7 @@ from app.modules.etsy_spy.extraction import EXTRACTION_JOB_TYPE
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.etsy_spy.service import authenticate_agent
 from app.modules.etsy_spy.image_agent import _private_drive_design, _checked_design_media
-from .model import CamMuseJob
+from .model import CamMuseJob, CamMuseCommand
 
 router = APIRouter(prefix="/api/v1/muse-bridge", tags=["muse-bridge"])
 HEX64 = re.compile(r"^[a-f0-9]{64}$")
@@ -525,3 +526,271 @@ def submit(listing_id: str, payload: SubmitRequest,
     db.commit()
     return {"ok": True, "status": "submitted", "camLinked": False,
             "message": "Video receipts await content QA and CAM ingestion"}
+
+# ---- Limited ChatGPT / CodeLocal -> CAM -> Muse command handoff ----
+# This API does NOT execute models or machine commands. Only two predeclared
+# workflow intents are supported, and Muse must explicitly poll /commands.
+
+def _operator(authorization: str | None = Header(default=None)):
+    _, tenant = _configured()
+    secret = os.getenv("CAM_MUSE_COMMAND_TOKEN", "")
+    if len(secret) < 48:
+        raise HTTPException(503, "CAM Muse command submission not configured")
+    match = re.fullmatch(r"Bearer ([A-Za-z0-9_-]{48,128})", authorization or "")
+    candidate = match.group(1) if match else ""
+    if not hmac.compare_digest(hashlib.sha256(candidate.encode()).digest(),
+                               hashlib.sha256(secret.encode()).digest()):
+        raise HTTPException(401, "Unauthorized operator")
+    return tenant
+
+
+def _command_reader(authorization: str | None = Header(default=None)):
+    muse_token, tenant = _configured()
+    op_token = os.getenv("CAM_MUSE_COMMAND_TOKEN", "")
+    match = re.fullmatch(r"Bearer ([A-Za-z0-9_-]{48,128})", authorization or "")
+    candidate = match.group(1) if match else ""
+    digest = hashlib.sha256(candidate.encode()).digest()
+    muse_ok = hmac.compare_digest(digest, hashlib.sha256(muse_token.encode()).digest())
+    op_ok = len(op_token) >= 48 and hmac.compare_digest(
+        digest, hashlib.sha256(op_token.encode()).digest()
+    )
+    if not (muse_ok or op_ok):
+        raise HTTPException(401, "Unauthorized")
+    return tenant
+
+
+class CommandCreate(BaseModel):
+    action: Literal["create_video", "review_artwork"]
+    listingId: str = Field(pattern=r"^[0-9]{5,20}$")
+    requestId: str = Field(min_length=12, max_length=128,
+                           pattern=r"^[A-Za-z0-9_-]+$")
+    note: str | None = Field(default=None, max_length=300)
+
+
+class CommandAck(BaseModel):
+    lease: str = Field(min_length=32, max_length=128)
+    outcome: Literal["success", "failed"]
+    notes: str = Field(min_length=10, max_length=800)
+
+
+def _command_status(cmd: CamMuseCommand):
+    return {
+        "commandId": cmd.command_id, "listingId": cmd.listing_key,
+        "action": cmd.action, "status": cmd.status, "phase": cmd.phase,
+        "artworkSha256": cmd.artwork_sha256, "attempts": cmd.attempts,
+        "createdAt": cmd.created_at.isoformat() if cmd.created_at else None,
+        "updatedAt": cmd.updated_at.isoformat() if cmd.updated_at else None,
+        "finishedAt": cmd.finished_at.isoformat() if cmd.finished_at else None,
+        "camLinked": False,
+    }
+
+
+def _eligible_phase(db: Session, tenant: str,
+                    job: CamMuseJob, cmd: CamMuseCommand):
+    if job.artwork_sha256 != cmd.artwork_sha256:
+        return None
+    if cmd.action == "review_artwork":
+        if job.status != "qa_hold":
+            return None
+        return ("review_artwork" if _stored_native_asset(
+            db, tenant, job.listing_key, cmd.artwork_sha256
+        ) else None)
+    if job.status == "qa_hold":
+        return ("review_artwork" if _stored_native_asset(
+            db, tenant, job.listing_key, cmd.artwork_sha256
+        ) and job.product_image_url else None)
+    if (job.source_state == "ready_for_muse"
+            and job.status in ("pending", "claimed")
+            and job.artwork_asset_path
+            and isinstance(_qa_record(job), dict)
+            and _qa_record(job).get("verdict") == "pass"
+            and _qa_record(job).get("artwork_sha256") == cmd.artwork_sha256):
+        return "create_video"
+    return None
+
+
+@router.post("/commands", include_in_schema=False, status_code=202)
+def create_operator_command(payload: CommandCreate,
+                            tenant: str = Depends(_operator),
+                            db: Session = Depends(get_db)):
+    """CodeLocal operator only: typed job intent; no free-form machine control."""
+    job = db.scalar(select(CamMuseJob).where(
+        CamMuseJob.tenant_id == tenant,
+        CamMuseJob.listing_key == payload.listingId
+    ).with_for_update())
+    if not job:
+        raise HTTPException(404, "No matching Picked CAM job")
+    prior = db.scalar(select(CamMuseCommand).where(
+        CamMuseCommand.tenant_id == tenant,
+        CamMuseCommand.request_id == payload.requestId
+    ).limit(1))
+    if prior:
+        if prior.listing_key != payload.listingId or prior.action != payload.action:
+            raise HTTPException(409, "requestId reused for a different task")
+        return {"ok": True, "reused": True, **_command_status(prior)}
+    if (job.status in ("submitted", "completed")
+            or job.source_state == "missing_source"):
+        raise HTTPException(409, "Job already submitted or original source unavailable")
+    if not job.artwork_sha256 or not HEX64.fullmatch(job.artwork_sha256):
+        raise HTTPException(409, "No verified artwork digest")
+    candidate = CamMuseCommand(
+        tenant_id=tenant, command_id=str(uuid4()),
+        listing_key=job.listing_key, action=payload.action,
+        request_id=payload.requestId,
+        artwork_sha256=job.artwork_sha256,
+        status="pending",
+        phase="review_artwork",
+        details={"origin": "codelocal-operator",
+                 "note": payload.note or "", "rights_verified": False},
+    )
+    phase = _eligible_phase(db, tenant, job, candidate)
+    if not phase:
+        raise HTTPException(409, "Listing is not available for this workflow")
+    active = db.scalar(select(CamMuseCommand).where(
+        CamMuseCommand.tenant_id == tenant,
+        CamMuseCommand.listing_key == payload.listingId,
+        CamMuseCommand.status.in_(("pending", "claimed")),
+    ).order_by(CamMuseCommand.created_at.desc()).limit(1))
+    if active:
+        return {"ok": True, "reused": True, **_command_status(active)}
+    candidate.phase = phase
+    db.add(candidate)
+    db.commit()
+    return {"ok": True, "reused": False, **_command_status(candidate)}
+
+
+@router.get("/commands")
+def list_muse_commands(limit: int = Query(default=10, ge=1, le=20),
+                       tenant: str = Depends(_muse),
+                       db: Session = Depends(get_db)):
+    """Muse polls this endpoint; commands are never pushed into a chat session."""
+    rows = db.scalars(select(CamMuseCommand).where(
+        CamMuseCommand.tenant_id == tenant,
+        CamMuseCommand.status.in_(("pending", "claimed")),
+        CamMuseCommand.attempts < 5,
+    ).order_by(CamMuseCommand.created_at.asc()).limit(100)).all()
+    items = []
+    for cmd in rows:
+        if len(items) >= limit:
+            break
+        if (cmd.status == "claimed" and cmd.lease_expires_at is not None
+                and _aware(cmd.lease_expires_at) > _utc()):
+            continue
+        job = db.get(CamMuseJob, (tenant, cmd.listing_key))
+        if job is None:
+            continue
+        phase = _eligible_phase(db, tenant, job, cmd)
+        if phase is None:
+            continue
+        items.append({**_command_status(cmd), "phase": phase,
+                      "title": job.title,
+                      "reviewPath": f"/api/v1/muse-bridge/reviews?listing_id={cmd.listing_key}",
+                      "jobsPath": "/api/v1/muse-bridge/jobs",
+                      "videoGenerationEnabled": False,
+                      "requiresMusePolling": True})
+    return {"ok": True, "items": items, "count": len(items)}
+
+
+@router.get("/commands/{command_id}/status", include_in_schema=False)
+def read_operator_command(command_id: str, tenant: str = Depends(_command_reader),
+                          db: Session = Depends(get_db)):
+    try:
+        UUID(command_id)
+    except ValueError:
+        raise HTTPException(404, "Invalid command ID")
+    cmd = db.get(CamMuseCommand, (tenant, command_id))
+    if not cmd:
+        raise HTTPException(404, "Unknown command")
+    return {"ok": True, **_command_status(cmd)}
+
+
+@router.post("/commands/{command_id}/claim")
+def claim_muse_command(command_id: str, tenant: str = Depends(_muse),
+                       db: Session = Depends(get_db)):
+    try:
+        UUID(command_id)
+    except ValueError:
+        raise HTTPException(404, "Invalid command ID")
+    cmd = db.scalar(select(CamMuseCommand).where(
+        CamMuseCommand.tenant_id == tenant,
+        CamMuseCommand.command_id == command_id,
+    ).with_for_update())
+    if cmd is None or cmd.status not in ("pending", "claimed") or cmd.attempts >= 5:
+        raise HTTPException(409, "Command not available")
+    if (cmd.status == "claimed" and cmd.lease_expires_at is not None
+            and _aware(cmd.lease_expires_at) > _utc()):
+        raise HTTPException(409, "Command already claimed")
+    job = db.get(CamMuseJob, (tenant, cmd.listing_key))
+    if not job:
+        raise HTTPException(409, "CAM listing no longer Picked")
+    phase = _eligible_phase(db, tenant, job, cmd)
+    if phase is None:
+        raise HTTPException(409, "Artwork QA / video workflow not eligible")
+    lease = secrets.token_urlsafe(36)
+    cmd.phase = phase
+    cmd.lease_hash = hashlib.sha256(lease.encode()).hexdigest()
+    cmd.lease_expires_at = _utc() + timedelta(minutes=30)
+    cmd.status = "claimed"
+    cmd.attempts += 1
+    cmd.updated_at = _utc()
+    db.commit()
+    return {"ok": True, "command": _command_status(cmd),
+            "lease": lease, "leaseExpiresAt": cmd.lease_expires_at,
+            "nextStep": "reviews" if phase == "review_artwork" else "jobs",
+            "artworkSha256": cmd.artwork_sha256}
+
+
+@router.post("/commands/{command_id}/complete")
+def complete_muse_command(command_id: str, payload: CommandAck,
+                          tenant: str = Depends(_muse),
+                          db: Session = Depends(get_db)):
+    try:
+        UUID(command_id)
+    except ValueError:
+        raise HTTPException(404, "Invalid command ID")
+    cmd = db.scalar(select(CamMuseCommand).where(
+        CamMuseCommand.tenant_id == tenant,
+        CamMuseCommand.command_id == command_id,
+    ).with_for_update())
+    if (cmd is None or cmd.status != "claimed"
+            or cmd.lease_expires_at is None
+            or _aware(cmd.lease_expires_at) <= _utc()
+            or not cmd.lease_hash
+            or not hmac.compare_digest(cmd.lease_hash,
+                  hashlib.sha256(payload.lease.encode()).hexdigest())):
+        raise HTTPException(409, "Command lease invalid or expired")
+    job = db.get(CamMuseJob, (tenant, cmd.listing_key))
+    if payload.outcome == "failed":
+        cmd.status = "failed"
+        cmd.finished_at = _utc()
+    elif cmd.phase == "review_artwork":
+        qa = _qa_record(job) if job else None
+        if (not isinstance(qa, dict)
+                or qa.get("verdict") != "pass"
+                or qa.get("artwork_sha256") != cmd.artwork_sha256
+                or job.status != "pending"):
+            raise HTTPException(409, "Required Muse QA verdict not verified")
+        if cmd.action == "review_artwork":
+            cmd.status = "reviewed"
+            cmd.finished_at = _utc()
+        else:
+            cmd.status = "pending"
+            cmd.phase = "create_video"
+    else:
+        receipts = job.output_receipts if job and isinstance(job.output_receipts, dict) else {}
+        videos = receipts.get("videos")
+        if (not job or job.status != "submitted"
+                or not isinstance(videos, list) or len(videos) != 2
+                or {x.get("aspectRatio") for x in videos
+                    if isinstance(x, dict)} != {"9:16", "16:9"}):
+            raise HTTPException(409, "Two video receipts not yet submitted to CAM")
+        cmd.status = "receipt_submitted"
+        cmd.finished_at = _utc()
+    cmd.details = {"outcome": payload.outcome, "notes": payload.notes[:800],
+                   "completedPhase": cmd.phase,
+                   "videoReceiptNotCamLinked": True}
+    cmd.lease_hash = None
+    cmd.lease_expires_at = None
+    cmd.updated_at = _utc()
+    db.commit()
+    return {"ok": True, **_command_status(cmd)}
