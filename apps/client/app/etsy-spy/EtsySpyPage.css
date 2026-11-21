@@ -3146,9 +3146,6 @@ body:has(.etsy-spy-page) .app-route-content{background:#f3f5f9!important}
 .etsy-tiktok-listing-open .etsy-tiktok-empty-preview {
   color: #65768d; font-size: 11px; line-height: 1.4;
 }
-.etsy-tiktok-listing-open .etsy-tiktok-open-hint {
-  color: #396bb4; font-size: 11px; font-weight: 760;
-}
 .etsy-tiktok-queue-action {
   justify-self: stretch; min-height: 36px; padding: 8px 11px;
   border: 1px solid #aec4df; border-radius: 8px;
