@@ -363,20 +363,57 @@
 /* Single-slot destructive action: always visible for Etsy Spy managers,
    never hidden over the source photo or coupled to the TikTok SEO panel. */
 .etsy-listing-image-dialog{position:relative}
-.etsy-listing-image-head-actions{display:flex;align-items:center;gap:10px;margin-left:auto}
-.etsy-listing-image-delete-trigger{
-  display:inline-flex;align-items:center;justify-content:center;gap:6px;
-  min-height:32px;padding:6px 12px;border:1px solid #eac7c5;
-  border-radius:8px;background:#fff7f6;color:#a1322b;
-  font-size:12px;line-height:1.2;font-weight:750;cursor:pointer;
+.etsy-listing-image-dialog-head{flex-wrap:wrap}
+.etsy-listing-image-head-actions{
+  display:flex;align-items:center;justify-content:flex-end;
+  flex-wrap:wrap;gap:7px;margin-left:auto;
 }
-.etsy-listing-image-delete-trigger:hover{background:#ffebe8;border-color:#d88e86}
+.etsy-listing-image-selected-count{
+  font-size:11px;font-weight:750;color:#675e65;white-space:nowrap;
+}
+.etsy-listing-image-delete-trigger,
+.etsy-listing-image-select-all,
+.etsy-listing-image-select-cancel{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  min-height:32px;padding:6px 10px;border:1px solid #dfd9d5;
+  border-radius:8px;background:#fff;color:#413b42;
+  font-size:11px;line-height:1.2;font-weight:750;cursor:pointer;
+}
+.etsy-listing-image-delete-trigger:hover,
+.etsy-listing-image-select-all:hover,
+.etsy-listing-image-select-cancel:hover{background:#f7f3ef}
+.etsy-listing-image-delete-trigger.is-danger{
+  border-color:#eac7c5;background:#fff7f6;color:#a1322b;
+}
+.etsy-listing-image-delete-trigger.is-danger:hover{
+  background:#ffebe8;border-color:#d88e86;
+}
 .etsy-listing-image-delete-trigger:focus-visible,
+.etsy-listing-image-select-all:focus-visible,
+.etsy-listing-image-select-cancel:focus-visible,
 .etsy-listing-image-confirm button:focus-visible{
   outline:2px solid #a1322b;outline-offset:2px;
 }
 .etsy-listing-image-delete-trigger:disabled,
-.etsy-listing-image-close:disabled{cursor:wait;opacity:.55}
+.etsy-listing-image-select-all:disabled,
+.etsy-listing-image-select-cancel:disabled,
+.etsy-listing-image-close:disabled{
+  cursor:not-allowed;opacity:.55;
+}
+.etsy-listing-image-tile.is-marked{
+  border-color:#b73830;box-shadow:0 0 0 2px rgba(183,56,48,.12);
+}
+.etsy-listing-image-tile:disabled{cursor:wait;opacity:.8}
+.etsy-listing-image-select-mark{
+  position:absolute;top:5px;right:5px;z-index:3;
+  display:grid;place-items:center;width:20px;height:20px;
+  border:2px solid #fff;border-radius:6px;
+  background:rgba(255,255,255,.94);color:transparent;
+  box-shadow:0 0 0 1px rgba(50,43,47,.5);font-size:12px;line-height:1;font-weight:900;
+}
+.etsy-listing-image-select-mark.is-checked{
+  background:#ad352d;color:#fff;box-shadow:0 0 0 1px #ad352d;
+}
 .etsy-listing-image-delete-notice{
   flex:none;margin:0;padding:9px 18px;border-bottom:1px solid #e7eee3;
   background:#f6faf4;color:#2f633d;font-size:12px;line-height:1.5;
@@ -396,6 +433,15 @@
 .etsy-listing-image-confirm .etsy-listing-image-confirm-error{
   margin-bottom:12px;color:#a82f28;font-weight:700;
 }
+.etsy-listing-image-confirm .etsy-listing-image-confirm-selection{
+  display:flex;align-items:center;flex-wrap:wrap;gap:7px;
+  padding:10px 12px;border:1px solid #ece4de;border-radius:9px;
+  background:#faf7f4;font-weight:750;
+}
+.etsy-listing-image-confirm-selection span{
+  padding:4px 7px;border:1px solid #e8ded8;border-radius:7px;
+  background:#fff;color:#5d525b;font-size:11px;
+}
 .etsy-listing-image-confirm-actions{
   display:flex;justify-content:flex-end;flex-wrap:wrap;gap:9px;
 }
@@ -410,6 +456,13 @@
 .etsy-listing-image-confirm-actions button.is-danger:hover{background:#922a24}
 .etsy-listing-image-confirm-actions button:disabled{opacity:.6;cursor:wait}
 @media(max-width:640px){
-  .etsy-listing-image-delete-trigger{padding:6px 8px;font-size:11px}
+  .etsy-listing-image-dialog-head{justify-content:space-between;gap:6px}
+  .etsy-listing-image-head-actions{gap:5px}
+  .etsy-listing-image-delete-trigger,
+  .etsy-listing-image-select-all,
+  .etsy-listing-image-select-cancel{
+    min-height:30px;padding:5px 7px;font-size:10px;
+  }
+  .etsy-listing-image-selected-count{font-size:10px}
   .etsy-listing-image-confirm{padding:17px}
 }
