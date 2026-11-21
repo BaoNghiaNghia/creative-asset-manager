@@ -420,9 +420,6 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
       optimizerEnabled={optimizerEnabled} onQueued={onListingQueued} />}
     {item.picked && <ListingImageCell item={item} canDelete={canPick}
       onImageDeleted={onListingQueued} onPreviewStart={() => setImagePreview(null)} />}
-    {item.picked && <td className="etsy-video-ugc-cell">
-      <span className="etsy-muted">Chưa có video</span>
-    </td>}
     <td className="etsy-sms-cell">
       {smsText ? <div className="etsy-sms-preview"
         title={smsStatus === "title_fallback" ? "Keyword mặc định lấy từ title · " + smsText : smsText}>
@@ -1206,8 +1203,7 @@ export function EtsySpyPage() {
     if (options.tab === "products") return options.pickState === "picked"
       ? [SORTS.products[0], { id: "design", text: "Design" },
          { id: "tiktokListing", text: "TikTok SEO" },
-         { id: "listingImage", text: "Listing Image" },
-         { id: "videoUgc", text: "Video UGC" }, ...SORTS.products.slice(1)]
+         { id: "listingImage", text: "Media" }, ...SORTS.products.slice(1)]
       : SORTS.products;
     if (options.tab === "keywords") return SORTS.keywords;
     if (options.tab === "trademarks") return SORTS.trademarks;
@@ -1432,7 +1428,7 @@ export function EtsySpyPage() {
                 {options.pickState === "picked" && <>
                   <option value="design">Design · job hoàn tất</option>
                   <option value="tiktokListing">TikTok SEO · trạng thái</option>
-                  <option value="listingImage">Listing Image · số ảnh</option>
+                  <option value="listingImage">Media · số ảnh</option>
                 </>}
               </select>
               <button type="button" className="etsy-adaptive-sort-direction"
@@ -1785,19 +1781,18 @@ export function EtsySpyPage() {
             {columns.map(col => <th key={col.id}
               className={options.sort === col.id ? "etsy-header-sorted" : undefined}
               aria-sort={options.sort === col.id ? (options.dir === "asc" ? "ascending" : "descending") : undefined}>
-              {col.id === "videoUgc" ? <span className="etsy-static-header">{col.text}</span> :
               <button type="button" className="etsy-column-sort" onClick={() => sortColumn(col.id)}
                 aria-label={"Sort by " + col.text}
                 title={col.id === "design" ? "Sắp xếp theo số job Design hoàn tất"
                   : col.id === "tiktokListing" ? "Sắp xếp theo trạng thái TikTok SEO mới nhất"
-                  : col.id === "listingImage" ? "Sắp xếp theo số ảnh Listing Image đã lưu"
+                  : col.id === "listingImage" ? "Media: sắp xếp theo số ảnh Listing Image đã lưu"
                   : col.id === "keywordSms" ? "Sắp xếp theo keyword SMS đầu tiên (A–Z/Z–A)"
                   : "Bấm để sắp xếp tăng dần hoặc giảm dần"}>
                 <span className="etsy-column-sort-label">{col.text}</span>
                 <span className={"etsy-column-sort-icon" + (options.sort === col.id ? " active" : "")}
                   aria-hidden="true">{options.sort === col.id
                     ? (options.dir === "asc" ? "↑" : "↓") : "↕"}</span>
-              </button>}
+              </button>
             </th>)}
             {activeTab === "logs" && <th>Message / Stack</th>}
             {activeTab === "products" && <th className="etsy-action-header">Action</th>}
