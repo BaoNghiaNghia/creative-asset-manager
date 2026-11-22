@@ -177,6 +177,69 @@ def _qa_record(row: CamMuseJob):
     return r.get("visual_qa") if isinstance(r, dict) else None
 
 
+def _motion_v32_pilot_spec():
+    """Opt-in pilot override. V3.1 remains the default for non-pilot work.
+
+    The existing Muse task chooses the three distinct new listings; CAM does
+    not auto-promote the pilot or re-render already stored videos.
+    """
+    return {
+        "motionPromptVersion": "CAM_NATURAL_EVERYDAY_MOTION_V3_2",
+        "rolloutMode": "pilot_only",
+        "pilotSizeNewListings": 3,
+        "pilotSelectionManagedBy": "existing CAM Auto Video scheduled task in Muse",
+        "afterThirdListing": "report motion QA and return to V3.1 until user explicitly approves rollout",
+        "inheritV31StartFrameAndEyeLightingRules": True,
+        "videoDurationSeconds": 12,
+        "shotStructure": "ONE continuous take; 0-3s begin the action, 3-8s complete and settle, 8-12s comfortable non-frozen posture; guide only, not animation keyframes",
+        "motionPrompt": (
+            "Documentary-looking authentic handheld phone UGC of a real person, "
+            "never an animated still photo. Perform ONE motivated, ordinary "
+            "action grounded in the source pose and environment, such as "
+            "taking two casual steps, shifting weight near a window, leaning "
+            "lightly against a wall, adjusting a seated position, or briefly "
+            "looking toward something in the scene. The primary action lasts "
+            "about 2-4 seconds at normal human speed. Keep believable incidental "
+            "movement throughout the remaining time: breathing, slight "
+            "posture and weight adjustments, relaxed shoulders, occasional "
+            "brief glances, natural blinking, and cotton folds moving IN SYNC "
+            "with the body. No motionless person while snow, leaves or other "
+            "background effects move. Do not force constant head bobbing or "
+            "repetitive swaying as fake motion. Keep the front print completely "
+            "visible, undistorted, and at the exact approved physical scale."
+        ),
+        "camera": "single steady human handheld phone shot, tiny believable micro-movement, no hard cuts, dramatic zooms or forced slow motion",
+        "environmentCheck": (
+            "Clothing, weather, behavior and location must make physical sense. "
+            "For a short-sleeve Comfort Colors C1717, prefer a porch, cafe, "
+            "garden, window-lit room or mild-weather street. Do not place an "
+            "uncovered T-shirt wearer in heavy falling snow without a credible "
+            "reason. Never invent props or alter the approved artwork."
+        ),
+        "motionQaReject": [
+            "subject nearly frozen or animated like a still photograph",
+            "background moving while person's body stays unnaturally static",
+            "cotton fabric moving independently of torso and arms",
+            "physically implausible weather, clothing or behavior",
+            "unrealistic hand, face, shoulder or neck mechanics",
+            "repeated theatrical nodding, rocking, dancing or forced facial acting",
+            "hard scene cuts, abrupt camera movement or slow-motion performance",
+            "cropped, obscured, re-lettered or distorted front print",
+        ],
+        "qaMethod": (
+            "Watch the whole video for human motion and clothing realism, "
+            "then inspect early, middle and late frames. QA is never implied "
+            "merely by a stored MP4 or an asserted motion-version header."
+        ),
+        "preserveNativeMaster": True,
+        "designTopBelowCollarCm": 10,
+        "formats": ["9:16", "16:9"],
+        "completedVideoPolicy": "do_not_regenerate_without_user_approval",
+        "motionVersionUploadHeader": "X-CAM-Motion-Version",
+        "noOpenAiApi": True,
+    }
+
+
 def _row_view(job):
     return {"listingId": job.listing_key, "title": job.title,
             "keyword": job.keyword, "status": job.status,
@@ -190,6 +253,8 @@ def _row_view(job):
                 "designTopBelowCollarCm": 10,
                 "artworkShaStrict": True,
                 "motionPromptVersion": "CAM_NATURAL_EVERYDAY_MOTION_V3_1",
+                "pilotMotionSpecV32": _motion_v32_pilot_spec(),
+                "motionVersionUploadHeader": "X-CAM-Motion-Version",
                 "motionStyle": "unposed candid documentary footage; real-time human behavior, not fashion acting or a slow-motion portrait",
                 "startFramePolicy": (
                     "PRE-RENDER LIGHTING CHECK: Inspect the face, sun angle, "
@@ -480,6 +545,15 @@ def missing_video_work(
         "pollAfterSeconds": 300,
         "requiresMuseWorker": True,
         "needsComparativeArtworkQA": True,
+        "motionPolicy": {
+            "defaultMotionPromptVersion": "CAM_NATURAL_EVERYDAY_MOTION_V3_1",
+            "pilotMotionPromptVersion": "CAM_NATURAL_EVERYDAY_MOTION_V3_2",
+            "pilotSizeNewListings": 3,
+            "pilotManagedBy": "existing CAM Auto Video scheduled task in Muse",
+            "afterPilot": "default V3.1 until user approves expansion",
+            "pilotSpecInJob": "videoSpec.pilotMotionSpecV32",
+            "motionVersionUploadHeader": "X-CAM-Motion-Version",
+        },
         "outputDestination": "CAM managed private Google Drive listing/design/video_ugc",
     }
 
@@ -729,6 +803,10 @@ def submit(listing_id: str, payload: SubmitRequest,
 async def upload_ugc_video(
     listing_id: str, aspect: Literal["vertical", "horizontal"],
     request: Request, x_muse_lease: str | None = Header(default=None),
+    x_cam_motion_version: Literal[
+        "CAM_NATURAL_EVERYDAY_MOTION_V3_1",
+        "CAM_NATURAL_EVERYDAY_MOTION_V3_2",
+    ] | None = Header(default=None),
     tenant: str = Depends(_muse), db: Session = Depends(get_db),
 ):
     """Muse uploads the actual MP4; CAM verifies and saves to listing/design Drive.
@@ -766,12 +844,17 @@ async def upload_ugc_video(
             raise HTTPException(409, "An alternate video for this aspect was already saved")
         return {"ok": True, "reused": True, "status": row.status,
                 "aspectRatio": ratio, "storageVerified": True,
+                "motionPromptVersion": previous.get("motionPromptVersion"),
                 "driveFolder": previous.get("relativeFolder")}
     expected_artwork_sha = row.artwork_sha256
     stored = await store_muse_video(
         tenant_id=tenant, listing_id=listing_id,
         artwork_sha256=expected_artwork_sha, aspect=aspect, mp4=bytes(parts),
     )
+    if x_cam_motion_version is not None:
+        # Muse-declared generation version, NOT an independent content-QA pass.
+        stored["motionPromptVersion"] = x_cam_motion_version
+        stored["motionVersionSource"] = "muse_declared"
     # A second upload might have been received while Google Drive was saving:
     # validate the exact lease and content hash after obtaining a row lock.
     db.expire_all()
@@ -812,7 +895,8 @@ async def upload_ugc_video(
             "aspectRatio": ratio, "storedCount": len(uploads),
             "storageVerified": True, "driveFolder": stored["relativeFolder"],
             "camLinked": bool(receipts.get("camLinked", False)),
-            "videoContentQa": "pending_review"}
+            "videoContentQa": "pending_review",
+            "motionPromptVersion": stored.get("motionPromptVersion")}
 
 
 # ---- Limited ChatGPT / CodeLocal -> CAM -> Muse command handoff ----
