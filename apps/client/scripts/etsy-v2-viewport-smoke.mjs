@@ -5,10 +5,11 @@ import { resolve, dirname } from "node:path";
 import assert from "node:assert/strict";
 
 const client = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const sheets = ["EtsySpyPage.css", "EtsySpyEvo.css", "EtsySpyHeader.css",
-  "EtsySpyDayCarousel.css", "EtsySpyWorkspaceV2.css"];
+const sheets = ["styles/workspace-page-header.css", "EtsySpyPage.css", "EtsySpyEvo.css",
+  "EtsySpyHeader.css", "EtsySpyDayCarousel.css", "EtsySpyWorkspaceV2.css",
+  "EtsySpyCommandBar.css"];
 const css = (await Promise.all(sheets.map(name =>
-  readFile(resolve(client, "app/etsy-spy", name), "utf8")))).join("\n");
+  readFile(resolve(client, name.startsWith("styles/") ? name : "app/etsy-spy/" + name), "utf8")))).join("\n");
 const columns = ["", "Product / Etsy", "Design", "TikTok SEO", "Media", "Video UGC",
   "Keyword SMS", "Etsy Badge", "Bought / 24h", "Views / 24h", "Carts", "Observed", "Action"];
 const cols = ["select","pageTitle","design","tiktokListing","listingImage","videoUgc",
@@ -24,8 +25,17 @@ const row = `<tr class="etsy-product-row">
 <td class="etsy-action-cell"><div class="etsy-row-actions"><button class="etsy-v2-inspect-trigger">Inspect</button><button class="etsy-pick-button">Picked</button></div></td></tr>`;
 const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}body{margin:0} ${css}</style></head>
 <body><main class="etsy-spy-page" style="width:100%;max-width:100%;"><section class="etsy-stage-canvas" style="width:100%;max-width:100%;">
-<header class="etsy-spy-topbar"><h1>Etsy Spy</h1><div>Agent online • Search</div></header>
-<section class="etsy-stats">${["Eligible", "Picked", "Later", "Blacklist", "Win Keyword"].map(x => `<button class="etsy-stat"><span class="etsy-stat-heading">${x}</span><strong>353</strong></button>`).join("")}</section>
+<header class="workspace-page-header etsy-spy-topbar">
+<div class="workspace-page-header-copy"><small class="workspace-page-header-eyebrow">ETSY MARKET INTELLIGENCE</small><div class="workspace-page-header-title-row"><h1>Etsy Spy</h1><h2 class="etsy-spy-context">Product Intelligence</h2></div></div>
+<div class="workspace-page-header-center"><section class="etsy-stats">${["Eligible", "Picked", "Later", "Blacklist", "Win Keyword"].map(x => `<button class="etsy-stat"><span class="etsy-stat-heading">${x}</span><strong>353</strong></button>`).join("")}</section></div>
+<div class="workspace-page-header-actions"><div class="etsy-header-quick-actions">
+<span class="etsy-connection online">Agent online</span>
+<button class="etsy-btn etsy-refresh" aria-label="Refresh">↻ Refresh</button>
+<a class="workspace-page-back-link" href="/"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>Back to assets</a>
+</div><div class="etsy-stage-heading-actions">
+<form class="etsy-blacklist-form"><span class="etsy-blacklist-icon">⊘</span><input type="text" placeholder="Blacklist keywords · Enter" /></form>
+<div class="etsy-search-box"><span class="etsy-search-svg">⌕</span><input type="search" placeholder="Search keyword, product or Listing ID"/></div>
+</div></div></header>
 <section class="etsy-facet-explorer"><div id="etsy-facet-details" class="etsy-facet-details"><div class="etsy-observed-days"><div class="etsy-observed-day-carousel"><div class="etsy-observed-day-grid">${Array.from({length:16},(_,i)=>`<button class="etsy-observed-day" data-pick-state="eligible"><span class="etsy-observed-day-label">${20-i}/11</span><span class="etsy-observed-day-metrics"><strong>12 Picked</strong></span></button>`).join("")}</div></div></div></div></section>
 <div class="etsy-v2-results-layout has-inspector">
  <div class="etsy-table-card etsy-v2-density-default">
@@ -39,7 +49,7 @@ const browser = await chromium.launch({
   args: ["--no-sandbox", "--disable-dev-shm-usage"],
 });
 try {
-  for (const width of [390, 768, 1024, 1440, 1536]) {
+  for (const width of [390, 768, 1024, 1280, 1440, 1536, 1800, 2048]) {
     const page = await browser.newPage({viewport:{width,height:900}, deviceScaleFactor:1});
     await page.setContent(html);
     const metrics = await page.evaluate(() => {
@@ -47,6 +57,18 @@ try {
       const inspector = document.querySelector(".etsy-v2-inspector-layer");
       const table = document.querySelector(".etsy-table-wrap");
       const results = document.querySelector(".etsy-v2-results-layout");
+      const header = document.querySelector(".etsy-spy-topbar");
+      const brand = header.querySelector(".workspace-page-header-copy");
+      const counters = header.querySelector(".workspace-page-header-center");
+      const actions = header.querySelector(".workspace-page-header-actions");
+      const y = node => Math.round(node.getBoundingClientRect().top);
+      const headerLayout = {
+        stageWidth:document.querySelector(".etsy-stage-canvas").clientWidth,
+        headerHeight:Math.round(header.getBoundingClientRect().height),
+        headerOverflow: header.scrollWidth - header.clientWidth,
+        brandY:y(brand), kpisY:y(counters), actionsY:y(actions),
+        kpisWithinHeader:!!header.querySelector(".workspace-page-header-center > .etsy-stats"),
+      };
       const style = (selector) => {
         const node = document.querySelector(selector);
         const computed = getComputedStyle(node);
@@ -59,6 +81,7 @@ try {
         };
       };
       return {
+        headerLayout,
         surfaces:{
           page:style(".etsy-spy-page"),
           header:style(".etsy-spy-topbar"),
@@ -81,6 +104,13 @@ try {
     assert.equal(metrics.rowDisplay, width <= 680 ? "grid" : "table-row");
     assert.equal(metrics.inspectorPosition, width <= 1180 ? "fixed" : "static");
     assert(metrics.layoutWidth > 0 && metrics.tableWidth > 0);
+    assert(metrics.headerLayout.kpisWithinHeader, "KPI not in the shared command header");
+    assert(metrics.headerLayout.headerOverflow <= 2, `${width}px: header overflow ${JSON.stringify(metrics.headerLayout)}`);
+    if (metrics.headerLayout.stageWidth >= 1190) {
+      assert(Math.abs(metrics.headerLayout.brandY - metrics.headerLayout.kpisY) <= 10, `${width}px: title and KPI split`);
+      assert(Math.abs(metrics.headerLayout.brandY - metrics.headerLayout.actionsY) <= 10, `${width}px: actions split`);
+      assert(metrics.headerLayout.headerHeight <= 90, `${width}px: header too tall`);
+    }
     assert.equal(await page.locator(".etsy-v2-results-toolbar, .etsy-table-scroll-nav").count(), 0);
     assert.equal(metrics.surfaces.page.background, "rgb(255, 255, 255)");
     for (const region of ["header", "metric", "dateStrip", "date", "table"]) {

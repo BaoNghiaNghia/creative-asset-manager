@@ -7,8 +7,8 @@ import { fetchAccessIdentity } from "../../features/access_management";
 import type { DesignAsset } from "./api";
 
 vi.mock("../components/WorkspacePageHeader", () => ({
-  WorkspacePageHeader: ({ actions, className, eyebrow, titleAddon, description }: {
-    actions?: React.ReactNode; className?: string; eyebrow?: React.ReactNode;
+  WorkspacePageHeader: ({ actions, center, className, eyebrow, titleAddon, description }: {
+    actions?: React.ReactNode; center?: React.ReactNode; className?: string; eyebrow?: React.ReactNode;
     titleAddon?: React.ReactNode; description?: React.ReactNode;
   }) => <header className={"workspace-page-header " + (className || "")}>
     <div className="workspace-page-header-copy">
@@ -16,6 +16,7 @@ vi.mock("../components/WorkspacePageHeader", () => ({
       <div className="workspace-page-header-title-row"><h1>Etsy Spy</h1>{titleAddon}</div>
       {description && <p className="workspace-page-header-description">{description}</p>}
     </div>
+    {center && <div className="workspace-page-header-center">{center}</div>}
     <div className="workspace-page-header-actions">{actions}</div>
   </header>,
   WorkspaceBackToAssets: () => <a className="workspace-page-back-link" href="/">Back</a>,
@@ -829,10 +830,11 @@ describe("Etsy Spy native CAM dashboard", () => {
     const stageChildren = Array.from(container?.querySelector("#etsy-spy-workspace")?.children || []);
     const location = (selector: string) => stageChildren.findIndex(child => child.matches(selector));
     // Flat layout: no redundant filter or idle bulk-selection bars.
-    expect(location(".etsy-stats")).toBeGreaterThan(-1);
+    expect(container?.querySelector(".etsy-spy-topbar .workspace-page-header-center > .etsy-stats")).toBeTruthy();
+    expect(location(".etsy-stats")).toBe(-1);
     expect(location(".etsy-filter-context")).toBe(-1);
     expect(location(".etsy-bulk-bar")).toBe(-1);
-    expect(location(".etsy-facet-explorer")).toBeGreaterThan(location(".etsy-stats"));
+    expect(location(".etsy-facet-explorer")).toBeGreaterThan(location(".etsy-spy-topbar"));
     expect(location(".etsy-v2-results-layout")).toBeGreaterThan(location(".etsy-facet-explorer"));
     expect(container?.querySelector(".etsy-v2-results-layout > .etsy-table-card")).toBeTruthy();
     expect(container?.querySelector(".etsy-table-wrap th button[aria-label='Sort by Carts']")).toBeTruthy();

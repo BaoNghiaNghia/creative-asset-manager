@@ -23,6 +23,7 @@ import "./EtsySpyDayCarousel.css";
 import "./EtsySpySort.css";
 import "./EtsySpyReviewAudit.css";
 import "./EtsySpyWorkspaceV2.css";
+import "./EtsySpyCommandBar.css";
 import { pickedPollInterval, reconcilePickedPage } from "./pickedPageReconciliation";
 import { TikTokListingCell, canQueueTikTokDraft } from "./TikTokListingCell";
 
@@ -1270,6 +1271,23 @@ export function EtsySpyPage() {
           titleAddon={<h2 className="etsy-spy-context">
             {activeTab === "products" ? "Product Intelligence" : TABS.find(tab => tab.id === activeTab)?.title}
           </h2>}
+          center={
+        <section className="etsy-stats" aria-label="Etsy Spy overview filters">
+          {overviewCards.map((card, index) => <button type="button"
+            className={`etsy-stat etsy-stat-${card.tone}${card.selected ? " active" : ""}`}
+            key={card.title} aria-pressed={card.selected}
+            title={card.title === "Picked"
+              ? `View picked records · ${pickedCardTooltip}`
+              : `View ${card.title.toLowerCase()} records`}
+            onClick={() => selectTab(card.tab, card.filters)}>
+            <span className="etsy-stat-heading">
+              <span className="etsy-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d={SUMMARY_ICONS[index] || SUMMARY_ICONS[0]} /></svg></span>
+              <span>{card.title}</span>
+            </span>
+            <strong>{typeof card.value === "number" ? card.value.toLocaleString() : card.value ?? "—"}</strong>
+          </button>)}
+        </section>
+          }
           actions={<>
             <div className="etsy-header-quick-actions">
               <span className={"etsy-connection " + (summary?.source_status || "never_synced")}>{syncLabel}</span>
@@ -1307,21 +1325,6 @@ export function EtsySpyPage() {
             </div>
           </>}
         />
-        <section className="etsy-stats" aria-label="Etsy Spy overview filters">
-          {overviewCards.map((card, index) => <button type="button"
-            className={`etsy-stat etsy-stat-${card.tone}${card.selected ? " active" : ""}`}
-            key={card.title} aria-pressed={card.selected}
-            title={card.title === "Picked"
-              ? `View picked records · ${pickedCardTooltip}`
-              : `View ${card.title.toLowerCase()} records`}
-            onClick={() => selectTab(card.tab, card.filters)}>
-            <span className="etsy-stat-heading">
-              <span className="etsy-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d={SUMMARY_ICONS[index] || SUMMARY_ICONS[0]} /></svg></span>
-              <span>{card.title}</span>
-            </span>
-            <strong>{typeof card.value === "number" ? card.value.toLocaleString() : card.value ?? "—"}</strong>
-          </button>)}
-        </section>
         {activeTab === "products" && !showProductFacets && <div className="etsy-facet-context">
           {isBlacklistView
             ? "Blacklist · quản lý cụm từ bị chặn, không sử dụng phân nhóm sản phẩm theo ngày."
