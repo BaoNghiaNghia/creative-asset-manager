@@ -314,6 +314,121 @@ def muse_queue(limit: int = Query(default=10, ge=1, le=50),
             "jobs": results["items"], "count": len(results["items"])}
 
 
+def _verified_video_ratios(job: CamMuseJob) -> set[str]:
+    """Count only SHA-bound, CAM-verified files in the listing/design folder."""
+    receipt = job.output_receipts if isinstance(job.output_receipts, dict) else {}
+    uploads = receipt.get("drive_uploads")
+    if not isinstance(uploads, dict) or not job.artwork_sha256:
+        return set()
+    folder = (
+        f"listing_{job.listing_key}/design_{job.artwork_sha256[:16]}_front/video_ugc"
+    )
+    ratios = set()
+    for ratio in ("9:16", "16:9"):
+        item = uploads.get(ratio)
+        if (isinstance(item, dict)
+                and item.get("storageVerified") is True
+                and item.get("storage_provider") == "google_drive_managed"
+                and item.get("relativeFolder") == folder
+                and isinstance(item.get("drive_file_id"), str)
+                and isinstance(item.get("drive_folder_id"), str)
+                and isinstance(item.get("sha256"), str)
+                and HEX64.fullmatch(item["sha256"])):
+            ratios.add(ratio)
+    return ratios
+
+
+@router.get("/video-work")
+def missing_video_work(
+    limit: int = Query(default=10, ge=1, le=20),
+    tenant: str = Depends(_muse),
+    db: Session = Depends(get_db),
+):
+    """One read-only Muse GET: discover queued listings missing one/both videos.
+
+    Never generates a video, approves artwork, leases a job, or requeues rows.
+    Muse must authenticate, claim an eligible command and complete real work.
+    """
+    inventory_total = int(db.scalar(select(func.count()).select_from(CamMuseJob).where(
+        CamMuseJob.tenant_id == tenant,
+    )) or 0)
+    all_jobs = db.scalars(select(CamMuseJob).where(
+        CamMuseJob.tenant_id == tenant,
+    ).order_by(CamMuseJob.picked_at.asc()).limit(1000)).all()
+    by_listing = {job.listing_key: job for job in all_jobs}
+    remaining = sum(
+        1 for job in all_jobs
+        if job.source_state != "missing_source"
+        and len(_verified_video_ratios(job)) < 2
+    )
+    candidates = db.scalars(select(CamMuseCommand).where(
+        CamMuseCommand.tenant_id == tenant,
+        CamMuseCommand.action.in_(("create_video", "review_artwork")),
+        CamMuseCommand.status.in_(("pending", "claimed")),
+        CamMuseCommand.attempts < 5,
+    ).order_by(CamMuseCommand.created_at.asc()).limit(100)).all()
+
+    items = []
+    seen = set()
+    for cmd in candidates:
+        if cmd.listing_key in seen:
+            continue
+        if (cmd.status == "claimed"
+                and (cmd.lease_expires_at is None
+                     or _aware(cmd.lease_expires_at) > _utc())):
+            continue
+        job = by_listing.get(cmd.listing_key)
+        if not job or job.artwork_sha256 != cmd.artwork_sha256:
+            continue
+        saved = _verified_video_ratios(job)
+        if len(saved) == 2:
+            continue
+        phase = _eligible_phase(db, tenant, job, cmd)
+        if phase is None:
+            continue
+        seen.add(job.listing_key)
+        missing = [x for x in ("9:16", "16:9") if x not in saved]
+        lid = job.listing_key
+        items.append({
+            "commandId": cmd.command_id,
+            "listingId": lid,
+            "title": job.title,
+            "artworkSha256": job.artwork_sha256,
+            "nextStep": phase,
+            "missingAspectRatios": missing,
+            "savedAspectRatios": [x for x in ("9:16", "16:9") if x in saved],
+            "attempts": cmd.attempts,
+            "claimCommandPath": f"/api/v1/muse-bridge/commands/{cmd.command_id}/claim",
+            "heartbeatCommandPath": f"/api/v1/muse-bridge/commands/{cmd.command_id}/heartbeat",
+            "completeCommandPath": f"/api/v1/muse-bridge/commands/{cmd.command_id}/complete",
+            "reviewPath": f"/api/v1/muse-bridge/reviews?listing_id={lid}"
+                          if phase == "review_artwork" else None,
+            "claimVideoJobPath": f"/api/v1/muse-bridge/jobs/{lid}/claim"
+                                 if phase == "create_video" else None,
+            "artworkPath": f"/api/v1/muse-bridge/jobs/{lid}/artwork"
+                           if phase == "create_video" else None,
+            "uploadPaths": {
+                "9:16": f"/api/v1/muse-bridge/jobs/{lid}/videos/vertical",
+                "16:9": f"/api/v1/muse-bridge/jobs/{lid}/videos/horizontal",
+            } if phase == "create_video" else None,
+        })
+    items.sort(key=lambda row: (
+        row["nextStep"] != "create_video", row["attempts"], row["listingId"]
+    ))
+    items = items[:limit]
+    return {
+        "ok": True, "items": items, "count": len(items),
+        "remainingWithoutBothVideos": remaining,
+        "inventoryTotal": inventory_total,
+        "inventoryScanned": len(all_jobs),
+        "remainingCountIsPartial": inventory_total > len(all_jobs),
+        "pollAfterSeconds": 300,
+        "requiresMuseWorker": True,
+        "needsComparativeArtworkQA": True,
+        "outputDestination": "CAM managed private Google Drive listing/design/video_ugc",
+    }
+
+
 @router.get("/reviews")
 def visual_review_queue(
     listing_id: str | None = Query(default=None, pattern=r"^[0-9]{5,20}$"),
