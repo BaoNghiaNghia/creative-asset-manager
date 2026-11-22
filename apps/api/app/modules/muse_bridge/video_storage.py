@@ -67,6 +67,7 @@ def validate_mp4(mp4: bytes, aspect: str) -> dict:
 async def store_muse_video(
     *, tenant_id: str, listing_id: str, artwork_sha256: str,
     aspect: str, mp4: bytes,
+    required_duration_seconds: tuple[float, float] | None = None,
 ) -> dict:
     """No disk/master copy on VPS. Drive only, with full provenance readback."""
     if (not _LISTING.fullmatch(listing_id)
@@ -74,6 +75,12 @@ async def store_muse_video(
             or aspect not in _RATIOS):
         raise HTTPException(422, "Invalid listing artwork or video aspect")
     metadata = await asyncio.to_thread(validate_mp4, mp4, aspect)
+    if required_duration_seconds is not None:
+        minimum, maximum = required_duration_seconds
+        if not minimum <= metadata["durationSeconds"] <= maximum:
+            raise HTTPException(
+                422, "Story video must be native 14-second footage; no loops or padding"
+            )
     digest = hashlib.sha256(mp4).hexdigest()
     async with _VIDEO_LIMIT:
         provider, root = provider_and_folder()

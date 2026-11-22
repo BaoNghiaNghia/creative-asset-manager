@@ -36,6 +36,7 @@ from app.modules.etsy_spy.service import authenticate_agent
 from app.modules.etsy_spy.image_agent import _private_drive_design, _checked_design_media
 from .model import CamMuseJob, CamMuseCommand
 from .command_queue import claimable_commands_query
+from .story_prompts import STORY_VERSION, STORY_DURATION_SECONDS, build_story_spec
 
 router = APIRouter(prefix="/api/v1/muse-bridge", tags=["muse-bridge"])
 HEX64 = re.compile(r"^[a-f0-9]{64}$")
@@ -126,6 +127,8 @@ class SyncRequest(BaseModel):
 
 class ClaimRequest(BaseModel):
     worker: str = Field(default="muse", max_length=80)
+    # Explicit worker capability; the legacy Muse scheduler remains supported.
+    storyVersion: Literal["CAM_STORY_REAL_LIFE_V3_3"] | None = None
 
 class VideoReceipt(BaseModel):
     aspectRatio: str
@@ -183,6 +186,45 @@ def _stored_native_asset(db: Session, tenant: str, listing_id: str, digest: str)
 def _qa_record(row: CamMuseJob):
     r = row.output_receipts
     return r.get("visual_qa") if isinstance(r, dict) else None
+
+
+def _story_v33_enabled() -> bool:
+    """Fail-closed rollout: opt in only after Muse supports native 14s stories."""
+    return os.environ.get("CAM_MUSE_STORY_V33_ENABLED", "false").strip().lower() == "true"
+
+
+def _pinned_story_v33(job) -> dict | None:
+    receipts = job.output_receipts if isinstance(job.output_receipts, dict) else {}
+    pin = receipts.get("story_contract_v33")
+    if (isinstance(pin, dict)
+            and pin.get("storyVersion") == STORY_VERSION
+            and pin.get("artworkSha256") == job.artwork_sha256
+            and pin.get("garmentSku") == "C1717"):
+        return pin
+    return None
+
+
+def _story_candidate_v33(job) -> dict | None:
+    """Do not change an already-rendered or in-flight legacy video job."""
+    if not job.artwork_sha256 or job.source_state != "ready_for_muse":
+        return None
+    receipts = job.output_receipts if isinstance(job.output_receipts, dict) else {}
+    pinned = _pinned_story_v33(job)
+    if not pinned:
+        if (job.status != "pending" or job.attempts
+                or receipts.get("drive_uploads") or receipts.get("videos")):
+            return None
+    try:
+        # CAM Muse video jobs currently have a fixed, validated C1717 contract.
+        # Never infer C1717/G180/G185 from a marketplace listing title.
+        return build_story_spec(
+            title=job.title,
+            listing_key=job.listing_key,
+            artwork_sha256=job.artwork_sha256,
+            garment_code="C1717",
+        )
+    except ValueError:
+        return None
 
 
 def _motion_v32_pilot_spec():
@@ -260,7 +302,11 @@ def _motion_v32_pilot_spec():
 
 
 def _row_view(job):
-    return {"listingId": job.listing_key, "title": job.title,
+    story_preview = _story_candidate_v33(job)
+    story_active = bool(
+        story_preview and (_pinned_story_v33(job) or _story_v33_enabled())
+    )
+    response = {"listingId": job.listing_key, "title": job.title,
             "keyword": job.keyword, "status": job.status,
             "pickedAt": job.picked_at, "artworkSha256": job.artwork_sha256,
             "artworkAssetPath": job.artwork_asset_path,
@@ -350,6 +396,22 @@ def _row_view(job):
                 "uploadLeaseHeader": "X-Muse-Lease",
             },
         }
+    if story_preview is not None:
+        video = response["videoSpec"]
+        # Candidate prompt is visible for a Muse-side capability canary.
+        # Legacy workers still receive their unchanged 12s V3.1 defaults.
+        video["storySpecV33"] = story_preview
+        video["storyEnabled"] = story_active
+        video["storyUploadMotionVersionHeader"] = STORY_VERSION
+        if story_active:
+            video["targetDurationSeconds"] = STORY_DURATION_SECONDS
+            video["motionPromptVersion"] = STORY_VERSION
+            video["motionPrompt"] = story_preview["narrativePrompt"]
+            video["motionQaReject"] = [
+                *video["motionQaReject"], *story_preview["qaPolicy"]["reject"],
+            ]
+            video["storyQaRequired"] = True
+    return response
 
 @router.get("/health", include_in_schema=False)
 def health():
@@ -541,6 +603,10 @@ def missing_video_work(
             continue
         seen.add(job.listing_key)
         missing = [x for x in ("9:16", "16:9") if x not in saved]
+        story_candidate = _story_candidate_v33(job) if phase == "create_video" else None
+        story_enabled = bool(
+            story_candidate and (_pinned_story_v33(job) or _story_v33_enabled())
+        )
         lid = job.listing_key
         items.append({
             "commandId": cmd.command_id,
@@ -558,6 +624,10 @@ def missing_video_work(
             "nextStep": phase,
             "missingAspectRatios": missing,
             "savedAspectRatios": [x for x in ("9:16", "16:9") if x in saved],
+            "storySpecV33": story_candidate,
+            "storyEnabled": story_enabled,
+            "storyCapabilityRequired": story_enabled,
+            "targetDurationSeconds": STORY_DURATION_SECONDS if story_enabled else 12,
             "attempts": cmd.attempts,
             "claimCommandPath": f"/api/v1/muse-bridge/commands/{cmd.command_id}/claim",
             "heartbeatCommandPath": f"/api/v1/muse-bridge/commands/{cmd.command_id}/heartbeat",
@@ -602,7 +672,14 @@ def missing_video_work(
             "topmostFlatInkBelowLowerCollarMm": PRINT_INK_CLEARANCE_MM,
             "decorationMethod": "flat_ink_print_only",
             "rejectPrintPositionDrift": True,
-            "defaultMotionPromptVersion": "CAM_NATURAL_EVERYDAY_MOTION_V3_1",
+            "defaultMotionPromptVersion": (
+                STORY_VERSION if _story_v33_enabled()
+                else "CAM_NATURAL_EVERYDAY_MOTION_V3_1"
+            ),
+            "storyVersion": STORY_VERSION,
+            "storyNativeDurationSeconds": STORY_DURATION_SECONDS,
+            "storyRolloutEnabled": _story_v33_enabled(),
+            "storyClaimOptIn": "ClaimRequest.storyVersion",
             "pilotMotionPromptVersion": "CAM_NATURAL_EVERYDAY_MOTION_V3_2",
             "pilotSizeNewListings": 3,
             "pilotManagedBy": "existing CAM Auto Video scheduled task in Muse",
@@ -766,8 +843,38 @@ def claim(listing_id: str, payload: ClaimRequest,
     if changed != 1:
         db.rollback()
         raise HTTPException(409, "Unavailable or artwork QA not passed")
-    db.commit()
     row = db.get(CamMuseJob, (tenant, listing_id))
+    # Opt in only when the Muse worker advertises native 14-second story
+    # capability. Pin once in the same claim transaction; retries cannot
+    # switch a partially uploaded V3.1 job into an incompatible story.
+    if payload.storyVersion == STORY_VERSION:
+        receipts = dict(row.output_receipts) if isinstance(row.output_receipts, dict) else {}
+        pinned = _pinned_story_v33(row)
+        fresh = (
+            _story_v33_enabled() and row.attempts == 1
+            and not receipts.get("drive_uploads") and not receipts.get("videos")
+            and row.artwork_sha256 and row.source_state == "ready_for_muse"
+        )
+        if not pinned and not fresh:
+            db.rollback()
+            raise HTTPException(409, "Story V3.3 not enabled or listing is legacy/in-flight")
+        if fresh and not pinned:
+            receipts["story_contract_v33"] = {
+                "storyVersion": STORY_VERSION,
+                "garmentSku": "C1717",
+                "artworkSha256": row.artwork_sha256,
+                "targetDurationSeconds": STORY_DURATION_SECONDS,
+            }
+            row.output_receipts = receipts
+    elif _story_v33_enabled() and row.attempts == 1:
+        receipts = row.output_receipts if isinstance(row.output_receipts, dict) else {}
+        if (row.artwork_sha256 and row.source_state == "ready_for_muse"
+                and not receipts.get("drive_uploads") and not receipts.get("videos")):
+            # A legacy worker cannot silently generate another 12-second,
+            # motionless clip after V3.3 rollout is explicitly enabled.
+            db.rollback()
+            raise HTTPException(409, "New video work requires Muse Story V3.3 worker")
+    db.commit()
     return {"lease": lease, "leaseExpiresAt": row.lease_expires_at,
             "job": _row_view(row), "worker": payload.worker}
 
@@ -834,6 +941,8 @@ def submit(listing_id: str, payload: SubmitRequest,
                                hashlib.sha256(payload.lease.encode()).hexdigest()):
         raise HTTPException(409, "Invalid lease")
     receipts = dict(row.output_receipts) if isinstance(row.output_receipts, dict) else {}
+    if _pinned_story_v33(row):
+        raise HTTPException(409, "Story videos require native MP4 upload and independent video QA")
     if receipts.get("drive_uploads"):
         raise HTTPException(409, "Do not overwrite CAM-verified video uploads with external receipts")
     row.status = "submitted"
@@ -862,6 +971,7 @@ async def upload_ugc_video(
     x_cam_motion_version: Literal[
         "CAM_NATURAL_EVERYDAY_MOTION_V3_1",
         "CAM_NATURAL_EVERYDAY_MOTION_V3_2",
+        "CAM_STORY_REAL_LIFE_V3_3",
     ] | None = Header(default=None),
     tenant: str = Depends(_muse), db: Session = Depends(get_db),
 ):
@@ -884,6 +994,11 @@ async def upload_ugc_video(
             or _aware(row.lease_expires_at) <= _utc()
             or not hmac.compare_digest(row.lease_hash, hashlib.sha256(lease.encode()).hexdigest())):
         raise HTTPException(409, "Muse job not claimable or video lease invalid")
+    story_pin = _pinned_story_v33(row)
+    if story_pin and x_cam_motion_version != STORY_VERSION:
+        raise HTTPException(422, "Story V3.3 upload requires matching motion-version header")
+    if x_cam_motion_version == STORY_VERSION and not story_pin:
+        raise HTTPException(409, "Story V3.3 requires a pinned capable-worker claim")
     parts = bytearray()
     async for chunk in request.stream():
         parts.extend(chunk)
@@ -903,10 +1018,17 @@ async def upload_ugc_video(
                 "motionPromptVersion": previous.get("motionPromptVersion"),
                 "driveFolder": previous.get("relativeFolder")}
     expected_artwork_sha = row.artwork_sha256
-    stored = await store_muse_video(
-        tenant_id=tenant, listing_id=listing_id,
-        artwork_sha256=expected_artwork_sha, aspect=aspect, mp4=bytes(parts),
-    )
+    storage_kwargs = {
+        "tenant_id": tenant, "listing_id": listing_id,
+        "artwork_sha256": expected_artwork_sha,
+        "aspect": aspect, "mp4": bytes(parts),
+    }
+    if story_pin:
+        storage_kwargs["required_duration_seconds"] = (13.5, 14.5)
+    stored = await store_muse_video(**storage_kwargs)
+    if story_pin:
+        stored["storyVersion"] = STORY_VERSION
+        stored["storyQaStatus"] = "pending_review"
     if x_cam_motion_version is not None:
         # Muse-declared generation version, NOT an independent content-QA pass.
         stored["motionPromptVersion"] = x_cam_motion_version
