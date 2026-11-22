@@ -57,19 +57,41 @@ class StoryCatalogTests(unittest.TestCase):
                 self.assertEqual(detect_theme(title), theme)
                 self.assertEqual(self.spec(title)["storyTheme"], theme)
 
-    def test_real_action_story_has_exact_14_second_three_act_timeline(self):
+    def test_real_action_story_has_exact_12_second_three_act_timeline(self):
         spec = self.spec()
-        self.assertEqual(spec["targetDurationSeconds"], 14)
+        self.assertEqual(spec["targetDurationSeconds"], 12)
         self.assertEqual(spec["storyVersion"], STORY_VERSION)
         self.assertEqual(
             [(x["startSeconds"], x["endSeconds"]) for x in spec["beats"]],
-            [(0, 3), (3, 10), (10, 14)],
+            [(0, 3), (3, 9), (9, 12)],
         )
         self.assertEqual(spec["beats"][1]["purpose"], "meaningful_action")
         self.assertTrue(all(len(x["action"]) > 40 for x in spec["beats"]))
         self.assertIn("no head-turn-only", spec["narrativePrompt"])
         self.assertIn("already be present in the approved reference frame", spec["narrativePrompt"])
-        self.assertIn("native 14-second", spec["narrativePrompt"])
+        self.assertIn("12-second FINAL export", spec["narrativePrompt"])
+
+    def test_two_real_shots_respect_ten_second_native_tool_cap(self):
+        spec = self.spec("Adventure Hiking Shirt")
+        plan = spec["renderPolicy"]
+        self.assertEqual(plan["targetFinalDurationSeconds"], 12)
+        self.assertEqual(plan["maxNativeDurationSecondsPerTake"], 10)
+        self.assertEqual(plan["preferredAssembly"], "two_genuine_motion_shots_motivated_cut")
+        self.assertEqual(
+            [shot["useFinalSeconds"] for shot in plan["nativeTakes"]],
+            [[0, 6], [6, 12]],
+        )
+        self.assertTrue(
+            all(shot["sourceLimitSeconds"] <= 10 for shot in plan["nativeTakes"])
+        )
+        self.assertIn("genuine", plan["assemblyQa"])
+        self.assertIn("duplicated/frozen/reversed frames",
+                      " ".join(spec["qaPolicy"]["reject"]))
+        self.assertEqual(
+            (plan["minAcceptableFinalDurationSeconds"],
+             plan["maxAcceptableFinalDurationSeconds"]),
+            (11.5, 12.5),
+        )
 
     def test_title_cannot_change_approved_c1717_into_sweatshirt(self):
         spec = self.spec("Funny Christmas Embroidered Sweatshirt Hoodie Shirt")
@@ -119,7 +141,7 @@ class StoryCatalogTests(unittest.TestCase):
         for wrong in ("shorts", "joggers", "skirts", "body slimming",
                       "pants hidden", "9:16 and 16:9"):
             self.assertIn(wrong, rejects)
-        self.assertEqual(spec["targetDurationSeconds"], 14)
+        self.assertEqual(spec["targetDurationSeconds"], 12)
         self.assertEqual(spec["printLock"]["firstInkBelowLowerCollarMm"], 150)
 
     def test_other_skus_use_the_correct_construction_only_when_explicit(self):
@@ -177,7 +199,7 @@ class StoryCatalogTests(unittest.TestCase):
                 continue
             self.assertIn(phrase, rejects)
         self.assertIn("block_no_loop_or_speed_stretch",
-                      spec["renderPolicy"]["missingNativeDuration"])
+                      spec["renderPolicy"]["missingUsableTakes"])
 
 
 class MuseStoryRolloutTests(unittest.TestCase):
@@ -192,9 +214,11 @@ class MuseStoryRolloutTests(unittest.TestCase):
                     schema = muse.scoped_openapi()
                 self.assertEqual(status["version"], "1.3.3")
                 self.assertTrue(status["storyV33SpecAvailable"])
-                self.assertEqual(status["storyV33TargetDurationSeconds"], 14)
+                self.assertEqual(status["storyV33TargetDurationSeconds"], 12)
+                self.assertEqual(status["storyV33MaxNativeTakeSeconds"], 10)
                 self.assertEqual(status["storyV33Enabled"], enabled)
                 self.assertFalse(status["storyV33NativeRendererVerified"])
+                self.assertFalse(status["storyV33TwoTakeAssemblyVerified"])
                 self.assertFalse(status["videoGenerationEnabled"])
                 self.assertEqual(schema["info"]["version"], "1.3.3")
 
@@ -205,16 +229,17 @@ class MuseStoryRolloutTests(unittest.TestCase):
         self.assertFalse(video["storyEnabled"])
         self.assertEqual(video["targetDurationSeconds"], 12)
         self.assertEqual(video["motionPromptVersion"], "CAM_NATURAL_EVERYDAY_MOTION_V3_1")
-        self.assertEqual(video["storySpecV33"]["targetDurationSeconds"], 14)
+        self.assertEqual(video["storySpecV33"]["targetDurationSeconds"], 12)
 
-    def test_opted_in_new_job_exposes_action_prompt_and_14s(self):
+    def test_opted_in_new_job_exposes_action_prompt_and_12s(self):
         with patch.dict("os.environ", {"CAM_MUSE_STORY_V33_ENABLED": "true"}):
             output = muse._row_view(fake_job(title="Tonight We Ride Sweatshirt"))
         video = output["videoSpec"]
         self.assertTrue(video["storyEnabled"])
         self.assertEqual(video["targetDurationSeconds"], STORY_DURATION_SECONDS)
         self.assertEqual(video["motionPromptVersion"], STORY_VERSION)
-        self.assertIn("3-10s", video["motionPrompt"])
+        self.assertIn("3-9s", video["motionPrompt"])
+        self.assertIn("two authentic moving shots", video["motionPrompt"])
         self.assertEqual(video["storySpecV33"]["garmentLock"]["sku"], "C1717")
         self.assertEqual(
             video["storySpecV33"]["wardrobeCastingLock"]["policyVersion"],
@@ -240,7 +265,7 @@ class MuseStoryRolloutTests(unittest.TestCase):
             "storyVersion": STORY_VERSION,
             "artworkSha256": ART,
             "garmentSku": "C1717",
-            "targetDurationSeconds": 14,
+            "targetDurationSeconds": 12,
         }
         with patch.dict("os.environ", {}, clear=True):
             video = muse._row_view(
@@ -248,21 +273,56 @@ class MuseStoryRolloutTests(unittest.TestCase):
                          output_receipts={"story_contract_v33": pin})
             )["videoSpec"]
         self.assertTrue(video["storyEnabled"])
-        self.assertEqual(video["targetDurationSeconds"], 14)
+        self.assertEqual(video["targetDurationSeconds"], 12)
         self.assertEqual(video["storySpecV33"]["storyVersion"], STORY_VERSION)
 
-    def test_unsupported_native_duration_is_rejected_before_drive_upload(self):
+    def test_old_fourteen_second_pinned_contract_is_not_silently_converted(self):
+        old_pin = {
+            "storyVersion": STORY_VERSION,
+            "artworkSha256": ART,
+            "garmentSku": "C1717",
+            "targetDurationSeconds": 14,
+        }
+        candidate = fake_job(
+            status="claimed", attempts=1,
+            output_receipts={"story_contract_v33": old_pin},
+        )
+        self.assertIsNone(muse._pinned_story_v33(candidate))
+        with patch.dict("os.environ", {"CAM_MUSE_STORY_V33_ENABLED": "true"}):
+            row = muse._row_view(candidate)
+        self.assertNotIn("storySpecV33", row["videoSpec"])
+        self.assertEqual(candidate.output_receipts["story_contract_v33"], old_pin)
+
+    def test_short_final_duration_is_rejected_before_drive_upload(self):
         with patch.object(video_storage, "validate_mp4",
-                          return_value={"durationSeconds": 12.0}):
+                          return_value={"durationSeconds": 10.0}):
             with patch.object(video_storage, "provider_and_folder") as drive:
                 with self.assertRaises(HTTPException) as err:
                     asyncio.run(video_storage.store_muse_video(
                         tenant_id="boostgame", listing_id=LID,
                         artwork_sha256=ART, aspect="vertical", mp4=b"x" * 4096,
-                        required_duration_seconds=(13.5, 14.5),
+                        required_duration_seconds=(11.5, 12.5),
                     ))
                 self.assertEqual(err.exception.status_code, 422)
                 drive.assert_not_called()
+
+
+    def test_valid_twelve_second_export_passes_duration_gate_without_drive_write(self):
+        with patch.object(
+            video_storage, "validate_mp4",
+            return_value={"durationSeconds": 12.0},
+        ):
+            with patch.object(
+                video_storage, "provider_and_folder",
+                side_effect=RuntimeError("storage boundary reached"),
+            ) as storage:
+                with self.assertRaisesRegex(RuntimeError, "storage boundary reached"):
+                    asyncio.run(video_storage.store_muse_video(
+                        tenant_id="boostgame", listing_id=LID,
+                        artwork_sha256=ART, aspect="vertical", mp4=b"x" * 4096,
+                        required_duration_seconds=(11.5, 12.5),
+                    ))
+                storage.assert_called_once()
 
 
 class MuseStoryClaimTests(unittest.TestCase):
@@ -316,11 +376,14 @@ class MuseStoryClaimTests(unittest.TestCase):
                     LID, muse.ClaimRequest(worker="muse", storyVersion=STORY_VERSION),
                     tenant="boostgame", db=db,
                 )
-                self.assertEqual(reply["job"]["videoSpec"]["targetDurationSeconds"], 14)
+                self.assertEqual(reply["job"]["videoSpec"]["targetDurationSeconds"], 12)
                 pin = db.get(CamMuseJob, ("boostgame", LID)).output_receipts["story_contract_v33"]
                 self.assertEqual(pin["storyVersion"], STORY_VERSION)
                 self.assertEqual(pin["artworkSha256"], ART)
                 self.assertEqual(pin["garmentSku"], "C1717")
+                self.assertEqual(pin["targetDurationSeconds"], 12)
+                self.assertEqual(pin["maxNativeTakeSeconds"], 10)
+                self.assertEqual(pin["assemblyMode"], "two_genuine_motion_shots_motivated_cut")
                 row = db.get(CamMuseJob, ("boostgame", LID))
                 row.lease_expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
                 db.commit()
@@ -330,7 +393,7 @@ class MuseStoryClaimTests(unittest.TestCase):
                     tenant="boostgame", db=db,
                 )
                 self.assertEqual(again["job"]["attempts"], 2)
-                self.assertEqual(again["job"]["videoSpec"]["targetDurationSeconds"], 14)
+                self.assertEqual(again["job"]["videoSpec"]["targetDurationSeconds"], 12)
 
     def test_legacy_worker_cannot_claim_new_work_after_enablement(self):
         with patch.dict("os.environ", {"CAM_MUSE_STORY_V33_ENABLED": "true"}):

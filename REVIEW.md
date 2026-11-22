@@ -3302,3 +3302,26 @@ Stage 1 keyword-only no-input Skill, Stage 2 Codex preflight, Stage 4 job-ID sco
 - **User request:** real-life story models wear jeans or khaki/chino trousers and have a natural, proportionate average/medium-to-moderately-athletic appearance. Do not interpret this as permission to alter a real person's body.
 - **Implementation:** `CAM_STORY_WARDROBE_CASTING_V1` in `story_prompts.py`; all 13 themes include lower-body garment rules and QA rejects for wrong trousers, missing visible waistband/upper thigh, excessive bulk/proportion distortion, wardrobe/body retouch, and mismatches between 9:16 and 16:9. Only approved reference start frames that already support the look may be used; otherwise choose another or block. Legacy V3.1 and completed media untouched.
 - **Verification:** dependency-free story construction smoke and source compilation PASS; full API tests via CI required. Feature flag `CAM_MUSE_STORY_V33_ENABLED` remains OFF in production until native 14-second Muse capability and independent garment/motion/print QA are verified.
+
+## 2026-11-22 — User superseded V3.3 14s with final 12-second stories
+
+- **Explicit decision:** keep every completed output at **12 seconds**; upgrade the
+  narrative/wardrobe/QA to V3.3 without requiring an unavailable native 14s
+  renderer. The V3.3 prompt version name is preserved for the existing Muse
+  workflow, but the output contract is now 12s.
+- **Renderer constraint:** Muse reports up to 10s native per take. The worker
+  assembly proposal uses two genuinely moving source takes <=10s each,
+  retains six real-time moving seconds per take, and joins 6+6 with one motivated
+  cut. Single native 12s is permissible only when verified. No repeated,
+  reversed, held, frozen or slowed frames.
+- **Bridge:** Story V3.3 spec and claim pin target 12s, track max 10s source take,
+  keep CAM_MUSE_STORY_V33_ENABLED default OFF, check final MP4 length 11.5-12.5s
+  before Drive, and fail closed for any older 14s pinned contract. V3.1 saved
+  variants and ongoing jobs, V3.2 failed pilot, and V4 PoC are unchanged.
+- **Creative:** 0-3s setup, 3-9s motivated action, 9-12s payoff; C1717,
+  denim or khakis, approved Native Master SHA, flat-ink 150mm collar clearance.
+- **QA:** duration/codec verification does not equal real human movement,
+  matching source, or Print QA: review content independently before approval.
+- **Rollout:** source-only until CI, external Muse worker 12s capability and
+  proper production backend release gates. No bypass of CodeLocal permissions
+  or unrelated CI failures. See docs/operations/CAM_MUSE_STORY_V33_12S.md.

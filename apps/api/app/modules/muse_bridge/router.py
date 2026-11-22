@@ -36,7 +36,10 @@ from app.modules.etsy_spy.service import authenticate_agent
 from app.modules.etsy_spy.image_agent import _private_drive_design, _checked_design_media
 from .model import CamMuseJob, CamMuseCommand
 from .command_queue import claimable_commands_query
-from .story_prompts import STORY_VERSION, STORY_DURATION_SECONDS, build_story_spec
+from .story_prompts import (
+    STORY_VERSION, STORY_DURATION_SECONDS, STORY_MAX_NATIVE_TAKE_SECONDS,
+    STORY_FINAL_DURATION_BOUNDS, build_story_spec,
+)
 
 router = APIRouter(prefix="/api/v1/muse-bridge", tags=["muse-bridge"])
 HEX64 = re.compile(r"^[a-f0-9]{64}$")
@@ -189,7 +192,7 @@ def _qa_record(row: CamMuseJob):
 
 
 def _story_v33_enabled() -> bool:
-    """Fail-closed rollout: opt in only after Muse supports native 14s stories."""
+    """Fail-closed rollout: opt in only after Muse can deliver genuine 12s stories."""
     return os.environ.get("CAM_MUSE_STORY_V33_ENABLED", "false").strip().lower() == "true"
 
 
@@ -199,7 +202,8 @@ def _pinned_story_v33(job) -> dict | None:
     if (isinstance(pin, dict)
             and pin.get("storyVersion") == STORY_VERSION
             and pin.get("artworkSha256") == job.artwork_sha256
-            and pin.get("garmentSku") == "C1717"):
+            and pin.get("garmentSku") == "C1717"
+            and pin.get("targetDurationSeconds") == STORY_DURATION_SECONDS):
         return pin
     return None
 
@@ -426,6 +430,8 @@ def health():
         "storyV33Version": STORY_VERSION,
         "storyV33TargetDurationSeconds": STORY_DURATION_SECONDS,
         "storyV33NativeRendererVerified": False,
+        "storyV33MaxNativeTakeSeconds": STORY_MAX_NATIVE_TAKE_SECONDS,
+        "storyV33TwoTakeAssemblyVerified": False,
     }
 
 
@@ -672,6 +678,8 @@ def missing_video_work(
         "storyV33Enabled": _story_v33_enabled(),
         "storyV33TargetDurationSeconds": STORY_DURATION_SECONDS,
         "storyV33NativeRendererVerified": False,
+        "storyV33MaxNativeTakeSeconds": STORY_MAX_NATIVE_TAKE_SECONDS,
+        "storyV33TwoTakeAssemblyVerified": False,
         "pollAfterSeconds": 20,
         "longPollPath": "/api/v1/muse-bridge/commands/wait?waitSeconds=20",
         "requiresMuseWorker": True,
@@ -687,7 +695,9 @@ def missing_video_work(
                 else "CAM_NATURAL_EVERYDAY_MOTION_V3_1"
             ),
             "storyVersion": STORY_VERSION,
-            "storyNativeDurationSeconds": STORY_DURATION_SECONDS,
+            "storyOutputDurationSeconds": STORY_DURATION_SECONDS,
+            "storyNativeRenderMaxSecondsPerTake": STORY_MAX_NATIVE_TAKE_SECONDS,
+            "storyPreferredAssembly": "two_genuine_motion_shots_motivated_cut",
             "storyRolloutEnabled": _story_v33_enabled(),
             "storyClaimOptIn": "ClaimRequest.storyVersion",
             "pilotMotionPromptVersion": "CAM_NATURAL_EVERYDAY_MOTION_V3_2",
@@ -854,8 +864,9 @@ def claim(listing_id: str, payload: ClaimRequest,
         db.rollback()
         raise HTTPException(409, "Unavailable or artwork QA not passed")
     row = db.get(CamMuseJob, (tenant, listing_id))
-    # Opt in only when the Muse worker advertises native 14-second story
-    # capability. Pin once in the same claim transaction; retries cannot
+    # Opt in only when the Muse worker advertises the genuine 12-second
+    # story workflow (up to 10s native per source take). Pin in one
+    # transaction; retries cannot
     # switch a partially uploaded V3.1 job into an incompatible story.
     if payload.storyVersion == STORY_VERSION:
         receipts = dict(row.output_receipts) if isinstance(row.output_receipts, dict) else {}
@@ -874,6 +885,8 @@ def claim(listing_id: str, payload: ClaimRequest,
                 "garmentSku": "C1717",
                 "artworkSha256": row.artwork_sha256,
                 "targetDurationSeconds": STORY_DURATION_SECONDS,
+                "assemblyMode": "two_genuine_motion_shots_motivated_cut",
+                "maxNativeTakeSeconds": STORY_MAX_NATIVE_TAKE_SECONDS,
             }
             row.output_receipts = receipts
     elif _story_v33_enabled() and row.attempts == 1:
@@ -1034,7 +1047,7 @@ async def upload_ugc_video(
         "aspect": aspect, "mp4": bytes(parts),
     }
     if story_pin:
-        storage_kwargs["required_duration_seconds"] = (13.5, 14.5)
+        storage_kwargs["required_duration_seconds"] = STORY_FINAL_DURATION_BOUNDS
     stored = await store_muse_video(**storage_kwargs)
     if story_pin:
         stored["storyVersion"] = STORY_VERSION

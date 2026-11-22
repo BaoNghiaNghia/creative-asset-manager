@@ -1,4 +1,4 @@
-"""CAM Muse 14-second story-led UGC prompts for future, unrendered variants.
+"""CAM Muse 12-second story-led UGC prompts for future, unrendered variants.
 
 Pure, dependency-free, deterministic planning. Listing titles are treated as
 untrusted *theme labels*, never copied into the renderer prompt or used as art.
@@ -10,7 +10,9 @@ import hashlib
 import re
 
 STORY_VERSION = "CAM_STORY_REAL_LIFE_V3_3"
-STORY_DURATION_SECONDS = 14
+STORY_DURATION_SECONDS = 12
+STORY_MAX_NATIVE_TAKE_SECONDS = 10
+STORY_FINAL_DURATION_BOUNDS = (11.5, 12.5)
 STORY_WARDROBE_POLICY = "CAM_STORY_WARDROBE_CASTING_V1"
 
 # Applies to new V3.3 story renders only; choose a suitable approved model
@@ -280,15 +282,24 @@ def build_story_spec(
     garment = GARMENT_PROFILES[garment_code]
     beats = [
         {"startSeconds": 0, "endSeconds": 3, "purpose": "context", "action": hook},
-        {"startSeconds": 3, "endSeconds": 10, "purpose": "meaningful_action", "action": action},
-        {"startSeconds": 10, "endSeconds": 14, "purpose": "natural_payoff", "action": ending},
+        {"startSeconds": 3, "endSeconds": 9, "purpose": "meaningful_action", "action": action},
+        {"startSeconds": 9, "endSeconds": 12, "purpose": "natural_payoff", "action": ending},
     ]
     garment_name = garment["name"]
     prompt = (
-        f"ORIGINAL 14-second real-life UGC mini-story, '{title_safe}'. "
-        "ONE continuous believable human event in ONE approved location, "
-        "without jump cuts, frozen talking-head poses, camera-only movement, "
-        "looping or slow-motion padding. No added screen text, music, voiceover or captions. "
+        f"ORIGINAL 12-second real-life UGC mini-story, '{title_safe}'. "
+        "ONE coherent believable human event in ONE approved location. "
+        "Capture two authentic moving shots, six seconds of usable motion in "
+        "each, with exactly ONE motivated cut at 6 seconds. Each native "
+        "source take can be at most 10 seconds: trim real frames to make "
+        "two six-second shots, then assemble a 12-second MP4. If a genuine "
+        "single native 12-second take is actually available, it is also "
+        "acceptable, but never assume the current Muse renderer supports it. "
+        "Keep the same person, jeans/khakis, approved T-shirt, print, light "
+        "and environment across the cut. No frozen talking-head poses, "
+        "camera-only motion, repeated frames, reversed footage, slow-motion "
+        "padding, synthetic hold or filler. No added screen text, music, "
+        "voiceover or captions. "
         f"The approved start frame MUST show a genuine {garment_name}: {garment['form']}. "
         "Use exactly the approved shirt COLOR, fit, sleeve length and collar; "
         "DO NOT turn a T-shirt into a sweatshirt or hoodie. "
@@ -307,9 +318,9 @@ def build_story_spec(
         "front artwork visible. "
         f"The starting scene must ALREADY contain {scene}; if it does not, "
         "choose another approved start image before rendering, otherwise BLOCK. "
-        f"0-3s (hook): {hook} "
-        f"3-10s (observable action): {action} "
-        f"10-14s (resolution): {ending} "
+        f"0-3s (hook, shot 1): {hook} "
+        f"3-9s (observable action, through the motivated cut): {action} "
+        f"9-12s (resolution, shot 2): {ending} "
         "Make leg, hip, torso, shoulder, hand and cotton-fabric motion physically "
         f"coherent and driven by the action. Camera treatment: {camera} "
         "Camera handheld but OBSERVATIONAL, "
@@ -324,8 +335,12 @@ def build_story_spec(
         "NO embroidery, drift, warping, stretching or occluding hands. "
         "Create matching 9:16 and 16:9 views of the SAME event, with natural "
         "framing rather than cropping the graphic. "
-        "If native 14-second output is unavailable, report BLOCKED: never "
-        "manufacture duration with a reversed loop, frame freezing or stretching."
+        "The 12-second FINAL export must be continuous in story, "
+        "even when it uses two genuinely recorded takes. Do not invent "
+        "additional story time with looped/reversed frames, duplicated "
+        "stills, frame freezing or time stretching. If two usable matching "
+        "takes or a verified native 12-second source are unavailable, "
+        "report BLOCKED rather than outputting fake 12-second video."
     )
     return {
         "storyVersion": STORY_VERSION,
@@ -334,7 +349,7 @@ def build_story_spec(
         "storyTitle": title_safe,
         "cameraDirection": camera,
         "targetDurationSeconds": STORY_DURATION_SECONDS,
-        "storyStructure": "one_continuous_take_three_act_real_life",
+        "storyStructure": "one_coherent_three_act_event_two_real_motion_shots",
         "sceneRequiresApprovedStartFrame": scene,
         "beats": beats,
         "wardrobeCastingLock": {
@@ -360,10 +375,10 @@ def build_story_spec(
         },
         "narrativePrompt": prompt,
         "qaPolicy": {
-            "requireMeaningfulActionSeconds": [3, 10],
+            "requireMeaningfulActionSeconds": [3, 9],
             "reject": [
                 "only head swivels, blinks, eye glances, shoulder sway or camera pan",
-                "model standing in one spot for almost all 14 seconds",
+                "model standing in one spot for almost all 12 seconds",
                 "looped forward-backwards walking, repeated hand gesture or frozen ending",
                 "unmotivated movement or action inconsistent with approved starting scene",
                 "incorrect garment SKU, sleeves, neckline, fit, base color or fabric",
@@ -371,16 +386,33 @@ def build_story_spec(
                 "props, companions or vehicles hallucinated into the source scene",
                 "print size, lettering, color, SHA fidelity, 150 mm anchor or shape changed",
                 "two aspect ratios portray different events or shirt variants",
-                "length built from repeated/frozen frames instead of native 14 seconds",
+                "12 seconds assembled with duplicated/frozen/reversed frames, synthetic holds or slowed footage",
+                "two shots fail to match the approved actor, trousers, shirt, print or location",
             ],
             "review": "independent garment, story-action, print and fabric motion QA per ratio",
             "storageIsNotApproval": True,
         },
         "renderPolicy": {
-            "maxNativeDurationSeconds": STORY_DURATION_SECONDS,
-            "minAcceptableNativeDurationSeconds": 13.5,
-            "maxAcceptableNativeDurationSeconds": 14.5,
-            "missingNativeDuration": "block_no_loop_or_speed_stretch",
+            "targetFinalDurationSeconds": STORY_DURATION_SECONDS,
+            "maxNativeDurationSecondsPerTake": STORY_MAX_NATIVE_TAKE_SECONDS,
+            "minAcceptableFinalDurationSeconds": STORY_FINAL_DURATION_BOUNDS[0],
+            "maxAcceptableFinalDurationSeconds": STORY_FINAL_DURATION_BOUNDS[1],
+            "preferredAssembly": "two_genuine_motion_shots_motivated_cut",
+            "nativeTakes": [
+                {
+                    "shot": 1, "useFinalSeconds": [0, 6],
+                    "sourceLimitSeconds": STORY_MAX_NATIVE_TAKE_SECONDS,
+                    "action": "start situation, initiate purposeful motion",
+                },
+                {
+                    "shot": 2, "useFinalSeconds": [6, 12],
+                    "sourceLimitSeconds": STORY_MAX_NATIVE_TAKE_SECONDS,
+                    "action": "continue purposeful motion and complete the story",
+                },
+            ],
+            "allowedAlternative": "single_native_12s_only_if_real_capability_is_verified",
+            "assemblyQa": "independent_genuine_motion_continuity_identity_and_print_check",
+            "missingUsableTakes": "block_no_loop_or_speed_stretch",
             "startFrameMismatch": "choose_another_approved_source_or_block",
             "existingSavedVideo": "never_regenerate_or_replace",
             "aspectRatios": ["9:16", "16:9"],

@@ -79,7 +79,7 @@ async def store_muse_video(
         minimum, maximum = required_duration_seconds
         if not minimum <= metadata["durationSeconds"] <= maximum:
             raise HTTPException(
-                422, "Story video must be native 14-second footage; no loops or padding"
+                422, "Story export must match its approved final duration; no loops or padding"
             )
     digest = hashlib.sha256(mp4).hexdigest()
     async with _VIDEO_LIMIT:
