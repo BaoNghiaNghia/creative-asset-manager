@@ -143,7 +143,7 @@ class StoryCatalogTests(unittest.TestCase):
         self.assertIn("waistband and upper thighs", spec["narrativePrompt"])
         rejects = " ".join(spec["qaPolicy"]["reject"])
         for wrong in ("shorts", "joggers", "skirts", "body slimming",
-                      "pants hidden", "9:16 and 16:9"):
+                      "pants hidden", "between take A and take B"):
             self.assertIn(wrong, rejects)
         self.assertEqual(spec["targetDurationSeconds"], 12)
         self.assertEqual(spec["printLock"]["firstInkBelowLowerCollarMm"], 150)

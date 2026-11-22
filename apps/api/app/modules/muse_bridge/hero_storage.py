@@ -111,8 +111,13 @@ async def store_muse_hero(
             provider=provider, root_folder_id=root, tenant_id=tenant_id,
             listing_id=listing_id, design_sha256=artwork_sha256,
         )
-        asset_id = f"muse-hero:{listing_id}:{artwork_sha256}:{aspect}"
-        filename = f"ugc-hero-{aspect}{ext}"
+        # Content-address each hero: concurrent different proposals must
+        # never overwrite the approved image on Drive before the DB row lock.
+        asset_id = (
+            f"muse-hero:{listing_id}:{artwork_sha256}:{aspect}:"
+            f"{metadata['sha256']}"
+        )
+        filename = f"ugc-hero-{aspect}-{metadata['sha256'][:12]}{ext}"
 
         async def chunks():
             for offset in range(0, len(image_bytes), 1024 * 1024):

@@ -498,7 +498,7 @@ def health():
 def scoped_openapi():
     """Publish only the Muse-facing contract, never internal CAM agent routes."""
     schema = get_openapi(
-        title="CAM Muse Bridge", version="1.3.4",
+        title="CAM Muse Bridge", version="1.3.5",
         routes=router.routes,
         servers=[{"url": "https://creative-assets.ddns.net"}],
     )
@@ -745,7 +745,7 @@ def missing_video_work(
         "inventoryTotal": inventory_total,
         "inventoryScanned": len(all_jobs),
         "remainingCountIsPartial": inventory_total > len(all_jobs),
-        "bridgeVersion": "1.3.4",
+        "bridgeVersion": "1.3.5",
         "storyV33SpecAvailable": True,
         "storyV33Enabled": _story_v33_enabled(),
         "storyV33PilotConfiguredCount": len(_story_v33_pilot_listings()),
