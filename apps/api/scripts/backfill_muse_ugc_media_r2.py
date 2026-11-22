@@ -54,6 +54,7 @@ async def run(tenant: str, *, limit: int, apply: bool) -> dict[str, int | bool]:
     result: dict[str, int | bool] = {
         "apply": apply, "scanned": 0, "eligible": 0, "cached": 0,
         "skipped": 0, "failed": 0, "configured": config is not None,
+        "missing_playback": 0, "missing_posters": 0,
     }
     if config is None:
         return result
@@ -94,10 +95,21 @@ async def run(tenant: str, *, limit: int, apply: bool) -> dict[str, int | bool]:
             if not _SHA.fullmatch(sha) or not _DRIVE.fullmatch(remote) or not _DRIVE.fullmatch(folder):
                 result["skipped"] += 1
                 continue
-            if await available(config, tenant=tenant, sha=sha, kind="playback"):
+            # Older completed uploads may have a playback object but no
+            # posters. Backfill must repair those too, without renewing MP4
+            # retention: stage_uploaded uses create-once R2 conditional PUT.
+            present = {
+                kind: await available(config, tenant=tenant, sha=sha, kind=kind)
+                for kind in ("playback", "poster320", "poster640")
+            }
+            if all(present.values()):
                 result["cached"] += 1
                 continue
             result["eligible"] += 1
+            if not present["playback"]:
+                result["missing_playback"] += 1
+            result["missing_posters"] += sum(
+                not present[kind] for kind in ("poster320", "poster640"))
             if not apply:
                 continue
             asset_id = f"muse-ugc:{job.listing_key}:{job.artwork_sha256}:{aspect}"
@@ -113,9 +125,11 @@ async def run(tenant: str, *, limit: int, apply: bool) -> dict[str, int | bool]:
                 status = await stage_uploaded(
                     config, tenant=tenant, sha=sha, mp4=content,
                 )
-                if status.get("playback"):
+                if all(status.get(kind) for kind in ("playback", "poster320", "poster640")):
                     result["cached"] += 1
                 else:
+                    # Preserve the partial R2 success; a later bounded rerun
+                    # can fill missing posters without overwriting playback.
                     result["failed"] += 1
             except Exception:
                 result["failed"] += 1

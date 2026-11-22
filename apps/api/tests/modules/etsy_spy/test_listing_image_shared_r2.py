@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from datetime import datetime, timezone, timedelta
 from io import BytesIO
 from hashlib import sha256
 import hmac
@@ -40,16 +41,27 @@ class MemoryS3:
         self.objects: dict[str, tuple[bytes, str, dict[str, str]]] = {}
         self.puts = 0
         self.reads = 0
+        self.last_modified = datetime.now(timezone.utc)
 
     def put_object(self, *, Bucket: str, Key: str, Body: bytes,
-                   ContentType: str, Metadata: dict, CacheControl: str):
+                   ContentType: str, Metadata: dict, CacheControl: str, IfNoneMatch: str):
         assert Bucket == CONFIG.bucket
         assert Key.startswith("etsy-images/v1/")
         assert not Key.startswith("video-cache/")
         assert CacheControl == "private, no-store"
+        assert IfNoneMatch == "*"
+        if Key in self.objects:
+            raise ClientError({
+                "Error": {"Code": "PreconditionFailed", "Message": "already exists"},
+                "ResponseMetadata": {"HTTPStatusCode": 412}}, "PutObject")
         self.objects[Key] = (Body, ContentType, Metadata)
         self.puts += 1
         return {"ResponseMetadata": {"HTTPStatusCode": 200}}
+
+    def head_object(self, *, Bucket: str, Key: str):
+        assert Bucket == CONFIG.bucket
+        content, mime, metadata = self.objects[Key]
+        return {"ContentType": mime, "ContentLength": len(content), "Metadata": metadata}
 
     def get_object(self, *, Bucket: str, Key: str):
         assert Bucket == CONFIG.bucket
@@ -62,6 +74,7 @@ class MemoryS3:
         return {
             "Body": BytesIO(data), "ContentLength": len(data),
             "ContentType": mime, "Metadata": metadata,
+            "LastModified": self.last_modified,
         }
 
 
@@ -175,6 +188,22 @@ def test_read_write_reuses_same_bucket_and_never_original(monkeypatch):
     asyncio.run(check())
 
 
+def test_existing_r2_object_is_not_overwritten_or_given_a_fresh_retention_age(monkeypatch):
+    s3 = MemoryS3()
+    monkeypatch.setattr(cache, "_client", lambda _: s3)
+    key = cache.object_key(CONFIG, **params())
+    original = b"immutable-webp-bytes"
+    assert cache._write(CONFIG, key, "image/webp", original)
+    assert s3.puts == 1
+    # A repeat with the same verified bytes succeeds without a second R2 PUT.
+    assert cache._write(CONFIG, key, "image/webp", original)
+    assert s3.puts == 1
+    # A different payload must not replace the previous object.
+    assert cache._write(CONFIG, key, "image/webp", b"other-webp") is False
+    assert s3.puts == 1
+    assert s3.objects[key][0] == original
+
+
 def test_corrupt_metadata_and_wrong_type_fail_closed(monkeypatch):
     s3 = MemoryS3()
     monkeypatch.setattr(cache, "_client", lambda _: s3)
@@ -187,6 +216,21 @@ def test_corrupt_metadata_and_wrong_type_fail_closed(monkeypatch):
         s3.objects[key] = (b"fake-png", "text/html",
                            {"cam-sha256": sha256(b"fake-png").hexdigest()})
         assert await cache.read_derivative(CONFIG, **args) is None
+    asyncio.run(check())
+
+
+def test_r2_image_older_than_30_days_falls_back_to_drive(monkeypatch):
+    s3 = MemoryS3()
+    s3.last_modified = datetime.now(timezone.utc) - timedelta(days=31)
+    args = params(quality="thumbnail")
+    key = cache.object_key(CONFIG, **args)
+    payload = b"verified-png-derivative"
+    s3.objects[key] = (
+        payload, "image/png", {"cam-sha256": sha256(payload).hexdigest()})
+    monkeypatch.setattr(cache, "_client", lambda _: s3)
+    async def check():
+        assert await cache.read_derivative(CONFIG, **args) is None
+        assert s3.reads == 1
     asyncio.run(check())
 
 
