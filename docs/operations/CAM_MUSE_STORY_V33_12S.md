@@ -87,6 +87,31 @@ even when the workflow is disabled. The bridge v1.3.4 /health returns:
 `storyV33NativeRendererVerified=false` and
 `storyV33TwoTakeAssemblyVerified=false` (until independently verified).
 
+### Two-stage pilot without opening the whole queue
+
+Phase 1 (2 new listings only): leave `CAM_MUSE_STORY_V33_ENABLED=false`
+and supply the reviewed environment variable
+`CAM_MUSE_STORY_V33_PILOT_LISTING_IDS=<listing_id_1>,<listing_id_2>`
+with exactly one or two **eligible, previously unrendered numeric listing IDs**.
+The Bridge validates the list is unique and contains no more than 2 IDs;
+malformed or oversized configuration fails closed. For listed jobs only,
+`storyEnabled=true` and an explicit V3.3/12s output-contract claim is allowed.
+A legacy worker cannot claim these selected new pilot jobs. All other
+listings continue their V3.1 claim, video generation and uploads unchanged.
+Health and video-work disclose only the **count** of configured pilot IDs,
+never the IDs themselves in unauthenticated health.
+
+Phase 2: after **all four pilot videos** (two listings, both aspect ratios)
+pass independent Garment, Print, Story/Motion and cut-continuity QA,
+the operator may enable global `CAM_MUSE_STORY_V33_ENABLED=true`.
+There is **no automatic expansion** based solely on four Drive receipts:
+human/independent QA evidence and a reviewed rollout are required.
+
+Do not set the pilot IDs based on the user's listing title; choose only
+from CAM verified, unclaimed new listings with no stored 9:16/16:9 video.
+The external Muse job must first use Bridge capability fields to detect
+support. It cannot treat fields alone as proof the pilot allowlist is set.
+
 The worker must read `storySpecV33`, `storyEnabled`, `missingAspectRatios`,
 and `savedAspectRatios` for each eligible command. Only when the deployed
 bridge advertises V3.3, the worker has proven the two-take assembly contract,

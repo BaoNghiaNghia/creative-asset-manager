@@ -197,6 +197,22 @@ def _story_v33_enabled() -> bool:
     return os.environ.get("CAM_MUSE_STORY_V33_ENABLED", "false").strip().lower() == "true"
 
 
+def _story_v33_pilot_listings() -> frozenset[str]:
+    """Explicit <=2 listing canary; malformed/oversized configuration fails closed."""
+    raw = os.environ.get("CAM_MUSE_STORY_V33_PILOT_LISTING_IDS", "").strip()
+    if not raw:
+        return frozenset()
+    ids = [part.strip() for part in raw.split(",")]
+    if (not 1 <= len(ids) <= 2 or len(set(ids)) != len(ids)
+            or any(not LISTING_ID.fullmatch(item) for item in ids)):
+        return frozenset()
+    return frozenset(ids)
+
+
+def _story_v33_allowed_for_job(job) -> bool:
+    return _story_v33_enabled() or job.listing_key in _story_v33_pilot_listings()
+
+
 def _pinned_story_v33(job) -> dict | None:
     receipts = job.output_receipts if isinstance(job.output_receipts, dict) else {}
     pin = receipts.get("story_contract_v33")
@@ -310,7 +326,7 @@ def _motion_v32_pilot_spec():
 def _row_view(job):
     story_preview = _story_candidate_v33(job)
     story_active = bool(
-        story_preview and (_pinned_story_v33(job) or _story_v33_enabled())
+        story_preview and (_pinned_story_v33(job) or _story_v33_allowed_for_job(job))
     )
     response = {"listingId": job.listing_key, "title": job.title,
             "keyword": job.keyword, "status": job.status,
@@ -430,6 +446,7 @@ def health():
         "videoGenerationEnabled": False,
         "storyV33SpecAvailable": True,
         "storyV33Enabled": _story_v33_enabled(),
+        "storyV33PilotConfiguredCount": len(_story_v33_pilot_listings()),
         "storyV33Version": STORY_VERSION,
         "storyV33TargetDurationSeconds": STORY_DURATION_SECONDS,
         "storyV33OutputContract": STORY_OUTPUT_CONTRACT,
@@ -620,7 +637,7 @@ def missing_video_work(
         missing = [x for x in ("9:16", "16:9") if x not in saved]
         story_candidate = _story_candidate_v33(job) if phase == "create_video" else None
         story_enabled = bool(
-            story_candidate and (_pinned_story_v33(job) or _story_v33_enabled())
+            story_candidate and (_pinned_story_v33(job) or _story_v33_allowed_for_job(job))
         )
         lid = job.listing_key
         items.append({
@@ -641,6 +658,7 @@ def missing_video_work(
             "savedAspectRatios": [x for x in ("9:16", "16:9") if x in saved],
             "storySpecV33": story_candidate,
             "storyEnabled": story_enabled,
+            "storyPilotSelected": job.listing_key in _story_v33_pilot_listings(),
             "storyCapabilityRequired": story_enabled,
             "targetDurationSeconds": STORY_DURATION_SECONDS if story_enabled else 12,
             "attempts": cmd.attempts,
@@ -680,6 +698,7 @@ def missing_video_work(
         "bridgeVersion": "1.3.4",
         "storyV33SpecAvailable": True,
         "storyV33Enabled": _story_v33_enabled(),
+        "storyV33PilotConfiguredCount": len(_story_v33_pilot_listings()),
         "storyV33TargetDurationSeconds": STORY_DURATION_SECONDS,
         "storyV33OutputContract": STORY_OUTPUT_CONTRACT,
         "storyV33NativeRendererVerified": False,
@@ -882,7 +901,7 @@ def claim(listing_id: str, payload: ClaimRequest,
         receipts = dict(row.output_receipts) if isinstance(row.output_receipts, dict) else {}
         pinned = _pinned_story_v33(row)
         fresh = (
-            _story_v33_enabled() and row.attempts == 1
+            _story_v33_allowed_for_job(row) and row.attempts == 1
             and not receipts.get("drive_uploads") and not receipts.get("videos")
             and row.artwork_sha256 and row.source_state == "ready_for_muse"
         )
@@ -900,7 +919,7 @@ def claim(listing_id: str, payload: ClaimRequest,
                 "maxNativeTakeSeconds": STORY_MAX_NATIVE_TAKE_SECONDS,
             }
             row.output_receipts = receipts
-    elif _story_v33_enabled() and row.attempts == 1:
+    elif _story_v33_allowed_for_job(row) and row.attempts == 1:
         receipts = row.output_receipts if isinstance(row.output_receipts, dict) else {}
         if (row.artwork_sha256 and row.source_state == "ready_for_muse"
                 and not receipts.get("drive_uploads") and not receipts.get("videos")):

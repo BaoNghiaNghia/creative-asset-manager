@@ -235,6 +235,41 @@ class MuseStoryRolloutTests(unittest.TestCase):
         self.assertEqual(video["motionPromptVersion"], "CAM_NATURAL_EVERYDAY_MOTION_V3_1")
         self.assertEqual(video["storySpecV33"]["targetDurationSeconds"], 12)
 
+    def test_two_listing_pilot_keeps_all_other_jobs_on_v31(self):
+        pilot_ids = (LID, "4487783858")
+        with patch.dict("os.environ", {
+            "CAM_MUSE_STORY_V33_ENABLED": "false",
+            "CAM_MUSE_STORY_V33_PILOT_LISTING_IDS": ",".join(pilot_ids),
+        }):
+            self.assertEqual(muse._story_v33_pilot_listings(), frozenset(pilot_ids))
+            for listing_id in (*pilot_ids, "4487783859"):
+                with self.subTest(listing_id=listing_id):
+                    video = muse._row_view(fake_job(listing_key=listing_id))["videoSpec"]
+                    self.assertEqual(
+                        video["motionPromptVersion"],
+                        STORY_VERSION if listing_id in pilot_ids
+                        else "CAM_NATURAL_EVERYDAY_MOTION_V3_1",
+                    )
+                    self.assertEqual(video["storyEnabled"], listing_id in pilot_ids)
+            with patch.object(muse, "_configured", return_value=("x" * 64, "tenant")):
+                status = muse.health()
+            self.assertEqual(status["storyV33PilotConfiguredCount"], 2)
+            self.assertFalse(status["storyV33Enabled"])
+
+    def test_pilot_list_fails_closed_when_malformed_or_too_long(self):
+        for raw in (
+            f"{LID},4487783858,4487783859",
+            f"{LID},{LID}",
+            "../other", "1234",
+        ):
+            with self.subTest(raw=raw):
+                with patch.dict("os.environ", {
+                    "CAM_MUSE_STORY_V33_ENABLED": "false",
+                    "CAM_MUSE_STORY_V33_PILOT_LISTING_IDS": raw,
+                }):
+                    self.assertEqual(muse._story_v33_pilot_listings(), frozenset())
+                    self.assertFalse(muse._row_view(fake_job())["videoSpec"]["storyEnabled"])
+
     def test_opted_in_new_job_exposes_action_prompt_and_12s(self):
         with patch.dict("os.environ", {"CAM_MUSE_STORY_V33_ENABLED": "true"}):
             output = muse._row_view(fake_job(title="Tonight We Ride Sweatshirt"))
@@ -433,6 +468,50 @@ class MuseStoryClaimTests(unittest.TestCase):
                 )
                 self.assertEqual(again["job"]["attempts"], 2)
                 self.assertEqual(again["job"]["videoSpec"]["targetDurationSeconds"], 12)
+
+    def test_selected_pilot_can_claim_v33_while_bulk_remains_off(self):
+        pilot_env = {
+            "CAM_MUSE_STORY_V33_ENABLED": "false",
+            "CAM_MUSE_STORY_V33_PILOT_LISTING_IDS": LID,
+        }
+        with patch.dict("os.environ", pilot_env):
+            with Session(self.engine) as db:
+                with self.assertRaises(HTTPException) as err:
+                    muse.claim(LID, muse.ClaimRequest(worker="legacy"),
+                               tenant="boostgame", db=db)
+                self.assertEqual(err.exception.status_code, 409)
+                row = db.get(CamMuseJob, ("boostgame", LID))
+                self.assertEqual(row.attempts, 0)
+            with Session(self.engine) as db:
+                response = muse.claim(
+                    LID,
+                    muse.ClaimRequest(
+                        worker="muse",
+                        storyVersion=STORY_VERSION,
+                        storyOutputContract=STORY_OUTPUT_CONTRACT,
+                    ),
+                    tenant="boostgame", db=db,
+                )
+                self.assertTrue(response["job"]["videoSpec"]["storyEnabled"])
+                self.assertEqual(
+                    db.get(CamMuseJob, ("boostgame", LID))
+                    .output_receipts["story_contract_v33"]["targetDurationSeconds"], 12,
+                )
+
+    def test_unselected_listing_stays_legacy_during_pilot(self):
+        with patch.dict("os.environ", {
+            "CAM_MUSE_STORY_V33_ENABLED": "false",
+            "CAM_MUSE_STORY_V33_PILOT_LISTING_IDS": "4487783858",
+        }):
+            with Session(self.engine) as db:
+                reply = muse.claim(
+                    LID, muse.ClaimRequest(worker="legacy"),
+                    tenant="boostgame", db=db,
+                )
+                self.assertEqual(
+                    reply["job"]["videoSpec"]["motionPromptVersion"],
+                    "CAM_NATURAL_EVERYDAY_MOTION_V3_1",
+                )
 
     def test_old_fourteen_second_worker_cannot_claim_without_12s_ack(self):
         with patch.dict("os.environ", {"CAM_MUSE_STORY_V33_ENABLED": "true"}):
