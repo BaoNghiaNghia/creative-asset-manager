@@ -1,0 +1,57 @@
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it } from "vitest";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { VideoUGCCell } from "./VideoUGCCell";
+import type { Listing } from "./api";
+
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+let root: Root;
+let container: HTMLDivElement;
+function mount(item: Listing) {
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+  act(() => root.render(<table><tbody><tr><VideoUGCCell item={item}/></tr></tbody></table>));
+}
+afterEach(() => {
+  act(() => root?.unmount());
+  container?.remove();
+  document.querySelectorAll(".etsy-video-ugc-backdrop").forEach(el => el.remove());
+});
+const listing = "4456979256";
+const base = { listingKey: listing, pageTitle: "Comfort Colors Print Tee", picked: true } as Listing;
+
+describe("Etsy Spy Video UGC cell", () => {
+  it("does not claim a QA-held design has a video", () => {
+    mount({ ...base, videoUgc: { status: "qa_hold", count: 0, videos: [] } });
+    expect(container.textContent).toContain("Chờ QA ảnh");
+    expect(container.querySelector("video")).toBeNull();
+    expect(container.querySelector("button")).toBeNull();
+  });
+  it("shows two verified CAM video streams in one compact modal", () => {
+    const videos = [
+      { aspectRatio: "9:16" as const, url: "/api/v1/etsy-spy/video-ugc/" + listing + "/vertical",
+        qaStatus: "pending_review" as const },
+      { aspectRatio: "16:9" as const, url: "/api/v1/etsy-spy/video-ugc/" + listing + "/horizontal",
+        qaStatus: "pending_review" as const },
+    ];
+    mount({ ...base, videoUgc: { status: "saved", count: 2, videos } });
+    const button = container.querySelector<HTMLButtonElement>("button");
+    expect(button?.textContent).toContain("2/2 video");
+    act(() => button?.click());
+    const modal = document.querySelector(".etsy-video-ugc-modal");
+    expect(modal).not.toBeNull();
+    expect(modal?.querySelectorAll("video")).toHaveLength(2);
+    expect(Array.from(modal?.querySelectorAll("video") ?? []).map(el => el.getAttribute("src")))
+      .toEqual(videos.map(v => v.url));
+    expect(modal?.textContent).toContain("Chờ QA nội dung");
+    act(() => document.querySelector<HTMLButtonElement>('[aria-label="Đóng video UGC"]')?.click());
+    expect(document.querySelector(".etsy-video-ugc-modal")).toBeNull();
+  });
+  it("does not play unverified external receipt URLs", () => {
+    mount({ ...base, videoUgc: { status: "receipt_only", count: 0, videos: [] } });
+    expect(container.textContent).toContain("Chờ lưu Drive");
+    expect(container.querySelector("video")).toBeNull();
+  });
+});
