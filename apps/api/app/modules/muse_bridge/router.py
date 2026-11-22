@@ -189,8 +189,47 @@ def _row_view(job):
                 "garment": "Comfort Colors C1717", "printPosition": "front_center",
                 "designTopBelowCollarCm": 10,
                 "artworkShaStrict": True,
-                "posing": "varied natural male/female; no hair touching or hands covering front print",
-                "lighting": "directional sunlight and natural backlight",
+                "motionPromptVersion": "CAM_NATURAL_EVERYDAY_MOTION_V3",
+                "motionStyle": "unposed candid documentary footage; real-time human behavior, not fashion acting or a slow-motion portrait",
+                "startFramePolicy": (
+                    "PRE-RENDER CHECK: If the face is visible, choose an approved "
+                    "starting image with both eyes naturally open, relaxed jaw "
+                    "and neutral expression. If the only image has closed eyes, "
+                    "an exaggerated smile, a dramatic tilted neck, or a mid-action "
+                    "pose, choose another approved photo or crop below the mouth. "
+                    "Never animate an already closed-eye smiling portrait."
+                ),
+                "motionPrompt": (
+                    "One continuous 12-second candid UGC take. The subject is "
+                    "relaxed, breathing naturally, and not posing for a camera. "
+                    "Choose ONE concrete everyday action grounded in the starting "
+                    "image and location: shift weight once by the garden fence, "
+                    "take 1-2 unhurried steps if already standing freely, "
+                    "or slightly adjust a seated position if already sitting. "
+                    "The action has a reason, begins and ends naturally within "
+                    "1-2 seconds at real-world speed. Afterwards the subject "
+                    "settles comfortably, with subtle independent movements, "
+                    "natural brief eye blinks, an ordinary changing expression, "
+                    "and a small off-camera glance when appropriate. Eyes stay "
+                    "mostly open when the face is visible. The camera feels like "
+                    "an observer holding a phone steadily at chest height, with "
+                    "barely perceptible human micro-sway. Maintain a mostly "
+                    "front-facing torso, authentic cotton drape and a fully "
+                    "visible, stable front print. Preserve original scene objects; "
+                    "do not invent a coffee cup or other prop."
+                ),
+                "motionQaReject": [
+                    "closed eyes in starting image if face visible",
+                    "eyes closed for over 0.6 seconds outside a natural blink",
+                    "repeated slow head tilts, head rolls, nodding loops or robotic oscillation",
+                    "fixed smiling expression for most of the clip",
+                    "slow-motion or exaggerated acting instead of a motivated everyday action",
+                    "unmotivated hand gestures or hands obscuring the front print",
+                    "unrealistic hand, face, neck, fabric or artwork deformation",
+                    "sudden camera jumps, hard scene cuts or looped body gestures",
+                ],
+                "camera": "single steady human handheld take; mostly chest-to-hip print-focused medium framing, minimal natural sway",
+                "lighting": "ordinary daylight with subtle natural shadows and soft backlight",
                 "preserveArtworkScaleAcrossShots": True,
                 "noOpenAiApi": True,
                 "videoUploadPaths": {
