@@ -25,6 +25,7 @@ import "./EtsySpyReviewAudit.css";
 import "./EtsySpyWorkspaceV2.css";
 import "./EtsySpyCommandBar.css";
 import "./EtsySpyEtsyBadges.css";
+import "./EtsySpyQuickInspect.css";
 import { pickedPollInterval, reconcilePickedPage } from "./pickedPageReconciliation";
 import { TikTokListingCell, canQueueTikTokDraft } from "./TikTokListingCell";
 
