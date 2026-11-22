@@ -471,5 +471,5 @@ body:has(.etsy-spy-page) .etsy-spy-route-main { background:#fff!important; }
   .etsy-spy-page .etsy-v2-inspector {width:min(100vw,390px);border-radius:0;}
 }
 @media(prefers-reduced-motion:reduce) {
-  .etsy-spy-page .etsy-v2-control,
+  .etsy-spy-page .etsy-v2-inspect-trigger { transition: none; }
 }
