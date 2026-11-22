@@ -127,7 +127,7 @@ def _status(key: str) -> bool | None:
 
 def _mark(key: str, hit: bool) -> None:
     with _CACHE_LOCK:
-        _CACHE_STATUS[key] = (hit, time.monotonic() + (35 if hit else 8))
+        _CACHE_STATUS[key] = (hit, time.monotonic() + (120 if hit else 20))
         _CACHE_STATUS.move_to_end(key)
         while len(_CACHE_STATUS) > _MAX_STATUS:
             _CACHE_STATUS.popitem(last=False)

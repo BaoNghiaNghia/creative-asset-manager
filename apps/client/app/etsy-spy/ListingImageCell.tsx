@@ -160,7 +160,9 @@ function ListingZoomPreview({ image, garmentCode }: {
   </div>;
 }
 
-const GALLERY_CACHE_MS = 30_000;
+// Reopening a gallery should reuse immutable, SHA-versioned metadata.
+// Deletion and changed Listing Image badges explicitly invalidate this cache.
+const GALLERY_CACHE_MS = 120_000;
 type GalleryCache = { identity: string; until: number; value: ListingImageGallery };
 
 const SEO_ACTIVE = new Set(["pending", "retry", "processing"]);

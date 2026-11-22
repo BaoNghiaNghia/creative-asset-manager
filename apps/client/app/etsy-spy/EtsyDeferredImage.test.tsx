@@ -61,7 +61,7 @@ describe("Etsy deferred thumbnail loading", () => {
     expect(img.getAttribute("src")).toBeNull();
     await act(async () => observer.emit(img));
     expect(img.getAttribute("src")).toBe("/img/a");
-    expect(img.getAttribute("loading")).toBe("lazy");
+    expect(img.getAttribute("loading")).toBe("eager");
     expect(img.getAttribute("decoding")).toBe("async");
     expect(host?.querySelector(".etsy-image-skeleton")?.getAttribute("data-busy")).toBe("true");
     await act(async () => img.dispatchEvent(new Event("load")));

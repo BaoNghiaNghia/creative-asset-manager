@@ -148,10 +148,12 @@ export const EtsyDeferredImage = memo(function EtsyDeferredImage({
         <path d="m4 17 5-5 3 3 3-4 5 6M3 3l18 18" />
       </svg>
     </span>}
+    {/* The observer and 4-request queue already gate network requests.
+        Native lazy would delay images a second time after entering the queue. */}
     <img {...imageProps} ref={target}
       className={className}
       src={requested && !failed ? src : undefined}
-      loading={eager ? "eager" : "lazy"} decoding="async"
+      loading="eager" decoding="async"
       data-image-state={state}
       onPointerEnter={reveal}
       onFocus={reveal}

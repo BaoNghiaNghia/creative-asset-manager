@@ -14,6 +14,7 @@ from botocore.exceptions import ClientError
 import pytest
 
 from app.modules.etsy_spy import listing_image_shared_r2 as cache
+from app.modules.etsy_spy.thumbnail_memory_cache import ThumbnailMemoryCache
 
 
 SECRET = "a-secure-ExistingVideo-Worker-secret-" + "Ab3" * 19
@@ -65,7 +66,10 @@ class MemoryS3:
 
 
 @pytest.fixture(autouse=True)
-def reset_cache():
+def reset_cache(monkeypatch):
+    monkeypatch.setattr(cache, "_DERIVATIVE_MEMORY", ThumbnailMemoryCache(
+        max_bytes=1024 * 1024, max_item_bytes=512 * 1024, ttl_seconds=90,
+    ))
     with cache._LOCK:
         cache._STATUS.clear()
         cache._ACTIVE_WRITES.clear()
@@ -120,8 +124,12 @@ def test_immutable_namespaced_key_and_worker_ticket():
         cache.object_key(CONFIG, **{**args, "quality": "original"})
     with pytest.raises(ValueError):
         cache.object_key(CONFIG, **{**args, "pack_id": "../video-cache"})
-    with pytest.raises(ValueError):
-        cache.object_key(CONFIG, **{**args, "slot": 11})
+    for slot in (10, 11, 12, 13):
+        selected = cache.object_key(CONFIG, **{**args, "slot": slot})
+        assert f"/{slot:02d}/preview/" in selected
+    for slot in (0, 14, 15):
+        with pytest.raises(ValueError):
+            cache.object_key(CONFIG, **{**args, "slot": slot})
     assert cache.signed_worker_url(CONFIG, key) is None
     enabled = cache.ExistingR2Config(**{
         **CONFIG.__dict__, "worker_enabled": True,
@@ -151,6 +159,9 @@ def test_read_write_reuses_same_bucket_and_never_original(monkeypatch):
         assert s3.reads == 1
         await cache.stage_derivative(CONFIG, **args, data=data)
         assert s3.puts == 1
+        assert await cache.read_derivative(CONFIG, **args) == data
+        assert s3.reads == 2
+        # The second read is served from a bounded process-local memory cache.
         assert await cache.read_derivative(CONFIG, **args) == data
         assert s3.reads == 2
         assert await cache.read_derivative(CONFIG, **{
