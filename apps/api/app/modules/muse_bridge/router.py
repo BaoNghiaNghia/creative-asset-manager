@@ -532,8 +532,17 @@ def missing_video_work(
                 "16:9": f"/api/v1/muse-bridge/jobs/{lid}/videos/horizontal",
             } if phase == "create_video" else None,
         })
+    # Oldest eligible command first within each workflow-phase priority.
+    # Sorting by numeric Etsy listing ID previously let newly queued listings
+    # leapfrog video jobs that had already waited hours.
+    queued_at_by_command = {
+        cmd.command_id: _aware(cmd.created_at) for cmd in candidates
+    }
     items.sort(key=lambda row: (
-        row["nextStep"] != "create_video", row["attempts"], row["listingId"]
+        row["nextStep"] != "create_video",
+        queued_at_by_command[row["commandId"]],
+        row["attempts"],
+        row["listingId"],
     ))
     items = items[:limit]
     return {
