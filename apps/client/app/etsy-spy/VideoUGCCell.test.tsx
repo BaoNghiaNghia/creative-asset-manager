@@ -53,7 +53,50 @@ describe("Etsy Spy Video UGC cell", () => {
     expect(Array.from(modal?.querySelectorAll("video") ?? []).map(el => el.getAttribute("src")))
       .toEqual(videos.map(v => v.url));
     expect(modal?.textContent).toContain("Chờ QA nội dung");
+    expect(modal?.querySelectorAll(".etsy-video-ugc-player")).toHaveLength(2);
+    expect(modal?.querySelector(".etsy-video-ugc-players")?.className).not.toContain("is-single");
+    expect(modal?.querySelectorAll(".etsy-video-ugc-stage")).toHaveLength(2);
+    expect(modal?.querySelector(".etsy-video-ugc-qa.is-pending")?.textContent).toContain("Chờ QA nội dung");
+    expect(modal?.querySelectorAll(".etsy-video-ugc-file-status")).toHaveLength(2);
+    expect(modal?.querySelectorAll('a[target="_blank"][rel="noopener noreferrer"]')).toHaveLength(2);
+    expect(modal?.getAttribute("aria-labelledby")).toBe(
+      modal?.querySelector(".etsy-video-ugc-modal-titles h2")?.id);
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Đóng video UGC");
+    expect(document.body.style.overflow).toBe("hidden");
+    const tabs = Array.from(modal?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? []);
+    expect(tabs.map(tab=>tab.getAttribute("aria-selected"))).toEqual(["true", "false"]);
+    act(() => tabs[1]?.click());
+    expect(tabs.map(tab=>tab.getAttribute("aria-selected"))).toEqual(["false", "true"]);
+    expect(modal?.querySelector(".etsy-video-ugc-player.is-active video")?.getAttribute("src"))
+      .toBe(videos[1].url);
     act(() => document.querySelector<HTMLButtonElement>('[aria-label="Đóng video UGC"]')?.click());
+    expect(document.querySelector(".etsy-video-ugc-modal")).toBeNull();
+    expect(document.body.style.overflow).not.toBe("hidden");
+    expect(document.activeElement).toBe(button);
+  });
+  it("closes on Escape and on the backdrop, not when clicking inside the player", () => {
+    mount({...base, videoUgc: {status: "saved", count: 1, videos: [
+      { aspectRatio: "9:16", url: "/api/v1/etsy-spy/video-ugc/" + listing + "/vertical",
+        qaStatus: "pending_review" }
+    ]}});
+    const button = container.querySelector<HTMLButtonElement>(".etsy-video-ugc-badge");
+    act(() => button?.click());
+    expect(document.querySelector(".etsy-video-ugc-modal")).not.toBeNull();
+    expect(document.querySelector(".etsy-video-ugc-players.is-single")).not.toBeNull();
+    expect(document.querySelector(".etsy-video-ugc-mobile-tabs")).toBeNull();
+    act(() => {
+      document.querySelector(".etsy-video-ugc-player")?.dispatchEvent(
+        new MouseEvent("click", {bubbles: true}));
+    });
+    expect(document.querySelector(".etsy-video-ugc-modal")).not.toBeNull();
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true})));
+    expect(document.querySelector(".etsy-video-ugc-modal")).toBeNull();
+    expect(document.activeElement).toBe(button);
+    act(() => button?.click());
+    act(() => {
+      document.querySelector(".etsy-video-ugc-backdrop")?.dispatchEvent(
+        new MouseEvent("click", {bubbles: true}));
+    });
     expect(document.querySelector(".etsy-video-ugc-modal")).toBeNull();
   });
   it.each([

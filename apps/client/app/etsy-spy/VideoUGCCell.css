@@ -40,17 +40,455 @@
 .etsy-video-ugc-placeholder.tone-attention .etsy-video-ugc-status-icon{
   background:#ffeded;color:#ae4847;
 }
-.etsy-video-ugc-backdrop{position:fixed;inset:0;z-index:2000;display:grid;place-items:center;padding:20px;background:rgba(16,24,40,.55);}
-.etsy-video-ugc-modal{width:min(850px,95vw);max-height:90vh;overflow:auto;border-radius:15px;background:var(--surface-primary,#fff);color:var(--text-primary,#0f172a);box-shadow:0 20px 70px rgba(0,0,0,.3);}
-.etsy-video-ugc-modal-head{display:flex;justify-content:space-between;gap:15px;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border-color,#e2e8f0);}
-.etsy-video-ugc-modal-head>div{display:flex;flex-direction:column;gap:3px;}
-.etsy-video-ugc-modal-head small,.etsy-video-ugc-player small{font-size:12px;color:var(--text-secondary,#64748b);}
-.etsy-video-ugc-modal-head button{border:0;background:transparent;color:inherit;font-size:28px;cursor:pointer;line-height:1;}
-.etsy-video-ugc-players{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;padding:18px;}
-.etsy-video-ugc-player{display:flex;flex-direction:column;gap:8px;min-width:0;}
-.etsy-video-ugc-player-head{display:flex;justify-content:space-between;gap:8px;}
-.etsy-video-ugc-player video{width:100%;max-height:57vh;object-fit:contain;background:#111827;border-radius:10px;}
-.etsy-video-ugc-player video.vertical{aspect-ratio:9/16;}
-.etsy-video-ugc-player video.horizontal{aspect-ratio:16/9;}
-.etsy-video-ugc-player a{font-size:12px;text-decoration:underline;color:inherit;}
-@media(max-width:560px){.etsy-video-ugc-modal{max-height:92vh;}.etsy-video-ugc-players{grid-template-columns:1fr;}}
+/* UGC cinema workspace V2
+   Equal-height video stages make portrait and landscape feel balanced.
+   All file and QA states are source-driven; no mock playback or synthetic poster. */
+.etsy-video-ugc-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: 16px;
+  background: rgba(13, 21, 34, .66);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+.etsy-video-ugc-modal {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: min(918px, calc(100vw - 32px));
+  max-width: 100%;
+  max-height: min(90dvh, 790px);
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid #e1e7ef;
+  border-radius: 19px;
+  background: #f7f9fc;
+  color: #1e293b;
+  box-shadow: 0 28px 84px rgba(4, 16, 35, .30);
+  font-family: inherit;
+}
+.etsy-video-ugc-modal-head {
+  box-sizing: border-box;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 82px;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e8edf4;
+  background: #fff;
+}
+.etsy-video-ugc-modal-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.etsy-video-ugc-modal-hero-icon {
+  display: grid;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 12px;
+  background: #edf3fc;
+  color: #3164a0;
+}
+.etsy-video-ugc-modal-hero-icon svg {
+  width: 23px;
+  height: 23px;
+}
+.etsy-video-ugc-modal-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.etsy-video-ugc-modal-titles .etsy-video-ugc-kicker {
+  font-size: 9px;
+  font-weight: 810;
+  line-height: 1.25;
+  letter-spacing: .1em;
+  color: #8293aa;
+}
+.etsy-video-ugc-modal-titles h2 {
+  margin: 0;
+  padding: 0;
+  font-size: 19px;
+  font-weight: 780;
+  line-height: 1.25;
+  letter-spacing: -.025em;
+  color: #172b45;
+}
+.etsy-video-ugc-modal-titles p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #75869a;
+  overflow-wrap: anywhere;
+}
+.etsy-video-ugc-modal-head-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 10px;
+}
+.etsy-video-ugc-modal-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 4px 9px;
+  box-sizing: border-box;
+  border: 1px solid #dce7f4;
+  border-radius: 999px;
+  background: #f1f6fc;
+  color: #42688d;
+  font-size: 11px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.etsy-video-ugc-close {
+  display: grid;
+  place-items: center;
+  width: 35px;
+  height: 35px;
+  padding: 0;
+  border: 1px solid #e3e9f1;
+  border-radius: 10px;
+  background: #fff;
+  color: #566980;
+  cursor: pointer;
+}
+.etsy-video-ugc-close svg {
+  width: 17px;
+  height: 17px;
+}
+.etsy-video-ugc-close:hover {
+  background: #f4f7fa;
+  color: #1f344c;
+  border-color: #cfdae7;
+}
+.etsy-video-ugc-close:focus-visible,
+.etsy-video-ugc-mobile-tabs button:focus-visible,
+.etsy-video-ugc-player-foot a:focus-visible {
+  outline: 2px solid #3375c0;
+  outline-offset: 2px;
+}
+.etsy-video-ugc-modal-content {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px;
+  scrollbar-width: thin;
+}
+.etsy-video-ugc-players {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, .9fr) minmax(0, 1.12fr);
+  align-items: stretch;
+  gap: 14px;
+  padding: 0;
+}
+.etsy-video-ugc-players.is-single {
+  grid-template-columns: minmax(0, 480px);
+  justify-content: center;
+}
+.etsy-video-ugc-player {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+  min-width: 0;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid #e4eaf2;
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: 0 2px 9px rgba(20, 37, 62, .04);
+}
+.etsy-video-ugc-player-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  min-height: 54px;
+  padding: 10px 13px;
+  box-sizing: border-box;
+  border-bottom: 1px solid #eef1f6;
+}
+.etsy-video-ugc-player-identity {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: 7px;
+}
+.etsy-video-ugc-player-identity strong {
+  font-size: 12px;
+  font-weight: 770;
+  color: #263b55;
+}
+.etsy-video-ugc-ratio {
+  display: inline-flex;
+  padding: 3px 6px;
+  border-radius: 5px;
+  background: #f0f3f7;
+  color: #607187;
+  font-size: 10px;
+  font-weight: 710;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+.etsy-video-ugc-qa {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 4px 7px;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+.etsy-video-ugc-qa.is-pending {
+  background: #fff7e6;
+  border-color: #f4e6c4;
+  color: #916722;
+}
+.etsy-video-ugc-qa.is-saved {
+  background: #eef4fb;
+  border-color: #dce7f4;
+  color: #426c9a;
+}
+.etsy-video-ugc-qa-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.etsy-video-ugc-stage {
+  box-sizing: border-box;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: clamp(270px, 46dvh, 412px);
+  min-height: 0;
+  padding: 12px;
+  overflow: hidden;
+  background: linear-gradient(145deg, #253447 0%, #151e2c 66%, #111927 100%);
+}
+.etsy-video-ugc-stage video {
+  box-sizing: border-box;
+  display: block;
+  max-height: 100%;
+  max-width: 100%;
+  background: #090f18;
+  border-radius: 7px;
+  object-fit: contain;
+  outline: none;
+}
+.etsy-video-ugc-stage video.vertical {
+  width: auto;
+  height: 100%;
+  aspect-ratio: 9/16;
+}
+.etsy-video-ugc-stage video.horizontal {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16/9;
+}
+.etsy-video-ugc-player-foot {
+  display: flex;
+  min-height: 47px;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid #e9eff6;
+}
+.etsy-video-ugc-file-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #73849a;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 620;
+}
+.etsy-video-ugc-file-status svg {
+  width: 15px;
+  height: 15px;
+  color: #4d84b0;
+}
+.etsy-video-ugc-player-foot a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #2f68a5;
+  font-size: 11px;
+  font-weight: 710;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.etsy-video-ugc-player-foot a svg {
+  width: 14px;
+  height: 14px;
+}
+.etsy-video-ugc-player-foot a:hover {
+  text-decoration: underline;
+}
+.etsy-video-ugc-modal-footnote {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 9px 18px;
+  border-top: 1px solid #e8edf4;
+  background: #fff;
+  color: #8190a3;
+  font-size: 10px;
+  line-height: 1.35;
+}
+.etsy-video-ugc-modal-footnote svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+}
+.etsy-video-ugc-mobile-tabs {
+  display: none;
+}
+@media (max-width: 720px) {
+  .etsy-video-ugc-backdrop {
+    padding: 12px;
+  }
+  .etsy-video-ugc-modal {
+    width: min(560px, calc(100vw - 24px));
+    max-height: calc(100dvh - 24px);
+    border-radius: 16px;
+  }
+  .etsy-video-ugc-modal-head {
+    min-height: 72px;
+    padding: 12px 14px;
+  }
+  .etsy-video-ugc-modal-hero-icon {
+    width: 36px;
+    height: 36px;
+    flex-basis: 36px;
+    border-radius: 10px;
+  }
+  .etsy-video-ugc-modal-titles h2 {
+    font-size: 16px;
+  }
+  .etsy-video-ugc-modal-count {
+    padding: 4px 7px;
+    font-size: 10px;
+  }
+  .etsy-video-ugc-modal-head-actions {
+    gap: 6px;
+  }
+  .etsy-video-ugc-modal-content {
+    padding: 11px;
+  }
+  .etsy-video-ugc-mobile-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    margin-bottom: 12px;
+    padding: 4px;
+    border-radius: 10px;
+    background: #e9eef6;
+  }
+  .etsy-video-ugc-mobile-tabs button {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    min-height: 38px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: #687b94;
+    font-size: 12px;
+    font-weight: 710;
+    cursor: pointer;
+  }
+  .etsy-video-ugc-mobile-tabs button.is-active {
+    color: #28578b;
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(21, 38, 67, .10);
+  }
+  .etsy-video-ugc-mobile-tabs button span {
+    color: #8b9aae;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .etsy-video-ugc-players,
+  .etsy-video-ugc-players.is-single {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+  .etsy-video-ugc-player:not(.is-active) {
+    display: none;
+  }
+  .etsy-video-ugc-players.is-single .etsy-video-ugc-player {
+    display: grid;
+  }
+  .etsy-video-ugc-stage {
+    height: min(48dvh, 380px);
+    padding: 10px;
+  }
+  .etsy-video-ugc-stage video.vertical {
+    height: 100%;
+  }
+  .etsy-video-ugc-stage video.horizontal {
+    height: auto;
+    max-height: 100%;
+  }
+  .etsy-video-ugc-modal-footnote {
+    padding: 8px 13px;
+  }
+}
+@media (max-width: 390px) {
+  .etsy-video-ugc-modal-head {
+    padding: 10px 11px;
+  }
+  .etsy-video-ugc-modal-identity {
+    gap: 8px;
+  }
+  .etsy-video-ugc-modal-titles p {
+    font-size: 10px;
+  }
+  .etsy-video-ugc-modal-hero-icon {
+    display: none;
+  }
+  .etsy-video-ugc-modal-count {
+    display: none;
+  }
+  .etsy-video-ugc-player-head {
+    padding: 9px 10px;
+  }
+  .etsy-video-ugc-qa {
+    padding: 4px 6px;
+    font-size: 9px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .etsy-video-ugc-close,
+  .etsy-video-ugc-mobile-tabs button { transition: none; }
+}
