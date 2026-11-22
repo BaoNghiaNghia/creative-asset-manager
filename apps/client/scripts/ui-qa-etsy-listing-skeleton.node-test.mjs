@@ -17,7 +17,7 @@ test("Main Listing Image thumbnail contains its own absolute loading skeleton", 
   assert.match(rule, /position:\s*relative/, "skeleton must anchor to the compact thumbnail button");
   assert.match(rule, /isolation:\s*isolate/, "loading stack cannot cover other cells");
   assert.match(rule, /overflow:\s*hidden/, "no skeleton overflow beyond Main");
-  assert.match(rule, /width:\s*72px;height:\s*72px/, "thumbnail geometry stays stable");
+  assert.match(rule, /width:\s*56px;height:\s*56px/, "compact thumbnail geometry stays stable at 56px");
 });
 
 test("shared Etsy image skeleton styles also anchor Listing Image Main", () => {
