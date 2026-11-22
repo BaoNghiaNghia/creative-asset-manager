@@ -68,7 +68,7 @@ class StoryCatalogTests(unittest.TestCase):
         self.assertEqual(spec["beats"][1]["purpose"], "meaningful_action")
         self.assertTrue(all(len(x["action"]) > 40 for x in spec["beats"]))
         self.assertIn("no head-turn-only", spec["narrativePrompt"])
-        self.assertIn("existing", spec["narrativePrompt"])
+        self.assertIn("already be present in the approved reference frame", spec["narrativePrompt"])
         self.assertIn("native 14-second", spec["narrativePrompt"])
 
     def test_title_cannot_change_approved_c1717_into_sweatshirt(self):
