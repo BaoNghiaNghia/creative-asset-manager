@@ -800,24 +800,24 @@ def _eligible_phase(db: Session, tenant: str,
                     job: CamMuseJob, cmd: CamMuseCommand):
     if job.artwork_sha256 != cmd.artwork_sha256:
         return None
-    if (job.status == "qa_hold"
-            and job.listing_key != os.getenv(
-                "CAM_MUSE_QA_CANARY_LISTING_ID", "4456979256")):
-        # The visual review endpoint is a single-listing canary.
-        # Never queue reviews that Muse cannot submit back to CAM.
-        return None
+    # Each SHA-matched candidate may now be independently reviewed by Muse.
+    # The verdict endpoint still demands real comparative visual evidence.
     if cmd.action == "review_artwork":
         if job.status != "qa_hold":
             return None
-        return ("review_artwork" if _stored_native_asset(
+        return ("review_artwork" if job.product_image_url and _stored_native_asset(
             db, tenant, job.listing_key, cmd.artwork_sha256
         ) else None)
     if job.status == "qa_hold":
         return ("review_artwork" if _stored_native_asset(
             db, tenant, job.listing_key, cmd.artwork_sha256
         ) and job.product_image_url else None)
+    claimable = (job.status == "pending" or
+                 (job.status == "claimed"
+                  and _aware(job.lease_expires_at) is not None
+                  and _aware(job.lease_expires_at) <= _utc()))
     if (job.source_state == "ready_for_muse"
-            and job.status == "pending"
+            and claimable and job.attempts < 5
             and job.artwork_asset_path
             and isinstance(_qa_record(job), dict)
             and _qa_record(job).get("verdict") == "pass"
@@ -892,7 +892,10 @@ def create_operator_command(payload: CommandCreate,
         if prior.listing_key != payload.listingId or prior.action != payload.action:
             raise HTTPException(409, "requestId reused for a different task")
         return {"ok": True, "reused": True, **_command_status(prior)}
-    if (job.status in ("claimed", "submitted", "completed")
+    if (job.status in ("submitted", "completed")
+            or (job.status == "claimed"
+                and (_aware(job.lease_expires_at) is None
+                     or _aware(job.lease_expires_at) > _utc()))
             or job.source_state == "missing_source"):
         raise HTTPException(409, "Job already submitted or original source unavailable")
     if not job.artwork_sha256 or not HEX64.fullmatch(job.artwork_sha256):
@@ -964,7 +967,9 @@ def list_muse_commands(limit: int = Query(default=10, ge=1, le=20),
                       "title": job.title,
                       "reviewPath": f"/api/v1/muse-bridge/reviews?listing_id={cmd.listing_key}",
                       "jobsPath": "/api/v1/muse-bridge/jobs",
-                      "videoGenerationEnabled": False,
+                      "videoGenerationEnabled": phase == "create_video",
+                      "videoExecutor": "muse",
+                      "camInternalVideoGenerationEnabled": False,
                       "requiresMusePolling": True})
     return {"ok": True, "items": items, "count": len(items)}
 
