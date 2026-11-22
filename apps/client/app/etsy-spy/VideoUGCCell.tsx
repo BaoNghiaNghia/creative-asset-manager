@@ -262,7 +262,9 @@ export function VideoUGCCell({ item }: { item: Listing }) {
     </span>}
     {show && video && createPortal(
       <div className="etsy-video-ugc-backdrop" role="presentation" onClick={closeModal}>
-        <section ref={modalRef} className="etsy-video-ugc-modal"
+        <section ref={modalRef} className={"etsy-video-ugc-modal " +
+          (video.aspectRatio === "9:16" ? "is-vertical" : "is-horizontal") +
+          (files.length === 1 ? " is-single" : "")}
           role="dialog" aria-modal="true" aria-labelledby={modalTitleId}
           onClick={event => event.stopPropagation()}>
           <header className="etsy-video-ugc-modal-head">
@@ -292,7 +294,9 @@ export function VideoUGCCell({ item }: { item: Listing }) {
             </div>
           </header>
           <div className="etsy-video-ugc-modal-content">
-            <div className={"etsy-video-ugc-studio" + (files.length === 1 ? " is-single" : "")}>
+            <div className={"etsy-video-ugc-studio " +
+              (video.aspectRatio === "9:16" ? "is-vertical" : "is-horizontal") +
+              (files.length === 1 ? " is-single" : "")}>
               <div className={"etsy-video-ugc-primary " +
                 (video.aspectRatio === "9:16" ? "is-vertical" : "is-horizontal")}
                 id={tabGroupId + "-panel"} role={files.length > 1 ? "tabpanel" : "group"}

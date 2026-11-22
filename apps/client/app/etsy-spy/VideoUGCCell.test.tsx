@@ -53,6 +53,9 @@ describe("Etsy Spy Video UGC single-player modal", () => {
     const trigger = open();
     expect(modal()).toBeTruthy();
     expect(modal()?.getAttribute("role")).toBe("dialog");
+    expect(modal()?.classList.contains("is-vertical")).toBe(true);
+    expect(modal()?.querySelector(".etsy-video-ugc-studio.is-vertical")).toBeTruthy();
+    expect(modal()?.querySelector(".etsy-video-ugc-player-stage.is-vertical")).toBeTruthy();
     expect(modal()?.getAttribute("aria-labelledby"))
       .toBe(modal()?.querySelector("h2")?.id);
     expect(modal()?.querySelectorAll("video")).toHaveLength(0);
@@ -86,10 +89,15 @@ describe("Etsy Spy Video UGC single-player modal", () => {
     expect(activeSource()?.getAttribute("src")).toBe(videos[1].url);
     expect(document.querySelectorAll(".etsy-video-ugc-player-stage video")).toHaveLength(1);
     expect(document.querySelector(".etsy-video-ugc-player-stage.is-horizontal")).toBeTruthy();
+    expect(modal()?.classList.contains("is-horizontal")).toBe(true);
+    expect(modal()?.classList.contains("is-vertical")).toBe(false);
+    expect(modal()?.querySelector(".etsy-video-ugc-studio.is-horizontal")).toBeTruthy();
     expect(tabs.map(tab => tab.getAttribute("aria-selected"))).toEqual(["false", "true"]);
     expect(modal()?.querySelector('a[target="_blank"]')?.getAttribute("href"))
       .toBe(videos[1].url);
     act(() => tabs[0].click());
+    expect(modal()?.classList.contains("is-vertical")).toBe(true);
+    expect(modal()?.querySelector(".etsy-video-ugc-player-stage.is-vertical")).toBeTruthy();
     expect(activeSource()).toBeNull();
     play();
     expect(activeSource()?.getAttribute("src")).toBe(videos[0].url);
@@ -189,7 +197,8 @@ describe("Etsy Spy Video UGC single-player modal", () => {
     play();
     expect(modal()?.querySelectorAll("video")).toHaveLength(1);
     expect(modal()?.querySelectorAll('[role="tab"]')).toHaveLength(0);
-    expect(modal()?.querySelector(".etsy-video-ugc-studio.is-single")).toBeTruthy();
+    expect(modal()?.querySelector(".etsy-video-ugc-studio.is-single.is-vertical")).toBeTruthy();
+    expect(modal()?.classList.contains("is-single")).toBe(true);
     expect(activeSource()?.getAttribute("src")).toBe(videos[0].url);
   });
   it("uses cached WebP poster thumbnails without fetching any MP4 before Play", () => {
@@ -204,6 +213,8 @@ describe("Etsy Spy Video UGC single-player modal", () => {
     open();
     expect(document.querySelectorAll("video")).toHaveLength(0);
     expect(document.querySelectorAll(".etsy-video-ugc-version-preview img")).toHaveLength(2);
+    expect(document.querySelector(".etsy-video-ugc-version-preview.is-vertical img")).toBeTruthy();
+    expect(document.querySelector(".etsy-video-ugc-version-preview.is-horizontal img")).toBeTruthy();
     expect(document.querySelector(".etsy-video-ugc-poster-action img")
       ?.getAttribute("src")).toBe(fromCache[0].posterUrl);
     expect(document.querySelector(".etsy-video-ugc-poster-action")?.getAttribute("aria-label"))
