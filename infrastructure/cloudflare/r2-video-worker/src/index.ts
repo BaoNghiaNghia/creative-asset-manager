@@ -87,7 +87,8 @@ function authRejected(env: Env, reason: AuthRejectReason): null {
 function objectHeaders(object: R2ReadObject, cacheStatus: "HIT" | "MISS" | "BYPASS"): Headers {
   const headers = protectedHeaders();
   const contentType = object.httpMetadata?.contentType;
-  headers.set("Content-Type", contentType?.startsWith("video/") ? contentType : "application/octet-stream");
+  headers.set("Content-Type", contentType?.startsWith("video/") || contentType === "image/webp"
+    ? contentType : "application/octet-stream");
   headers.set("Content-Length", String(object.size));
   headers.set("Accept-Ranges", "bytes");
   headers.set("X-Video-Cache", cacheStatus);

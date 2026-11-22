@@ -21,6 +21,8 @@ def video_ugc_view(job) -> dict:
         videos.append({
             "aspectRatio": ratio,
             "url": f"/api/v1/etsy-spy/video-ugc/{job.listing_key}/{slug}",
+            "posterUrl": f"/api/v1/etsy-spy/video-ugc/{job.listing_key}/{slug}/poster/640",
+            "thumbnailUrl": f"/api/v1/etsy-spy/video-ugc/{job.listing_key}/{slug}/poster/320",
             "width": item.get("width"),
             "height": item.get("height"),
             "durationSeconds": item.get("durationSeconds"),

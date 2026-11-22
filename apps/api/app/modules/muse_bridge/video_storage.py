@@ -109,6 +109,19 @@ async def store_muse_video(
             folder_id=folders["video_folder_id"],
             tenant_id=tenant_id, asset_id=asset_id, sha256=digest,
         )
+    # Drive remains the canonical source. Stage only once, after the verified
+    # upload; browsing never refreshes R2's fixed 30-day lifecycle.
+    # This is an optional acceleration layer, so a cache miss does not reject
+    # a successful Muse upload. The input bytes are already bounded to 40 MiB.
+    try:
+        from .ugc_media_cache import config_for_tenant, stage_uploaded
+        await asyncio.wait_for(
+            stage_uploaded(config_for_tenant(tenant_id),
+                           tenant=tenant_id, sha=digest, mp4=mp4),
+            timeout=45,
+        )
+    except Exception:
+        pass  # Keep the verified Drive receipt and normal playback fallback.
     return {
         "aspectRatio": _RATIOS[aspect],
         "sha256": digest, "bytes": len(mp4),

@@ -35,14 +35,15 @@ const markup = (aspect) => {
     aspect + '</span></div><span class="etsy-video-ugc-qa is-pending">' +
     '<span class="etsy-video-ugc-qa-dot"></span>Chờ QA nội dung</span></div>' +
     '<div class="etsy-video-ugc-player-stage is-' + (vertical ? "vertical" : "horizontal") + '">' +
-    '<video controls playsinline preload="none" class="' + (vertical ? "vertical" : "horizontal") +
-    '" aria-label="Video ' + aspect + '"></video></div>' +
+    '<button class="etsy-video-ugc-poster-action" aria-label="Phát Video ' +
+    (vertical ? "dọc" : "ngang") + '">' +
+    '<span class="etsy-video-ugc-poster-play"><svg viewBox="0 0 24 24"><path d="m8 5 12 7-12 7Z"/></svg></span>' +
+    '<span class="etsy-video-ugc-poster-label">Nhấn để phát · ' + aspect +
+    '</span></button></div>' +
     '<div class="etsy-video-ugc-primary-foot"><a href="#">Mở file gốc</a></div></div>' +
     '<aside class="etsy-video-ugc-selector"><div class="etsy-video-ugc-version-group" role="tablist">' +
     selector(aspect, true) + selector(other, false) + '</div>' +
-    '<div class="etsy-video-ugc-selected-info"><h3>Phiên bản ' + aspect + '</h3>' +
-    '<p>Chọn video để xem.</p></div><div class="etsy-video-ugc-storage-note">' +
-    'Lưu Drive không đồng nghĩa đạt QA.</div></aside></div></div></section></div></body></html>';
+    '</aside></div></div></section></div></body></html>';
 };
 const browser = await chromium.launch({
   headless:true, executablePath:"/opt/google/chrome/chrome",
@@ -71,6 +72,7 @@ try {
           stageRatio:sr.width/sr.height,
           playerTop:Math.round(pr.top), selectorTop:Math.round(rr.top),
           videoCount:document.querySelectorAll("video").length,
+          posterActionCount:document.querySelectorAll(".etsy-video-ugc-poster-action").length,
           linkCount:document.querySelectorAll(".etsy-video-ugc-primary-foot a").length,
           selectorCount:document.querySelectorAll(".etsy-video-ugc-version").length,
           selectorLayout:getComputedStyle(document.querySelector(".etsy-video-ugc-version-group")).display,
@@ -81,7 +83,19 @@ try {
       assert(m.modalWidth <= width-18, width+"px modal too wide "+JSON.stringify(m));
       assert(m.modalHeight <= height+1, width+"px modal too tall "+JSON.stringify(m));
       assert(m.modalBottom <= height+2, width+"px modal exceeds viewport "+JSON.stringify(m));
-      assert.equal(m.videoCount,1,"two videos unexpectedly mounted");
+      assert.equal(m.videoCount,0,"MP4 must not be mounted before Play");
+      assert.equal(m.posterActionCount,1,"Poster action must be visible before Play");
+      await page.locator(".etsy-video-ugc-poster-action").click();
+      const playable = await page.evaluate(() => {
+        const stage = document.querySelector(".etsy-video-ugc-player-stage");
+        const video = document.createElement("video");
+        video.setAttribute("controls", "");
+        video.className = stage.classList.contains("is-vertical") ? "vertical" : "horizontal";
+        stage.querySelector(".etsy-video-ugc-poster-action")?.remove();
+        stage.append(video);
+        return document.querySelectorAll(".etsy-video-ugc-player-stage video").length;
+      });
+      assert.equal(playable, 1, "MP4 player must mount only after explicit Play");
       assert.equal(m.selectorCount,2);
       assert.equal(m.linkCount,1);
       assert(m.stageWidth>150 && m.stageHeight>150);

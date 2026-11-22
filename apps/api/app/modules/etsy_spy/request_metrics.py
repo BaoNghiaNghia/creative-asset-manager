@@ -27,6 +27,9 @@ _THUMB_PATH = re.compile(
 _LISTING_IMAGE_PATH = re.compile(
     r"^/api/v1/etsy-spy/listing-images/sp-[0-9a-f]{40}/(?:[1-9]|10)/(thumbnail|preview|original)$"
 )
+_MEDIA_LABELS = frozenset({"ugc_video", "ugc_poster", "ugc_r2_playback", "ugc_r2_poster"})
+_UGC_VIDEO_PATH = re.compile(r"^/api/v1/etsy-spy/video-ugc/[0-9]{5,20}/(vertical|horizontal)$")
+_UGC_POSTER_PATH = re.compile(r"^/api/v1/etsy-spy/video-ugc/[0-9]{5,20}/(vertical|horizontal)/poster/(320|640)$")
 _IMAGE_LABELS = frozenset({
     "design_thumbnail", "listing_thumbnail", "listing_preview", "listing_original",
     "listing_cdn_thumbnail", "listing_cdn_preview", "listing_cdn_stage",
@@ -42,6 +45,10 @@ def route_label(method: str, path: str) -> str | None:
         return _FIXED_GET[path]
     if _THUMB_PATH.fullmatch(path):
         return "design_thumbnail"
+    if _UGC_VIDEO_PATH.fullmatch(path):
+        return "ugc_video"
+    if _UGC_POSTER_PATH.fullmatch(path):
+        return "ugc_poster"
     listing = _LISTING_IMAGE_PATH.fullmatch(path)
     return "listing_" + listing.group(1) if listing else None
 
@@ -105,7 +112,7 @@ class EtsyPerformanceMeter:
 
     def record(self, label: str, *, status_code: int, duration_ms: float,
                now: float | None = None) -> None:
-        if label not in set(_FIXED_GET.values()) | _IMAGE_LABELS:
+        if label not in set(_FIXED_GET.values()) | _IMAGE_LABELS | _MEDIA_LABELS:
             return
         with self._lock:
             completed = self._advance(time() if now is None else now)
@@ -121,7 +128,7 @@ class EtsyPerformanceMeter:
     def cache(self, hit: bool, *, coalesced: bool = False,
               now: float | None = None,
               label: str = "design_thumbnail") -> None:
-        if label not in _IMAGE_LABELS:
+        if label not in _IMAGE_LABELS | _MEDIA_LABELS:
             return
         with self._lock:
             completed = self._advance(time() if now is None else now)

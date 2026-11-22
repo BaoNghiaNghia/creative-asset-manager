@@ -38,6 +38,7 @@ const open = () => {
   return trigger;
 };
 const activeSource = () => document.querySelector<HTMLVideoElement>(".etsy-video-ugc-player-stage video");
+const play = () => act(() => document.querySelector<HTMLButtonElement>(".etsy-video-ugc-poster-action")?.click());
 const modal = () => document.querySelector<HTMLElement>(".etsy-video-ugc-modal");
 
 describe("Etsy Spy Video UGC single-player modal", () => {
@@ -54,6 +55,9 @@ describe("Etsy Spy Video UGC single-player modal", () => {
     expect(modal()?.getAttribute("role")).toBe("dialog");
     expect(modal()?.getAttribute("aria-labelledby"))
       .toBe(modal()?.querySelector("h2")?.id);
+    expect(modal()?.querySelectorAll("video")).toHaveLength(0);
+    expect(modal()?.querySelector(".etsy-video-ugc-poster-action")).toBeTruthy();
+    play();
     expect(modal()?.querySelectorAll("video")).toHaveLength(1);
     expect(activeSource()?.getAttribute("src")).toBe(videos[0].url);
     expect(activeSource()?.getAttribute("preload")).toBe("auto");
@@ -64,8 +68,7 @@ describe("Etsy Spy Video UGC single-player modal", () => {
     expect(modal()?.querySelectorAll('a[target="_blank"]')).toHaveLength(1);
     expect(modal()?.querySelector(".etsy-video-ugc-qa.is-pending")?.textContent)
       .toContain("Chờ QA nội dung");
-    expect(modal()?.querySelector(".etsy-video-ugc-storage-note")?.textContent)
-      .toContain("không đồng nghĩa đạt QA");
+    expect(modal()?.querySelector(".etsy-video-ugc-selected-info")).toBeNull();
     expect(document.body.style.overflow).toBe("hidden");
     expect(document.activeElement?.getAttribute("aria-label")).toBe("Đóng video UGC");
     act(() => modal()?.querySelector<HTMLButtonElement>(".etsy-video-ugc-close")?.click());
@@ -78,6 +81,8 @@ describe("Etsy Spy Video UGC single-player modal", () => {
     open();
     const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
     act(() => tabs[1].click());
+    expect(activeSource()).toBeNull();
+    play();
     expect(activeSource()?.getAttribute("src")).toBe(videos[1].url);
     expect(document.querySelectorAll(".etsy-video-ugc-player-stage video")).toHaveLength(1);
     expect(document.querySelector(".etsy-video-ugc-player-stage.is-horizontal")).toBeTruthy();
@@ -85,6 +90,8 @@ describe("Etsy Spy Video UGC single-player modal", () => {
     expect(modal()?.querySelector('a[target="_blank"]')?.getAttribute("href"))
       .toBe(videos[1].url);
     act(() => tabs[0].click());
+    expect(activeSource()).toBeNull();
+    play();
     expect(activeSource()?.getAttribute("src")).toBe(videos[0].url);
   });
   it("supports keyboard navigation across both video variants", () => {
@@ -94,12 +101,14 @@ describe("Etsy Spy Video UGC single-player modal", () => {
     act(() => tabs[0].dispatchEvent(new KeyboardEvent("keydown", {
       key:"ArrowRight", bubbles:true, cancelable:true,
     })));
-    expect(activeSource()?.getAttribute("src")).toBe(videos[1].url);
+    expect(activeSource()).toBeNull();
+    expect(document.querySelector(".etsy-video-ugc-primary-head")?.textContent).toContain("16:9");
     expect(document.activeElement?.getAttribute("role")).toBe("tab");
     act(() => tabs[1].dispatchEvent(new KeyboardEvent("keydown", {
       key:"Home", bubbles:true, cancelable:true,
     })));
-    expect(activeSource()?.getAttribute("src")).toBe(videos[0].url);
+    expect(activeSource()).toBeNull();
+    expect(document.querySelector(".etsy-video-ugc-primary-head")?.textContent).toContain("9:16");
   });
   it("captures a preview only from an actually loaded video frame", () => {
     const originalGetContext = HTMLCanvasElement.prototype.getContext;
@@ -113,6 +122,7 @@ describe("Etsy Spy Video UGC single-player modal", () => {
     try {
       mount(withVideos);
       open();
+      play();
       const player = activeSource()!;
       Object.defineProperty(player, "videoWidth", {configurable:true, value:1080});
       Object.defineProperty(player, "videoHeight", {configurable:true, value:1920});
@@ -134,6 +144,7 @@ describe("Etsy Spy Video UGC single-player modal", () => {
   it("exposes a retry action after the active MP4 encounters an error", () => {
     mount(withVideos);
     open();
+    play();
     const first = activeSource();
     act(() => first?.dispatchEvent(new Event("error")));
     expect(document.querySelector('.etsy-video-ugc-error[role="alert"]')).toBeTruthy();
@@ -147,6 +158,7 @@ describe("Etsy Spy Video UGC single-player modal", () => {
     vi.useFakeTimers();
     mount(withVideos);
     open();
+    play();
     expect(document.querySelector(".etsy-video-ugc-load-status")?.textContent)
       .toContain("Đang chuẩn bị video");
     act(() => vi.advanceTimersByTime(15050));
@@ -160,6 +172,7 @@ describe("Etsy Spy Video UGC single-player modal", () => {
   it("waits for playable media instead of treating metadata as a loaded frame", () => {
     mount(withVideos);
     open();
+    play();
     expect(document.querySelector(".etsy-video-ugc-load-status")).toBeTruthy();
     act(() => activeSource()?.dispatchEvent(new Event("loadedmetadata")));
     expect(document.querySelector(".etsy-video-ugc-load-status")?.textContent)
@@ -172,10 +185,33 @@ describe("Etsy Spy Video UGC single-player modal", () => {
   it("supports a single verified video without a nonfunctional second selector", () => {
     mount({...base, videoUgc: {status:"partial", count:1, videos:[videos[0]]}});
     open();
+    expect(modal()?.querySelectorAll("video")).toHaveLength(0);
+    play();
     expect(modal()?.querySelectorAll("video")).toHaveLength(1);
     expect(modal()?.querySelectorAll('[role="tab"]')).toHaveLength(0);
     expect(modal()?.querySelector(".etsy-video-ugc-studio.is-single")).toBeTruthy();
     expect(activeSource()?.getAttribute("src")).toBe(videos[0].url);
+  });
+  it("uses cached WebP poster thumbnails without fetching any MP4 before Play", () => {
+    const fromCache = videos.map((file, index) => ({
+      ...file,
+      posterUrl: "/api/v1/etsy-spy/video-ugc/" + listing + "/" +
+        (index === 0 ? "vertical" : "horizontal") + "/poster/640",
+      thumbnailUrl: "/api/v1/etsy-spy/video-ugc/" + listing + "/" +
+        (index === 0 ? "vertical" : "horizontal") + "/poster/320",
+    }));
+    mount({...base,videoUgc:{status:"saved", count:2, videos:fromCache}});
+    open();
+    expect(document.querySelectorAll("video")).toHaveLength(0);
+    expect(document.querySelectorAll(".etsy-video-ugc-version-preview img")).toHaveLength(2);
+    expect(document.querySelector(".etsy-video-ugc-poster-action img")
+      ?.getAttribute("src")).toBe(fromCache[0].posterUrl);
+    expect(document.querySelector(".etsy-video-ugc-poster-action")?.getAttribute("aria-label"))
+      .toBe("Phát Video dọc");
+    play();
+    expect(activeSource()?.getAttribute("src")).toBe(fromCache[0].url);
+    expect(activeSource()?.getAttribute("poster")).toBe(fromCache[0].posterUrl);
+    expect(document.querySelectorAll("video")).toHaveLength(1);
   });
   it("closes by Escape and by backdrop but not by player click", () => {
     mount(withVideos);

@@ -54,20 +54,30 @@ function VideoUgcActivePlayer({
   onPoster: (image: string) => void;
   onRetry: () => void;
 }) {
+  const [started, setStarted] = useState(false);
+  const [posterFailed, setPosterFailed] = useState(false);
   const [phase, setPhase] = useState<PlayerPhase>("loading");
   const playerRef = useRef<HTMLVideoElement>(null);
   const isVertical = video.aspectRatio === "9:16";
+  const playStartedAt = useRef<number | null>(null);
 
-  // Do not allow an endless spinner when Drive or the private MP4 stream fails.
+  // MP4 is not mounted and therefore not requested until a user clicks Play.
+  // A timed-out stream releases its loading status instead of spinning forever.
   useEffect(() => {
-    if (phase !== "loading" && phase !== "buffering") return;
+    if (!started || (phase !== "loading" && phase !== "buffering")) return;
     const timer = window.setTimeout(() => setPhase(current =>
       current === "loading" || current === "buffering" ? "error" : current), 15000);
     return () => window.clearTimeout(timer);
-  }, [phase, video.url, retryToken]);
+  }, [started, phase, video.url, retryToken]);
+
+  useEffect(() => {
+    if (!started) return;
+    setPhase("loading");
+    playStartedAt.current = performance.now();
+  }, [retryToken, started]);
 
   const captureRealFrame = (event: SyntheticEvent<HTMLVideoElement>) => {
-    if (poster) return;
+    if (poster && !posterFailed) return;
     const element = event.currentTarget;
     if (!element.videoWidth || !element.videoHeight) return;
     try {
@@ -78,44 +88,69 @@ function VideoUgcActivePlayer({
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       ctx.drawImage(element, 0, 0, canvas.width, canvas.height);
-      // Private frame preview lives only in current browser state; never uploaded.
       onPoster(canvas.toDataURL("image/jpeg", 0.68));
     } catch {
-      // Canvas may be restricted by browser or video origin; keep the fallback icon.
+      // Same-origin cache may be offline or canvas may be disabled; icon fallback.
     }
   };
-  const onMediaError = () => setPhase("error");
+  const reportFirstFrame = () => {
+    const start = playStartedAt.current;
+    if (start === null) return;
+    playStartedAt.current = null;
+    try {
+      const duration = Math.round(performance.now() - start);
+      performance.measure("cam-ugc-first-frame", {
+        start: performance.now() - duration, duration,
+        detail: {aspect: video.aspectRatio},
+      });
+    } catch { /* Telemetry is local only and must never affect playback. */ }
+  };
+
   return <div className={"etsy-video-ugc-player-stage " +
-    (isVertical ? "is-vertical" : "is-horizontal")} data-player-phase={phase}>
-    <video key={video.url + ":" + retryToken} ref={playerRef}
-      controls playsInline preload="auto" poster={poster}
-      src={video.url}
-      className={isVertical ? "vertical" : "horizontal"}
+    (isVertical ? "is-vertical" : "is-horizontal")} data-player-phase={started ? phase : "poster"}>
+    {!started ? <button type="button"
+      className="etsy-video-ugc-poster-action"
       aria-label={"Phát " + aspectName(video.aspectRatio)}
-      onLoadedMetadata={() => setPhase("buffering")}
-      onCanPlay={() => setPhase("ready")}
-      onPlaying={() => setPhase("ready")}
-      onLoadedData={event => { setPhase("ready"); captureRealFrame(event); }}
-      onWaiting={() => setPhase("buffering")}
-      onStalled={() => setPhase("buffering")}
-      onError={onMediaError}/>
-    {phase === "loading" && <div className="etsy-video-ugc-load-status" role="status">
-      <span className="etsy-video-ugc-spinner" aria-hidden="true"/>
-      Đang chuẩn bị video…
-    </div>}
-    {phase === "buffering" && <div className="etsy-video-ugc-load-status" role="status">
-      <span className="etsy-video-ugc-spinner" aria-hidden="true"/>
-      Đang tải dữ liệu video…
-    </div>}
-    {phase === "error" && <div className="etsy-video-ugc-error" role="alert">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 4h.01"/>
-      </svg>
-      <strong>Không thể tải video</strong>
-      <span>Đường truyền hoặc nguồn MP4 có thể đang gián đoạn.</span>
-      <button type="button" onClick={onRetry}>Thử lại</button>
-    </div>}
+      onClick={() => { playStartedAt.current = performance.now(); setStarted(true); }}>
+      {poster && !posterFailed &&
+        <img src={poster} alt="" decoding="async"
+          onError={() => setPosterFailed(true)} />}
+      <span className="etsy-video-ugc-poster-play" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="m8 5 12 7-12 7V5Z"/></svg>
+      </span>
+      <span className="etsy-video-ugc-poster-label">Nhấn để phát · {video.aspectRatio}</span>
+    </button> : <>
+      <video key={video.url + ":" + retryToken} ref={playerRef}
+        controls autoPlay playsInline preload="auto"
+        poster={!posterFailed ? poster : undefined}
+        src={video.url}
+        className={isVertical ? "vertical" : "horizontal"}
+        aria-label={"Phát " + aspectName(video.aspectRatio)}
+        onLoadedMetadata={() => setPhase("buffering")}
+        onCanPlay={() => setPhase("ready")}
+        onPlaying={() => { setPhase("ready"); reportFirstFrame(); }}
+        onLoadedData={event => { setPhase("ready"); captureRealFrame(event); }}
+        onWaiting={() => setPhase("buffering")}
+        onStalled={() => setPhase("buffering")}
+        onError={() => setPhase("error")}/>
+      {phase === "loading" && <div className="etsy-video-ugc-load-status" role="status">
+        <span className="etsy-video-ugc-spinner" aria-hidden="true"/>
+        Đang chuẩn bị video…
+      </div>}
+      {phase === "buffering" && <div className="etsy-video-ugc-load-status" role="status">
+        <span className="etsy-video-ugc-spinner" aria-hidden="true"/>
+        Đang tải dữ liệu video…
+      </div>}
+      {phase === "error" && <div className="etsy-video-ugc-error" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 4h.01"/>
+        </svg>
+        <strong>Không thể tải video</strong>
+        <span>Đường truyền hoặc nguồn MP4 có thể đang gián đoạn.</span>
+        <button type="button" onClick={onRetry}>Thử lại</button>
+      </div>}
+    </>}
   </div>;
 }
 
@@ -277,9 +312,9 @@ export function VideoUGCCell({ item }: { item: Listing }) {
                     {video.qaStatus === "pending_review" ? "Chờ QA nội dung" : "Đã lưu"}
                   </span>
                 </div>
-                <VideoUgcActivePlayer key={video.url + ":" + retryToken}
+                <VideoUgcActivePlayer key={video.url}
                   video={video} retryToken={retryToken}
-                  poster={posters[video.aspectRatio]}
+                  poster={posters[video.aspectRatio] || video.posterUrl}
                   onPoster={frame => savePoster(video.aspectRatio, frame)}
                   onRetry={() => setRetryToken(value => value + 1)}/>
                 <div className="etsy-video-ugc-primary-foot">
@@ -323,13 +358,15 @@ export function VideoUGCCell({ item }: { item: Listing }) {
                       }}>
                       <span className={"etsy-video-ugc-version-preview " +
                         (vertical ? "is-vertical" : "is-horizontal")}>
-                        {posters[file.aspectRatio]
-                          ? <img src={posters[file.aspectRatio]} alt="" loading="lazy"/>
-                          : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                              strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-                              <rect x="5" y="3" width="14" height="18" rx="2"/>
-                              <path d="m10 9 5 3-5 3V9Z"/>
-                            </svg>}
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                          strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+                          <rect x="5" y="3" width="14" height="18" rx="2"/>
+                          <path d="m10 9 5 3-5 3V9Z"/>
+                        </svg>
+                        {(posters[file.aspectRatio] || file.thumbnailUrl) &&
+                          <img src={posters[file.aspectRatio] || file.thumbnailUrl} alt=""
+                            loading="lazy" decoding="async"
+                            onError={event => { event.currentTarget.hidden = true; }} />}
                       </span>
                       <span className="etsy-video-ugc-version-copy">
                         <strong>{aspectName(file.aspectRatio)}</strong>
@@ -339,22 +376,6 @@ export function VideoUGCCell({ item }: { item: Listing }) {
                     </button>;
                   })}
                 </div>}
-                <div className="etsy-video-ugc-selected-info">
-                  <h3>{aspectName(video.aspectRatio)}</h3>
-                  <p>{video.aspectRatio === "9:16"
-                    ? "Video tỷ lệ dọc, phù hợp TikTok và Reels."
-                    : "Video tỷ lệ ngang, phù hợp khung trình chiếu rộng."}</p>
-                  {typeof video.durationSeconds === "number" && video.durationSeconds > 0 &&
-                    <p>Thời lượng: {Math.round(video.durationSeconds)} giây</p>}
-                </div>
-                <div className="etsy-video-ugc-storage-note">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
-                    aria-hidden="true">
-                    <circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>
-                  </svg>
-                  <span>File đã được xác minh trên Drive. Lưu file không đồng nghĩa đạt QA nội dung.</span>
-                </div>
               </aside>
             </div>
           </div>

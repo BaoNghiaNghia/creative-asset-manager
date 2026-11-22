@@ -133,6 +133,7 @@ export type ReviewAssessment = {
 };
 export type VideoUgcItem = {
   aspectRatio: "9:16" | "16:9"; url: string;
+  posterUrl?: string; thumbnailUrl?: string;
   width?: number; height?: number; durationSeconds?: number;
   qaStatus: "pending_review";
 };

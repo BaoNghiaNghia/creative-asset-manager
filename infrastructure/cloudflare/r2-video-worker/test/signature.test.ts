@@ -30,10 +30,15 @@ test("malformed and noncanonical signatures fail", async () => {
   }
 });
 
-test("only exact ASCII original and playback cache paths map to R2", () => {
+test("only exact ASCII original, playback and limited poster paths map to R2", () => {
   assert.equal(cacheKeyFromPath(vector.pathname), vector.pathname.slice(1));
   const playback = vector.pathname.replace(/\/original$/, "/playback.mp4");
   assert.equal(cacheKeyFromPath(playback), playback.slice(1));
+  for (const size of [320, 640]) {
+    const poster = vector.pathname.replace(/\/original$/, `/poster-${size}.webp`);
+    assert.equal(cacheKeyFromPath(poster), poster.slice(1));
+  }
+  assert.equal(cacheKeyFromPath(vector.pathname.replace(/\/original$/, "/poster-1280.webp")), null);
   for (const path of [
     "/video-cache", vector.pathname + "/", vector.pathname + ".mp4",
     vector.pathname.replace("/original", "//original"),
