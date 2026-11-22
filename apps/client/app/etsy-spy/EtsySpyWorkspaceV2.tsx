@@ -1,16 +1,7 @@
 import type { Listing } from "./api";
 
-export type SpyDensity = "compact" | "default" | "comfortable";
-export type SpyScope = "eligible" | "picked" | "later";
-export type SpyColumn = { id: string; text: string };
-
 const prettify = (value: number | null | undefined) =>
   value == null ? "—" : value.toLocaleString("vi-VN");
-
-export const OPTIONAL_SPY_COLUMNS = new Set([
-  "design", "tiktokListing", "listingImage", "videoUgc", "keywordSms", "badge",
-  "bought24h", "views24h", "inCarts", "observedAt",
-]);
 
 export function safeSpyPreview(url: string | null | undefined): string | null {
   if (!url || typeof url !== "string" || url.length > 1600) return null;
@@ -25,84 +16,6 @@ export function safeSpyPreview(url: string | null | undefined): string | null {
   } catch {
     return null;
   }
-}
-
-export function EtsySpyResultsToolbar({
-  scope, counts, onScope, columns, hiddenColumns, onToggleColumn,
-  density, onDensity, onToggleFilters, filtersExpanded, activeFilters,
-  onClearFilters, resultCount, inspectorOpen,
-}: {
-  scope: SpyScope;
-  counts: { eligible: number; picked: number; later: number };
-  onScope: (value: SpyScope) => void;
-  columns: readonly SpyColumn[];
-  hiddenColumns: readonly string[];
-  onToggleColumn: (key: string) => void;
-  density: SpyDensity;
-  onDensity: (value: SpyDensity) => void;
-  onToggleFilters: () => void;
-  filtersExpanded: boolean;
-  activeFilters: readonly string[];
-  onClearFilters: () => void;
-  resultCount: number | null;
-  inspectorOpen: boolean;
-}) {
-  const scopes = [
-    { key: "eligible", name: "Eligible" },
-    { key: "picked", name: "Picked" },
-    { key: "later", name: "Later" },
-  ] as const;
-  return <div className="etsy-v2-results-toolbar" aria-label="Product view controls">
-    <div className="etsy-v2-scope-tabs" role="group" aria-label="Trạng thái sản phẩm">
-      {scopes.map(item => <button type="button" key={item.key}
-        className={scope === item.key ? "active" : ""}
-        aria-pressed={scope === item.key}
-        onClick={() => onScope(item.key)}>
-        {item.name} <span>{prettify(counts[item.key])}</span>
-      </button>)}
-    </div>
-    <div className="etsy-v2-toolbar-actions">
-      <span className="etsy-v2-result-count">{prettify(resultCount)} kết quả</span>
-      <button type="button" className={"etsy-v2-control"+(filtersExpanded?" active":"")}
-        aria-controls="etsy-facet-details" aria-expanded={filtersExpanded}
-        onClick={onToggleFilters}>
-        <span aria-hidden="true">☷</span> Bộ lọc{activeFilters.length ? " · "+activeFilters.length : ""}
-      </button>
-      <details className="etsy-v2-column-menu">
-        <summary className="etsy-v2-control" aria-label="Tùy chỉnh các cột đang hiển thị">
-          <span aria-hidden="true">▦</span> Cột
-        </summary>
-        <div className="etsy-v2-column-popover">
-          <strong>Hiển thị cột</strong>
-          <small>Product và Action luôn hiển thị.</small>
-          {columns.filter(col => OPTIONAL_SPY_COLUMNS.has(col.id)).map(col =>
-            <label key={col.id}>
-              <input type="checkbox" checked={!hiddenColumns.includes(col.id)}
-                onChange={() => onToggleColumn(col.id)} />
-              <span>{col.text === "Media" ? "Listing Image" : col.text}</span>
-            </label>)}
-        </div>
-      </details>
-      <div className="etsy-v2-density" role="group" aria-label="Mật độ hiển thị">
-        {([
-          { key: "compact", label: "Gọn", symbol: "≡" },
-          { key: "default", label: "Vừa", symbol: "☷" },
-          { key: "comfortable", label: "Rộng", symbol: "☰" },
-        ] as const).map(item =>
-          <button type="button" key={item.key} title={item.label}
-            aria-label={"Mật độ " + item.label}
-            aria-pressed={density === item.key}
-            className={density === item.key ? "active" : ""}
-            onClick={() => onDensity(item.key)}>{item.symbol}</button>)}
-      </div>
-    </div>
-    {activeFilters.length > 0 && <div className="etsy-v2-active-filters">
-      {activeFilters.slice(0, 4).map(item => <span key={item}>{item}</span>)}
-      {activeFilters.length > 4 && <span>+{activeFilters.length - 4}</span>}
-      <button type="button" onClick={onClearFilters}>Xóa lọc</button>
-    </div>}
-    {inspectorOpen && <span className="etsy-v2-inspect-hint">Đang xem chi tiết sản phẩm</span>}
-  </div>;
 }
 
 export function EtsySpyQuickInspect({

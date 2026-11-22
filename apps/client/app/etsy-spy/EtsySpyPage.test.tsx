@@ -459,7 +459,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(scroll).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
   });
 
-  it("shows table column navigation only when the desktop table overflows", async () => {
+  it("keeps native horizontal scrolling without a separate column-navigation bar", async () => {
     await start({initialUrl: "/etsy-spy?tab=products&observed_day=all"});
     const viewport = container?.querySelector<HTMLDivElement>(".etsy-table-wrap");
     expect(viewport).toBeTruthy();
@@ -469,28 +469,13 @@ describe("Etsy Spy native CAM dashboard", () => {
       scrollLeft: {configurable: true, value: 0, writable: true},
     });
     await act(async () => { window.dispatchEvent(new Event("resize")); });
-    const controls = container?.querySelector(".etsy-table-scroll-nav");
-    expect(controls?.textContent).toContain("Còn cột bên phải");
-    const left = controls?.querySelector<HTMLButtonElement>('button[aria-label="Cuộn bảng sang trái"]');
-    const right = controls?.querySelector<HTMLButtonElement>('button[aria-label="Cuộn bảng sang phải"]');
-    expect(left?.disabled).toBe(true);
-    expect(right?.disabled).toBe(false);
-    await act(async () => { right?.click(); });
-    expect(viewport?.scrollLeft).toBeGreaterThan(0);
-    expect(left?.disabled).toBe(false);
-    await act(async () => {
-      viewport!.scrollLeft = 900;
-      viewport?.dispatchEvent(new Event("scroll", {bubbles: true}));
-    });
-    expect(right?.disabled).toBe(true);
-    expect(container?.querySelector(".etsy-table-scroll-nav")?.textContent).toContain("Đã đến cột cuối");
-    await act(async () => {
-      Object.defineProperty(viewport!, "scrollWidth", {configurable: true, value: 600});
-      viewport!.scrollLeft = 0;
-      window.dispatchEvent(new Event("resize"));
-    });
     expect(container?.querySelector(".etsy-table-scroll-nav")).toBeNull();
     expect(container?.querySelector(".etsy-product-row")).toBeTruthy();
+    await act(async () => {
+      viewport!.scrollLeft = 350;
+      viewport!.dispatchEvent(new Event("scroll", {bubbles: true}));
+    });
+    expect(viewport?.scrollLeft).toBe(350);
   });
 
   it("jumps directly to a valid page without dropping the active day and tab", async () => {
@@ -861,29 +846,22 @@ describe("Etsy Spy native CAM dashboard", () => {
       "data-observed-day")).toBe(today);
   });
 
-  it("opens Quick Inspect and customizes table density/columns without changing filters", async () => {
+  it("removes duplicate table controls but keeps Quick Inspect and filters", async () => {
     await start();
     const originalLocation = window.location.search;
+    expect(container?.querySelector(".etsy-v2-results-toolbar")).toBeNull();
+    expect(container?.querySelector(".etsy-v2-column-menu")).toBeNull();
+    expect(container?.querySelector(".etsy-v2-density")).toBeNull();
+    expect(container?.querySelector(".etsy-data-table.etsy-v2-hide-views24h")).toBeNull();
     const inspect = container?.querySelector<HTMLButtonElement>(".etsy-v2-inspect-trigger");
     expect(inspect).toBeTruthy();
     await act(async () => { inspect?.click(); });
     expect(container?.querySelector(".etsy-v2-inspector-title")?.textContent).toContain("Rudolph Shirt");
     expect(container?.querySelector(".etsy-v2-results-layout.has-inspector")).toBeTruthy();
-
-    const compact = container?.querySelector<HTMLButtonElement>('[aria-label="Mật độ Gọn"]');
-    await act(async () => { compact?.click(); });
-    expect(container?.querySelector(".etsy-table-card.etsy-v2-density-compact")).toBeTruthy();
-    const viewsLabel = Array.from(container?.querySelectorAll(".etsy-v2-column-popover label") || [])
-      .find(node => node.textContent?.includes("Views / 24h"));
-    await act(async () => { viewsLabel?.querySelector("input")?.click(); });
-    expect(container?.querySelector(".etsy-data-table.etsy-v2-hide-views24h")).toBeTruthy();
-
     const close = container?.querySelector<HTMLButtonElement>(".etsy-v2-inspector-header button");
     await act(async () => { close?.click(); });
     expect(container?.querySelector(".etsy-v2-inspector")).toBeNull();
     expect(window.location.search).toBe(originalLocation);
-    window.localStorage.removeItem("cam-etsy-table-density-v2");
-    window.localStorage.removeItem("cam-etsy-hidden-columns-v2");
   });
 
   it("shows exclusive daily topic badges and filters the selected day's listings", async () => {

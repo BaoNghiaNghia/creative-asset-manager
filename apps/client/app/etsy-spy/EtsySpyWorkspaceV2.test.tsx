@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Listing } from "./api";
-import {
-  EtsySpyResultsToolbar, EtsySpyQuickInspect, OPTIONAL_SPY_COLUMNS, safeSpyPreview,
-} from "./EtsySpyWorkspaceV2";
+import { EtsySpyQuickInspect, safeSpyPreview } from "./EtsySpyWorkspaceV2";
 
 const sample: Listing = {
   sessionId:"session", keyword:"dinosaur", sourceKind:"etsy", listingKey:"123456789",
@@ -20,25 +18,6 @@ const sample: Listing = {
 };
 
 describe("Etsy Spy V2 product intelligence", () => {
-  it("renders a permission-neutral, scoped toolbar with real column switches", () => {
-    const html = renderToStaticMarkup(<EtsySpyResultsToolbar
-      scope="picked" counts={{eligible:703,picked:353,later:855}}
-      onScope={() => undefined} columns={[{id:"pageTitle",text:"Product / Etsy"},
-        {id:"design",text:"Design"},{id:"videoUgc",text:"Video UGC"}]}
-      hiddenColumns={["videoUgc"]} onToggleColumn={() => undefined}
-      density="compact" onDensity={() => undefined} onToggleFilters={() => undefined}
-      filtersExpanded={false} activeFilters={["Ngày: Hôm nay"]} onClearFilters={() => undefined}
-      resultCount={353} inspectorOpen={false} />);
-    expect(html).toContain("703");
-    expect(html).toContain("353");
-    expect(html).toContain("aria-pressed=\"true\"");
-    expect(html).toContain("Video UGC");
-    expect(html).not.toContain("Product / Etsy</span>");
-    expect(html).toContain("Ngày: Hôm nay");
-    expect(html).toContain("Mật độ Gọn");
-    expect(OPTIONAL_SPY_COLUMNS.has("pageTitle")).toBe(false);
-  });
-
   it("renders Quick Inspect from existing, read-only listing data", () => {
     const html = renderToStaticMarkup(<EtsySpyQuickInspect listing={sample}
       canManage={false} busy={false} onClose={() => undefined}

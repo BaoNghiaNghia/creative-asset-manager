@@ -16,7 +16,7 @@ import { KeywordTreeView } from "./KeywordTreeView";
 import { DesignCell } from "./DesignCell";
 import { ListingImageCell } from "./ListingImageCell";
 import { VideoUGCCell } from "./VideoUGCCell";
-import { EtsySpyResultsToolbar, EtsySpyQuickInspect, OPTIONAL_SPY_COLUMNS, type SpyDensity, type SpyScope } from "./EtsySpyWorkspaceV2";
+import { EtsySpyQuickInspect } from "./EtsySpyWorkspaceV2";
 import { EtsyDeferredImage } from "./EtsyDeferredImage";
 import "./EtsySpyImages.css";
 import "./EtsySpyDayCarousel.css";
@@ -488,33 +488,6 @@ function EtsyTableViewport({ children, scope, fillViewport = false }: {
   children: ReactNode; scope: string; fillViewport?: boolean;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
-  const [edges, setEdges] = useState({ overflow: false, atStart: true, atEnd: true });
-  const sync = useCallback(() => {
-    const el = viewportRef.current;
-    if (!el) return;
-    const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
-    const next = {
-      overflow: maxScroll > 2,
-      atStart: el.scrollLeft <= 2,
-      atEnd: el.scrollLeft >= maxScroll - 2,
-    };
-    setEdges(prev => prev.overflow === next.overflow &&
-      prev.atStart === next.atStart && prev.atEnd === next.atEnd ? prev : next);
-  }, []);
-  useEffect(() => {
-    const el = viewportRef.current;
-    if (!el) return;
-    sync();
-    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(sync) : null;
-    observer?.observe(el);
-    const table = el.querySelector("table");
-    if (table) observer?.observe(table);
-    window.addEventListener("resize", sync);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener("resize", sync);
-    };
-  }, [scope, sync]);
   useEffect(() => {
     if (!fillViewport) return;
     const el = viewportRef.current;
@@ -557,33 +530,8 @@ function EtsyTableViewport({ children, scope, fillViewport = false }: {
       el.style.removeProperty("--etsy-picked-table-available-height");
     };
   }, [scope, fillViewport]);
-  const move = (direction: -1 | 1) => {
-    const el = viewportRef.current;
-    if (!el) return;
-    const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
-    el.scrollLeft = Math.max(0, Math.min(maxScroll,
-      el.scrollLeft + direction * Math.max(240, Math.round(el.clientWidth * .7))));
-    sync();
-  };
-  return <>
-    {edges.overflow && <div className="etsy-table-scroll-nav"
-      aria-label="Điều hướng các cột trong bảng">
-      <span>{edges.atStart ? "Còn cột bên phải" :
-        edges.atEnd ? "Đã đến cột cuối" : "Xem các cột khác"}</span>
-      <div className="etsy-table-scroll-buttons">
-        <button type="button" aria-label="Cuộn bảng sang trái"
-          disabled={edges.atStart} onClick={() => move(-1)}>
-          <span aria-hidden="true">←</span>
-        </button>
-        <button type="button" aria-label="Cuộn bảng sang phải"
-          disabled={edges.atEnd} onClick={() => move(1)}>
-          <span aria-hidden="true">→</span>
-        </button>
-      </div>
-    </div>}
-    <div className={"etsy-table-wrap" + (fillViewport ? " is-viewport-fit" : "")}
-      ref={viewportRef} onScroll={sync}>{children}</div>
-  </>;
+  return <div className={"etsy-table-wrap" + (fillViewport ? " is-viewport-fit" : "")}
+    ref={viewportRef}>{children}</div>;
 }
 
 type ObservedDayScrollEdges = {overflow: boolean; atStart: boolean; atEnd: boolean};
@@ -688,29 +636,7 @@ export function EtsySpyPage() {
   // Small screens start in an overview-first mode; the chosen expansion stays
   // mounted through Scout polls so open filters never disappear on refresh.
   const [facetsExpanded, setFacetsExpanded] = useState(false);
-  const [density, setDensity] = useState<SpyDensity>(() => {
-    if (typeof window === "undefined") return "default";
-    try {
-      const saved = window.localStorage.getItem("cam-etsy-table-density-v2");
-      return saved === "compact" || saved === "comfortable" ? saved : "default";
-    } catch { return "default"; }
-  });
-  const [hiddenColumns, setHiddenColumns] = useState<string[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const stored: unknown = JSON.parse(window.localStorage.getItem("cam-etsy-hidden-columns-v2") || "[]");
-      return Array.isArray(stored) ? stored.filter((key): key is string =>
-        typeof key === "string" && OPTIONAL_SPY_COLUMNS.has(key)) : [];
-    } catch { return []; }
-  });
   const [inspectedKey, setInspectedKey] = useState<string | null>(null);
-  useEffect(() => {
-    try { window.localStorage.setItem("cam-etsy-table-density-v2", density); } catch { /* storage optional */ }
-  }, [density]);
-  useEffect(() => {
-    try { window.localStorage.setItem("cam-etsy-hidden-columns-v2", JSON.stringify(hiddenColumns)); }
-    catch { /* storage optional */ }
-  }, [hiddenColumns]);
   useEffect(() => {
     if (!inspectedKey) return;
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -1214,11 +1140,6 @@ export function EtsySpyPage() {
     if (options.tab === "keywords") return SORTS.keywords;
     return SORTS.logs;
   }, [options.tab, options.pickState]);
-  const toggleColumn = (key: string) => {
-    if (!OPTIONAL_SPY_COLUMNS.has(key)) return;
-    setHiddenColumns(current => current.includes(key)
-      ? current.filter(column => column !== key) : [...current, key]);
-  };
   const inspectedListing = options.tab === "products" && rows?.items && inspectedKey
     ? (rows.items as Listing[]).find(item => item.listingKey === inspectedKey) ?? null : null;
   const syncLabel = summary?.source_status === "online" ? "Agent online"
@@ -1669,20 +1590,7 @@ export function EtsySpyPage() {
         sort={options.sort} direction={options.dir} refresh={refresh}
         canManage={canManage} onSort={sortColumn} />
       : <div className={"etsy-v2-results-layout" + (inspectedListing ? " has-inspector" : "")}>
-        <div className={"etsy-table-card etsy-v2-density-" + density} id="etsy-product-results">
-      {activeTab === "products" && !isBlacklistView && !isWinKeywordsView &&
-        <EtsySpyResultsToolbar
-          scope={options.pickState as SpyScope}
-          counts={{ eligible: summary?.listings ?? 0, picked: summary?.picked ?? 0, later: summary?.later ?? 0 }}
-          onScope={scope => selectTab("products", { pickState: scope,
-            observedDay: scope === "picked" ? "all" : clockDay })}
-          columns={columns} hiddenColumns={hiddenColumns} onToggleColumn={toggleColumn}
-          density={density} onDensity={setDensity}
-          filtersExpanded={facetsExpanded} onToggleFilters={() => setFacetsExpanded(expanded => !expanded)}
-          activeFilters={activeProductFilters.filter(value => value !== "Ngày: Hôm nay")}
-          onClearFilters={clearProductFilters}
-          resultCount={rows?.total ?? null} inspectorOpen={!!inspectedListing}
-        />}
+        <div className="etsy-table-card etsy-v2-density-default" id="etsy-product-results">
       {loading ? <div role="status" className="etsy-skeleton">Loading synchronized records…</div>
         : !rows?.items.length ? <div className="etsy-empty etsy-empty-guided" aria-live="polite">
           {activeTab === "products" && !isBlacklistView && !isWinKeywordsView ? <>
@@ -1735,8 +1643,7 @@ export function EtsySpyPage() {
             fillViewport={activeTab === "products"}>
           <table className={"etsy-data-table is-" + activeTab +
             (selectable ? " is-selectable" : "") +
-            (isPickedSelection ? " is-picked-listings" : "") +
-            hiddenColumns.map(key => " etsy-v2-hide-" + key).join("")}><thead><tr>
+            (isPickedSelection ? " is-picked-listings" : "")}><thead><tr>
             {selectable && <th className="etsy-select-header">
               <input type="checkbox" aria-label={isPickedSelection
                   ? "Chọn tối đa 5 Picked để tạo TikTok SEO" :

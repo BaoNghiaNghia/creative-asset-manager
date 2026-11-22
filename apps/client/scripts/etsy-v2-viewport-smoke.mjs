@@ -28,7 +28,7 @@ const html = `<!doctype html><html><head><meta name="viewport" content="width=de
 <section class="etsy-stats">${["Eligible", "Picked", "Later", "Blacklist", "Win Keyword"].map(x => `<button class="etsy-stat"><span class="etsy-stat-heading">${x}</span><strong>353</strong></button>`).join("")}</section>
 <section class="etsy-facet-explorer"><div id="etsy-facet-details" class="etsy-facet-details"><div class="etsy-observed-days"><div class="etsy-observed-day-carousel"><div class="etsy-observed-day-grid">${Array.from({length:16},(_,i)=>`<button class="etsy-observed-day" data-pick-state="eligible"><span class="etsy-observed-day-label">${20-i}/11</span><span class="etsy-observed-day-metrics"><strong>12 Picked</strong></span></button>`).join("")}</div></div></div></div></section>
 <div class="etsy-v2-results-layout has-inspector">
- <div class="etsy-table-card etsy-v2-density-default"><div class="etsy-v2-results-toolbar"><div class="etsy-v2-scope-tabs"><button>Eligible</button><button class="active">Picked</button><button>Later</button></div><div class="etsy-v2-toolbar-actions"><button class="etsy-v2-control">Bộ lọc</button><button class="etsy-v2-control">Cột</button></div></div>
+ <div class="etsy-table-card etsy-v2-density-default">
  <div class="etsy-table-wrap" style="overflow:auto"><table class="etsy-data-table is-products is-selectable is-picked-listings"><thead><tr>${header}</tr></thead><tbody>${row.repeat(3)}</tbody></table></div>
  <div class="etsy-pager">1–50 / 353</div></div>
  <div class="etsy-v2-inspector-layer"><button class="etsy-v2-inspector-scrim"></button><aside class="etsy-v2-inspector"><header class="etsy-v2-inspector-header"><strong>Quick Inspect</strong><button>×</button></header><div class="etsy-v2-inspector-scroll"><div class="etsy-v2-inspector-hero">Preview</div></div></aside></div>
@@ -65,7 +65,6 @@ try {
           metric:style(".etsy-stats .etsy-stat"),
           dateStrip:style(".etsy-facet-explorer"),
           date:style(".etsy-observed-day"),
-          toolbar:style(".etsy-v2-results-toolbar"),
           table:style(".etsy-v2-results-layout > .etsy-table-card"),
           mobileRow:style(".etsy-product-row"),
         },
@@ -82,8 +81,9 @@ try {
     assert.equal(metrics.rowDisplay, width <= 680 ? "grid" : "table-row");
     assert.equal(metrics.inspectorPosition, width <= 1180 ? "fixed" : "static");
     assert(metrics.layoutWidth > 0 && metrics.tableWidth > 0);
+    assert.equal(await page.locator(".etsy-v2-results-toolbar, .etsy-table-scroll-nav").count(), 0);
     assert.equal(metrics.surfaces.page.background, "rgb(255, 255, 255)");
-    for (const region of ["header", "metric", "dateStrip", "date", "toolbar", "table"]) {
+    for (const region of ["header", "metric", "dateStrip", "date", "table"]) {
       assert.equal(metrics.surfaces[region].radius, "0px", `${width}px: ${region} has card radius`);
       assert.equal(metrics.surfaces[region].shadow, "none", `${width}px: ${region} has card shadow`);
       assert.equal(metrics.surfaces[region].borderTop, "0px", `${width}px: ${region} has card border`);
