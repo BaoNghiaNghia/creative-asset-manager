@@ -82,6 +82,70 @@ class PrivateR2HotCacheTest(unittest.TestCase):
         ):
             asyncio.run(run())
 
+    def test_create_once_r2_write_preserves_original_age_and_contents(self):
+        from hashlib import sha256
+        from botocore.exceptions import ClientError
+
+        class MemoryR2:
+            def __init__(self):
+                self.existing = None
+                self.puts = 0
+
+            def put_object(self, **kwargs):
+                self.puts += 1
+                assert kwargs["IfNoneMatch"] == "*"
+                if self.existing:
+                    raise ClientError({
+                        "Error": {"Code": "PreconditionFailed"},
+                        "ResponseMetadata": {"HTTPStatusCode": 412},
+                    }, "PutObject")
+                self.existing = (
+                    kwargs["Body"], kwargs["ContentType"], kwargs["Metadata"])
+                return {"ResponseMetadata": {"HTTPStatusCode": 200}}
+
+            def head_object(self, **kwargs):
+                content, mime, metadata = self.existing
+                return {"ContentType": mime, "ContentLength": len(content),
+                        "Metadata": metadata}
+
+        client = MemoryR2()
+        key = cache.object_key(self.config, **self.identity())
+        original = b"verified-preview-bytes"
+        with patch.object(cache, "_client", return_value=client):
+            self.assertTrue(cache._write(self.config, key, "image/webp", original))
+            self.assertTrue(cache._write(self.config, key, "image/webp", original))
+            self.assertFalse(cache._write(self.config, key, "image/webp", b"wrong"))
+        self.assertEqual(client.existing[2]["cam-sha256"], sha256(original).hexdigest())
+        self.assertEqual(client.existing[0], original)
+        self.assertEqual(client.puts, 3)  # last two attempts were rejected atomically
+
+    def test_r2_read_rejects_expired_and_near_expiry_objects(self):
+        from datetime import datetime, timezone, timedelta
+        from hashlib import sha256
+        from io import BytesIO
+
+        content = b"private-thumb"
+        class ExistingR2:
+            age_seconds = 0
+            def get_object(self, **kwargs):
+                return {
+                    "Body": BytesIO(content),
+                    "ContentLength": len(content),
+                    "ContentType": "image/png",
+                    "Metadata": {"cam-sha256": sha256(content).hexdigest()},
+                    "LastModified": datetime.now(timezone.utc) -
+                        timedelta(seconds=self.age_seconds),
+                }
+
+        client = ExistingR2()
+        with patch.object(cache, "_client", return_value=client):
+            self.assertEqual(cache._read(self.config, "safe-key", "image/png"), content)
+            # Too close to the R2 deadline for the 90-second RAM reuse TTL.
+            client.age_seconds = 30*86400 - 60
+            self.assertIsNone(cache._read(self.config, "safe-key", "image/png"))
+            client.age_seconds = 31*86400
+            self.assertIsNone(cache._read(self.config, "safe-key", "image/png"))
+
     def test_negative_r2_read_is_never_kept_as_image(self):
         counter = []
         def get_object(_config, key, kind):

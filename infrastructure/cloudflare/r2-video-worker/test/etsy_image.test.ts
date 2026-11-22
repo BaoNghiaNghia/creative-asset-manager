@@ -22,14 +22,17 @@ class Bucket {
   found = true;
   mime = "image/png";
   size = DATA.byteLength;
+  uploaded: Date | undefined = new Date((NOW-100)*1000);
   get = async (key: string) => {
     this.reads++;this.key=key;
-    return this.found ? { size:this.size, body:new Blob([DATA]).stream() as ReadableStream<Uint8Array>,
+    return this.found ? { size:this.size, uploaded:this.uploaded,
+      body:new Blob([DATA]).stream() as ReadableStream<Uint8Array>,
       httpMetadata:{ contentType:this.mime }, httpEtag:'"etag-image"' } : null;
   };
   head = async (key: string) => {
     this.heads++;this.key=key;
-    return this.found ? {size:this.size,httpMetadata:{contentType:this.mime},httpEtag:'"etag-image"'} : null;
+    return this.found ? {size:this.size,uploaded:this.uploaded,
+      httpMetadata:{contentType:this.mime},httpEtag:'"etag-image"'} : null;
   };
   put = async () => {this.writes++;throw new Error("image CDN must be read-only");};
 }
@@ -140,6 +143,37 @@ test("immutable image bytes are cached only after signed verification",async()=>
   assert.equal(cache.values.size,1);
   assert.equal((await send(t,env,NOW+46,"GET",cache)).status,403);
   assert.equal(bucket.reads,1);
+});
+test("cache expiry stays anchored to immutable upload time, not viewer access",async()=>{
+  const {bucket,env}=fixture();
+  const cache=new Cache();
+  bucket.uploaded=new Date((NOW-30*86400+5)*1000);
+  const signed=await url(PNG_PATH,NOW+45);
+  const first=await send(signed,env,NOW,"GET",cache);
+  assert.equal(first.status,200);
+  await first.arrayBuffer();
+  await new Promise(resolve=>setTimeout(resolve,0));
+  const internal=Array.from(cache.values.values())[0];
+  assert.equal(internal.headers.get("Cache-Control"),"public, max-age=5, immutable");
+  assert.equal(internal.headers.get("X-CAM-Image-Expires-At"),String(NOW+5));
+  const nearExpiry=await send(signed,env,NOW+4,"GET",cache);
+  assert.equal(nearExpiry.status,200);
+  assert.equal(nearExpiry.headers.get("X-CAM-Image-Cache"),"HIT");
+  assert.equal(nearExpiry.headers.get("X-CAM-Image-Expires-At"),null);
+  const expired=await send(signed,env,NOW+5,"GET",cache);
+  assert.equal(expired.status,404);
+  assert.equal(bucket.reads,2);
+});
+test("missing or expired upload timestamp fails closed even for HEAD",async()=>{
+  const {bucket,env}=fixture();
+  bucket.uploaded=undefined;
+  const signed=await url();
+  assert.equal((await send(signed,env)).status,404);
+  assert.equal((await send(signed,env,NOW,"HEAD")).status,404);
+  bucket.uploaded=new Date((NOW-30*86400)*1000);
+  assert.equal((await send(signed,env)).status,404);
+  bucket.uploaded=new Date((NOW+60)*1000);
+  assert.equal((await send(signed,env)).status,404);
 });
 test("oversize, wrong MIME and range fail closed, video unaffected",async()=>{
   const {bucket,env}=fixture();

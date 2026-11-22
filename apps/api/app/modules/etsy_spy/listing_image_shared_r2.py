@@ -32,6 +32,9 @@ _PACK = re.compile(r"sp-[0-9a-f]{40}\Z")
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 _TYPES = {"thumbnail": ("image/png", ".png"), "preview": ("image/webp", "-w720v1.webp")}
 _MAX_OBJECT_BYTES = 2 * 1024 * 1024
+# Leave a two-minute margin before the 30-day deadline so a 90-second
+# in-process memory hit never outlives the immutable R2 object's lifespan.
+_MAX_ORIGIN_AGE_SECONDS = 30 * 86400 - 120
 # Memory-only reuse after the tenant + Picked ACL. Keep small on this VPS:
 # 16 MiB per API process, 90 seconds; no PNG/preview persisted locally.
 _DERIVATIVE_MEMORY = ThumbnailMemoryCache(
@@ -207,6 +210,13 @@ def _read(config: ExistingR2Config, key: str, expected_type: str) -> bytes | Non
         body = response["Body"]
         try:
             length = int(response.get("ContentLength") or 0)
+            modified = response.get("LastModified")
+            age_seconds = (time.time() - modified.timestamp()
+                           if hasattr(modified, "timestamp") else 31 * 86400)
+            # R2 image cache is disposable: never serve beyond the fixed
+            # 30-day age even if the bucket lifecycle rule is unavailable.
+            if not 0 <= age_seconds < _MAX_ORIGIN_AGE_SECONDS:
+                return None
             if not 0 < length <= _MAX_OBJECT_BYTES or response.get("ContentType") != expected_type:
                 return None
             expected_sha = response.get("Metadata", {}).get("cam-sha256", "")
@@ -251,15 +261,33 @@ async def read_derivative(config: ExistingR2Config, *, tenant_id: str,
 
 def _write(config: ExistingR2Config, key: str, content_type: str,
            value: bytes) -> bool:
+    """Upload only when absent: no view/retry may renew R2 object age."""
     from botocore.exceptions import BotoCoreError, ClientError
+    digest = sha256(value).hexdigest()
+    client = _client(config)
     try:
-        response = _client(config).put_object(
+        response = client.put_object(
             Bucket=config.bucket, Key=key, Body=value,
-            ContentType=content_type, Metadata={"cam-sha256": sha256(value).hexdigest()},
-            CacheControl="private, no-store",
+            ContentType=content_type, Metadata={"cam-sha256": digest},
+            CacheControl="private, no-store", IfNoneMatch="*",
         )
         return response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 200
-    except (BotoCoreError, ClientError, OSError):
+    except ClientError as exc:
+        if str(exc.response.get("Error", {}).get("Code") or "") not in (
+                "PreconditionFailed", "412"):
+            return False
+        # Concurrent create succeeded elsewhere. Only treat the existing
+        # derivative as ready after metadata matches the exact verified bytes.
+        try:
+            head = client.head_object(Bucket=config.bucket, Key=key)
+            return (
+                head.get("ContentType") == content_type
+                and head.get("Metadata", {}).get("cam-sha256") == digest
+                and int(head.get("ContentLength", -1)) == len(value)
+            )
+        except (BotoCoreError, ClientError, OSError, TypeError, ValueError):
+            return False
+    except (BotoCoreError, OSError):
         return False
 
 
