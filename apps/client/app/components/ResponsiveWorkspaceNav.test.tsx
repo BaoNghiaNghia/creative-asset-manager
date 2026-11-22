@@ -55,7 +55,9 @@ describe("responsive mobile workspace navigation", () => {
     expect(html).toContain('aria-label="Mobile workspace navigation"');
     expect(html).toContain('aria-label="Asset Explorer"');
     expect(html).toContain('aria-current="page"');
-    expect(html).toContain('class="workspace-navigation"');
+    expect(html).toContain('aria-label="Open workspace navigation"');
+    expect(html).toContain('aria-controls="responsive-nav-drawer"');
+    expect(html).toContain('aria-expanded="false"');
     expect(html).toContain("Assets");
     expect(html).toContain("Video");
   });

@@ -44,6 +44,9 @@ export function ResponsiveWorkspaceNav({ active }: { active: WorkspaceRoute }) {
   const [permissions, setPermissions] = useState<readonly string[]>([]);
   const [navigationModules, setNavigationModules] = useState<readonly string[] | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [navDrawerOpen, setNavDrawerOpen] = useState(false);
+  const navTrigger = useRef<HTMLButtonElement>(null);
+  const navDrawer = useRef<HTMLElement>(null);
   const [ugcOpen, setUgcOpen] = useState(false);
   const ugcButton = useRef<HTMLButtonElement>(null);
   const moreButton = useRef<HTMLButtonElement>(null);
@@ -120,6 +123,34 @@ export function ResponsiveWorkspaceNav({ active }: { active: WorkspaceRoute }) {
     };
   }, [ugcOpen]);
 
+  useEffect(() => {
+    if (!navDrawerOpen) return;
+    const previous = document.body.style.overflowY;
+    document.body.style.overflowY = "hidden";
+    navDrawer.current?.querySelector<HTMLElement>('a[href], button:not([disabled])')?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setNavDrawerOpen(false);
+        navTrigger.current?.focus();
+      }
+      if (event.key !== "Tab" || !navDrawer.current) return;
+      const focusable = Array.from(navDrawer.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled])'));
+      if (!focusable.length) return;
+      if (event.shiftKey && document.activeElement === focusable[0]) {
+        event.preventDefault();
+        focusable[focusable.length - 1].focus();
+      } else if (!event.shiftKey && document.activeElement === focusable[focusable.length - 1]) {
+        event.preventDefault();
+        focusable[0].focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflowY = previous;
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [navDrawerOpen]);
+
   const destinations = availableMobileDestinations(permissions, navigationModules);
   const { tabs, more } = splitMobileDestinations(destinations);
   const selectedInMore = more.some(item => item.id === active);
@@ -131,13 +162,13 @@ export function ResponsiveWorkspaceNav({ active }: { active: WorkspaceRoute }) {
         <span><BrandIcon /></span>
         <strong>Creative Asset Manager</strong>
       </a>
-      <WorkspaceNavigation
-        active={active}
-        showOperations={permissions.includes("ai_operations.read")}
-        showReviewBoard={mayViewReviewBoard(permissions)}
-        permissions={permissions}
-        navigationModules={navigationModules}
-      />
+      <button ref={navTrigger} type="button" className="responsive-nav-drawer-trigger"
+        aria-label="Open workspace navigation" aria-haspopup="dialog"
+        aria-controls="responsive-nav-drawer" aria-expanded={navDrawerOpen}
+        onClick={() => { setMoreOpen(false); setUgcOpen(false); setNavDrawerOpen(true); }}>
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        <span>Menu</span>
+      </button>
       <nav className="mobile-workspace-tabs" aria-label="Mobile workspace navigation">
         {tabs.map(item => item.id === "realistic-review-ugc" ? <button
           key={item.id}
@@ -180,6 +211,24 @@ export function ResponsiveWorkspaceNav({ active }: { active: WorkspaceRoute }) {
         </button>}
       </nav>
     </div>
+    {navDrawerOpen && <div className="responsive-nav-drawer-layer">
+      <button type="button" className="responsive-nav-drawer-scrim" aria-label="Close workspace navigation"
+        onClick={() => { setNavDrawerOpen(false); navTrigger.current?.focus(); }} />
+      <section ref={navDrawer} className="responsive-nav-drawer-panel" id="responsive-nav-drawer"
+        role="dialog" aria-modal="true" aria-label="Workspace navigation">
+        <header className="responsive-nav-drawer-heading">
+          <div><strong>Operations Console</strong><small>Creative Assets Platform</small></div>
+          <button type="button" aria-label="Close workspace navigation"
+            onClick={() => { setNavDrawerOpen(false); navTrigger.current?.focus(); }}>
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </header>
+        <WorkspaceNavigation active={active}
+          showOperations={permissions.includes("ai_operations.read")}
+          showReviewBoard={mayViewReviewBoard(permissions)}
+          permissions={permissions} navigationModules={navigationModules} />
+      </section>
+    </div>}
     {active === "realistic-review-ugc" && <nav className="tablet-rrugc-workflow-nav" aria-label="GatorHats sections">
       {RRUGC_WORKFLOW_GROUPS.map(group => <a
         key={group.id} href={rrugcWorkflowHref(group.id)}

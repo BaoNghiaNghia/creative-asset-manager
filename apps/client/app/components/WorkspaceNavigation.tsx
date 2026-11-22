@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { fetchAccessIdentity } from "../../features/access_management";
 import accessManagementIcon from "../../assets/navigation/access-management.svg";
 import aiOperationsIcon from "../../assets/navigation/ai-operations.svg";
@@ -160,7 +160,11 @@ export function WorkspaceNavigation({
   ];
 
   return <nav className="workspace-navigation" aria-label="Workspace navigation">
-    {items.map(item => item.id === "operations" ? <div key={item.id} className={"workspace-nav-group" + (active === "operations" ? " active" : "")}>
+    {items.map(item => <Fragment key={item.id}>
+      {item.id === "assets" && <div className="workspace-nav-section-label" aria-hidden="true">Assets &amp; Inventory</div>}
+      {item.id === "operations" && <div className="workspace-nav-section-label" aria-hidden="true">Operations</div>}
+      {item.id === "queue" && <div className="workspace-nav-section-label" aria-hidden="true">Production &amp; Management</div>}
+      {item.id === "operations" ? <div key={item.id} className={"workspace-nav-group" + (active === "operations" ? " active" : "")}>
       <div className="workspace-nav-group-row">
         <a href={item.href} className={active === item.id ? "active" : undefined} aria-current={active === item.id ? "page" : undefined}>
           <WorkspaceNavigationIcon name={item.id} />
@@ -264,6 +268,7 @@ export function WorkspaceNavigation({
     </div> : <a key={item.id} href={item.href} className={active === item.id ? "active" : undefined} aria-current={active === item.id ? "page" : undefined}>
       <WorkspaceNavigationIcon name={item.id} />
       <span>{item.label}</span>
-    </a>)}
+    </a>}
+    </Fragment>)}
   </nav>;
 }
