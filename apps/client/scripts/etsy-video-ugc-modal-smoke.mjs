@@ -4,90 +4,101 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const css = await readFile(resolve(root, "app/etsy-spy/VideoUGCCell.css"), "utf8");
-const videoCard = (ratio, orientation) => `
-  <article class="etsy-video-ugc-player is-${orientation} ${orientation === "vertical" ? "is-active" : ""}">
-    <div class="etsy-video-ugc-player-head">
-      <div class="etsy-video-ugc-player-identity"><strong>Video ${orientation === "vertical" ? "dọc" : "ngang"}</strong><span class="etsy-video-ugc-ratio">${ratio}</span></div>
-      <span class="etsy-video-ugc-qa is-pending"><span class="etsy-video-ugc-qa-dot"></span>Chờ QA nội dung</span>
-    </div>
-    <div class="etsy-video-ugc-stage"><video controls playsinline preload="none" class="${orientation}" aria-label="Video ${ratio}"></video></div>
-    <div class="etsy-video-ugc-player-foot">
-      <span class="etsy-video-ugc-file-status">Đã lưu Drive</span>
-      <a href="#" target="_blank" rel="noopener noreferrer">Mở file gốc</a>
-    </div>
-  </article>`;
-const html = `<!doctype html><html lang="vi"><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>
-* {box-sizing:border-box;} body{margin:0;font-family:Arial,sans-serif;background:#fafbfc;}
-${css}
-</style></head><body>
-<div class="etsy-video-ugc-backdrop">
-<section class="etsy-video-ugc-modal" role="dialog" aria-modal="true" aria-labelledby="ugc-title">
-<header class="etsy-video-ugc-modal-head">
-<div class="etsy-video-ugc-modal-identity"><span class="etsy-video-ugc-modal-hero-icon">▣</span>
-<div class="etsy-video-ugc-modal-titles"><span class="etsy-video-ugc-kicker">VIDEO LIBRARY</span><h2 id="ugc-title">Video UGC</h2>
-<p>Listing 4456979256 · Đã lưu trên Drive</p></div></div>
-<div class="etsy-video-ugc-modal-head-actions"><span class="etsy-video-ugc-modal-count">2/2 video</span><button class="etsy-video-ugc-close" aria-label="Đóng video UGC">✕</button></div>
-</header>
-<div class="etsy-video-ugc-modal-content">
-<div class="etsy-video-ugc-mobile-tabs" role="tablist"><button role="tab" aria-selected="true" class="is-active">Dọc <span>9:16</span></button>
-<button role="tab" aria-selected="false">Ngang <span>16:9</span></button></div>
-<div class="etsy-video-ugc-players">${videoCard("9:16", "vertical")}${videoCard("16:9", "horizontal")}</div>
-</div>
-<footer class="etsy-video-ugc-modal-footnote">Trạng thái lưu Drive và đánh giá QA nội dung là hai bước riêng biệt.</footer>
-</section></div></body></html>`;
-
+const client = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const css = await readFile(resolve(client, "app/etsy-spy/VideoUGCCell.css"), "utf8");
+const markup = (aspect) => {
+  const vertical = aspect === "9:16";
+  const other = vertical ? "16:9" : "9:16";
+  const selector = (ratio, active) => {
+    const short = ratio === "9:16";
+    return '<button role="tab" aria-selected="' + active + '" class="etsy-video-ugc-version' +
+      (active ? " is-active" : "") + '"><span class="etsy-video-ugc-version-preview' +
+      (short ? " is-vertical" : " is-horizontal") +
+      '"><svg viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20"/></svg></span>' +
+      '<span class="etsy-video-ugc-version-copy"><strong>Video ' +
+      (short ? "dọc" : "ngang") + '</strong><small>' + ratio +
+      ' · MP4</small></span></button>';
+  };
+  return '<!doctype html><html lang="vi"><head><meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<style>*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#fafbfc}' + css +
+    '</style></head><body><div class="etsy-video-ugc-backdrop"><section class="etsy-video-ugc-modal" role="dialog">' +
+    '<header class="etsy-video-ugc-modal-head"><div class="etsy-video-ugc-modal-identity">' +
+    '<span class="etsy-video-ugc-modal-hero-icon">▣</span>' +
+    '<div class="etsy-video-ugc-modal-titles"><span class="etsy-video-ugc-kicker">VIDEO LIBRARY</span>' +
+    '<h2>Video UGC</h2><p>Listing 4456979256 · Đã lưu trên Drive</p></div></div>' +
+    '<div class="etsy-video-ugc-modal-head-actions"><span class="etsy-video-ugc-modal-count">2/2 video</span>' +
+    '<button class="etsy-video-ugc-close" aria-label="Đóng video UGC">×</button></div></header>' +
+    '<div class="etsy-video-ugc-modal-content"><div class="etsy-video-ugc-studio">' +
+    '<div class="etsy-video-ugc-primary is-' + (vertical ? "vertical" : "horizontal") + '">' +
+    '<div class="etsy-video-ugc-primary-head"><div class="etsy-video-ugc-player-identity">' +
+    '<strong>Video ' + (vertical ? "dọc" : "ngang") + '</strong><span class="etsy-video-ugc-ratio">' +
+    aspect + '</span></div><span class="etsy-video-ugc-qa is-pending">' +
+    '<span class="etsy-video-ugc-qa-dot"></span>Chờ QA nội dung</span></div>' +
+    '<div class="etsy-video-ugc-player-stage is-' + (vertical ? "vertical" : "horizontal") + '">' +
+    '<video controls playsinline preload="none" class="' + (vertical ? "vertical" : "horizontal") +
+    '" aria-label="Video ' + aspect + '"></video></div>' +
+    '<div class="etsy-video-ugc-primary-foot"><a href="#">Mở file gốc</a></div></div>' +
+    '<aside class="etsy-video-ugc-selector"><div class="etsy-video-ugc-version-group" role="tablist">' +
+    selector(aspect, true) + selector(other, false) + '</div>' +
+    '<div class="etsy-video-ugc-selected-info"><h3>Phiên bản ' + aspect + '</h3>' +
+    '<p>Chọn video để xem.</p></div><div class="etsy-video-ugc-storage-note">' +
+    'Lưu Drive không đồng nghĩa đạt QA.</div></aside></div></div></section></div></body></html>';
+};
 const browser = await chromium.launch({
-  headless: true, executablePath: "/opt/google/chrome/chrome",
-  args: ["--no-sandbox", "--disable-dev-shm-usage"],
+  headless:true, executablePath:"/opt/google/chrome/chrome",
+  args:["--no-sandbox","--disable-dev-shm-usage"],
 });
 try {
-  for (const [width, height] of [
-    [390, 844], [414, 896], [680, 840], [768, 1024],
-    [930, 948], [1280, 800], [1440, 900], [2048, 1100], [844, 390],
-  ]) {
-    const page = await browser.newPage({viewport: {width, height}});
-    await page.setContent(html);
-    const m = await page.evaluate(() => {
-      const modal = document.querySelector(".etsy-video-ugc-modal");
-      const cards = Array.from(document.querySelectorAll(".etsy-video-ugc-player"));
-      const stages = cards.map(x => x.querySelector(".etsy-video-ugc-stage"));
-      const rect = n => n.getBoundingClientRect();
-      const modalRect = rect(modal);
-      return {
-        viewportWidth: window.innerWidth,
-        docWidth: document.documentElement.scrollWidth,
-        modalWidth: Math.round(modalRect.width),
-        modalHeight: Math.round(modalRect.height),
-        maxHeight: getComputedStyle(modal).maxHeight,
-        cardDisplays: cards.map(n=>getComputedStyle(n).display),
-        cardTops: cards.map(n=>Math.round(rect(n).top)),
-        cardHeights: cards.map(n=>Math.round(rect(n).height)),
-        stageHeights: stages.map(n=>Math.round(rect(n).height)),
-        tabsDisplay: getComputedStyle(document.querySelector(".etsy-video-ugc-mobile-tabs")).display,
-        contentOverflowY: getComputedStyle(document.querySelector(".etsy-video-ugc-modal-content")).overflowY,
-      };
-    });
-    assert(m.docWidth <= width + 1, `${width}px unexpected horizontal overflow: ${JSON.stringify(m)}`);
-    assert(m.modalWidth <= width - 18, `${width}px modal too wide: ${JSON.stringify(m)}`);
-    assert(m.modalHeight <= height + 1, `${width}px modal outside screen: ${JSON.stringify(m)}`);
-    if (width > 720) {
-      assert.equal(m.tabsDisplay, "none");
-      assert.deepEqual(m.cardDisplays, ["grid", "grid"]);
-      assert(Math.abs(m.cardTops[0] - m.cardTops[1]) < 2, "Desktop cards misaligned");
-      assert(Math.abs(m.stageHeights[0] - m.stageHeights[1]) < 2,
-        `Desktop video stages not balanced: ${JSON.stringify(m)}`);
-      assert(m.modalHeight <= 790, `Desktop modal unnecessarily large: ${JSON.stringify(m)}`);
-    } else {
-      assert.equal(m.tabsDisplay, "grid");
-      assert.deepEqual(m.cardDisplays, ["grid", "none"]);
-      assert(m.stageHeights[0] > 0);
+  for (const aspect of ["9:16","16:9"]) {
+    for (const [width,height] of [
+      [390,844],[414,896],[680,840],[768,1024],
+      [930,948],[1280,800],[1440,900],[2048,1100],[844,390]
+    ]) {
+      const page = await browser.newPage({viewport:{width,height}});
+      await page.setContent(markup(aspect));
+      const m = await page.evaluate(() => {
+        const modal = document.querySelector(".etsy-video-ugc-modal");
+        const stage = document.querySelector(".etsy-video-ugc-player-stage");
+        const player = document.querySelector(".etsy-video-ugc-primary");
+        const selector = document.querySelector(".etsy-video-ugc-selector");
+        const rect = el => el.getBoundingClientRect();
+        const mr=rect(modal), pr=rect(player), sr=rect(stage), rr=rect(selector);
+        return {
+          docWidth:document.documentElement.scrollWidth,
+          modalWidth:Math.round(mr.width), modalHeight:Math.round(mr.height),
+          modalTop:Math.round(mr.top), modalBottom:Math.round(mr.bottom),
+          stageWidth:Math.round(sr.width), stageHeight:Math.round(sr.height),
+          stageRatio:sr.width/sr.height,
+          playerTop:Math.round(pr.top), selectorTop:Math.round(rr.top),
+          videoCount:document.querySelectorAll("video").length,
+          linkCount:document.querySelectorAll(".etsy-video-ugc-primary-foot a").length,
+          selectorCount:document.querySelectorAll(".etsy-video-ugc-version").length,
+          selectorLayout:getComputedStyle(document.querySelector(".etsy-video-ugc-version-group")).display,
+          statusDisplayed:getComputedStyle(document.querySelector(".etsy-video-ugc-qa")).display,
+        };
+      });
+      assert(m.docWidth <= width+1, width+"px page horizontal overflow "+JSON.stringify(m));
+      assert(m.modalWidth <= width-18, width+"px modal too wide "+JSON.stringify(m));
+      assert(m.modalHeight <= height+1, width+"px modal too tall "+JSON.stringify(m));
+      assert(m.modalBottom <= height+2, width+"px modal exceeds viewport "+JSON.stringify(m));
+      assert.equal(m.videoCount,1,"two videos unexpectedly mounted");
+      assert.equal(m.selectorCount,2);
+      assert.equal(m.linkCount,1);
+      assert(m.stageWidth>150 && m.stageHeight>150);
+      if(width>740) {
+        assert(Math.abs(m.playerTop-m.selectorTop)<=8, "desktop selector not beside player");
+        assert(m.modalWidth <= 824,"desktop modal wider than spec");
+      } else {
+        assert(m.selectorTop<m.playerTop,"mobile selector must precede player");
+      }
+      if(aspect==="16:9") {
+        assert(Math.abs(m.stageRatio-16/9)<.12,
+          width+"px landscape not media-proportional "+JSON.stringify(m));
+      }
+      console.log("UGC_MODAL_VIEWPORT_PASS "+aspect+" "+width+"x"+height+" "+JSON.stringify({
+        modal:[m.modalWidth,m.modalHeight],stage:[m.stageWidth,m.stageHeight]}));
+      await page.close();
     }
-    console.log(`UGC_MODAL_VIEWPORT_PASS ${width}x${height} ${JSON.stringify({
-      modal: [m.modalWidth, m.modalHeight], stages: m.stageHeights, tabs: m.tabsDisplay,
-    })}`);
-    await page.close();
   }
 } finally {
   await browser.close();

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { VideoUGCCell } from "./VideoUGCCell";
@@ -18,106 +18,195 @@ afterEach(() => {
   act(() => root?.unmount());
   container?.remove();
   document.querySelectorAll(".etsy-video-ugc-backdrop").forEach(el => el.remove());
+  vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 const listing = "4456979256";
+const videos = [
+  { aspectRatio: "9:16" as const,
+    url: "/api/v1/etsy-spy/video-ugc/" + listing + "/vertical",
+    durationSeconds: 12, qaStatus: "pending_review" as const },
+  { aspectRatio: "16:9" as const,
+    url: "/api/v1/etsy-spy/video-ugc/" + listing + "/horizontal",
+    durationSeconds: 15, qaStatus: "pending_review" as const },
+];
 const base = { listingKey: listing, pageTitle: "Comfort Colors Print Tee", picked: true } as Listing;
+const withVideos = { ...base, videoUgc: { status: "saved", count: 2, videos } };
+const open = () => {
+  const trigger = container.querySelector<HTMLButtonElement>(".etsy-video-ugc-badge");
+  act(() => trigger?.click());
+  return trigger;
+};
+const activeSource = () => document.querySelector<HTMLVideoElement>(".etsy-video-ugc-player-stage video");
+const modal = () => document.querySelector<HTMLElement>(".etsy-video-ugc-modal");
 
-describe("Etsy Spy Video UGC cell", () => {
-  it("does not claim a QA-held design has a video", () => {
-    mount({ ...base, videoUgc: { status: "qa_hold", count: 0, videos: [] } });
+describe("Etsy Spy Video UGC single-player modal", () => {
+  it("shows QA-hold as status only, without a video request", () => {
+    mount({...base, videoUgc: {status: "qa_hold", count: 0, videos: []}});
     expect(container.textContent).toContain("Chờ QA ảnh");
     expect(container.querySelector(".etsy-video-ugc-placeholder.tone-waiting")).toBeTruthy();
-    expect(container.querySelector(".etsy-video-ugc-placeholder")?.getAttribute("title"))
-      .toContain("QA ảnh");
-    expect(container.querySelector("video")).toBeNull();
-    expect(container.querySelector("button")).toBeNull();
+    expect(container.querySelector("video, button")).toBeNull();
   });
-  it("shows two verified CAM video streams in one compact modal", () => {
-    const videos = [
-      { aspectRatio: "9:16" as const, url: "/api/v1/etsy-spy/video-ugc/" + listing + "/vertical",
-        qaStatus: "pending_review" as const },
-      { aspectRatio: "16:9" as const, url: "/api/v1/etsy-spy/video-ugc/" + listing + "/horizontal",
-        qaStatus: "pending_review" as const },
-    ];
-    mount({ ...base, videoUgc: { status: "saved", count: 2, videos } });
-    const button = container.querySelector<HTMLButtonElement>("button");
-    expect(button?.textContent).toContain("2/2 video");
-    expect(button?.getAttribute("title")).toContain("Chờ QA nội dung");
-    expect(button?.getAttribute("title")).not.toContain("Đạt QA");
-    expect(container.querySelector(".etsy-video-ugc-cell")?.getAttribute("data-ugc-state"))
-      .toBe("saved");
-    act(() => button?.click());
-    const modal = document.querySelector(".etsy-video-ugc-modal");
-    expect(modal).not.toBeNull();
-    expect(modal?.querySelectorAll("video")).toHaveLength(2);
-    expect(Array.from(modal?.querySelectorAll("video") ?? []).map(el => el.getAttribute("src")))
-      .toEqual(videos.map(v => v.url));
-    expect(modal?.textContent).toContain("Chờ QA nội dung");
-    expect(modal?.querySelectorAll(".etsy-video-ugc-player")).toHaveLength(2);
-    expect(modal?.querySelector(".etsy-video-ugc-players")?.className).not.toContain("is-single");
-    expect(modal?.querySelectorAll(".etsy-video-ugc-stage")).toHaveLength(2);
-    expect(modal?.querySelector(".etsy-video-ugc-qa.is-pending")?.textContent).toContain("Chờ QA nội dung");
-    expect(modal?.querySelectorAll(".etsy-video-ugc-file-status")).toHaveLength(2);
-    expect(modal?.querySelectorAll('a[target="_blank"][rel="noopener noreferrer"]')).toHaveLength(2);
-    expect(modal?.getAttribute("aria-labelledby")).toBe(
-      modal?.querySelector(".etsy-video-ugc-modal-titles h2")?.id);
-    expect(document.activeElement?.getAttribute("aria-label")).toBe("Đóng video UGC");
+  it("requests only one verified MP4 and exposes a real two-version selector", () => {
+    mount(withVideos);
+    const trigger = open();
+    expect(modal()).toBeTruthy();
+    expect(modal()?.getAttribute("role")).toBe("dialog");
+    expect(modal()?.getAttribute("aria-labelledby"))
+      .toBe(modal()?.querySelector("h2")?.id);
+    expect(modal()?.querySelectorAll("video")).toHaveLength(1);
+    expect(activeSource()?.getAttribute("src")).toBe(videos[0].url);
+    expect(activeSource()?.getAttribute("preload")).toBe("auto");
+    expect(modal()?.querySelectorAll('[role="tab"]')).toHaveLength(2);
+    expect(Array.from(modal()?.querySelectorAll('[role="tab"]') ?? [])
+      .map(tab => tab.getAttribute("aria-selected"))).toEqual(["true", "false"]);
+    expect(modal()?.querySelectorAll(".etsy-video-ugc-version-preview img")).toHaveLength(0);
+    expect(modal()?.querySelectorAll('a[target="_blank"]')).toHaveLength(1);
+    expect(modal()?.querySelector(".etsy-video-ugc-qa.is-pending")?.textContent)
+      .toContain("Chờ QA nội dung");
+    expect(modal()?.querySelector(".etsy-video-ugc-storage-note")?.textContent)
+      .toContain("không đồng nghĩa đạt QA");
     expect(document.body.style.overflow).toBe("hidden");
-    const tabs = Array.from(modal?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? []);
-    expect(tabs.map(tab=>tab.getAttribute("aria-selected"))).toEqual(["true", "false"]);
-    act(() => tabs[1]?.click());
-    expect(tabs.map(tab=>tab.getAttribute("aria-selected"))).toEqual(["false", "true"]);
-    expect(modal?.querySelector(".etsy-video-ugc-player.is-active video")?.getAttribute("src"))
-      .toBe(videos[1].url);
-    act(() => document.querySelector<HTMLButtonElement>('[aria-label="Đóng video UGC"]')?.click());
-    expect(document.querySelector(".etsy-video-ugc-modal")).toBeNull();
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Đóng video UGC");
+    act(() => modal()?.querySelector<HTMLButtonElement>(".etsy-video-ugc-close")?.click());
+    expect(modal()).toBeNull();
     expect(document.body.style.overflow).not.toBe("hidden");
-    expect(document.activeElement).toBe(button);
+    expect(document.activeElement).toBe(trigger);
   });
-  it("closes on Escape and on the backdrop, not when clicking inside the player", () => {
-    mount({...base, videoUgc: {status: "saved", count: 1, videos: [
-      { aspectRatio: "9:16", url: "/api/v1/etsy-spy/video-ugc/" + listing + "/vertical",
-        qaStatus: "pending_review" }
-    ]}});
-    const button = container.querySelector<HTMLButtonElement>(".etsy-video-ugc-badge");
-    act(() => button?.click());
-    expect(document.querySelector(".etsy-video-ugc-modal")).not.toBeNull();
-    expect(document.querySelector(".etsy-video-ugc-players.is-single")).not.toBeNull();
-    expect(document.querySelector(".etsy-video-ugc-mobile-tabs")).toBeNull();
-    act(() => {
-      document.querySelector(".etsy-video-ugc-player")?.dispatchEvent(
-        new MouseEvent("click", {bubbles: true}));
+  it("switches from vertical to horizontal without mounting two players", () => {
+    mount(withVideos);
+    open();
+    const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+    act(() => tabs[1].click());
+    expect(activeSource()?.getAttribute("src")).toBe(videos[1].url);
+    expect(document.querySelectorAll(".etsy-video-ugc-player-stage video")).toHaveLength(1);
+    expect(document.querySelector(".etsy-video-ugc-player-stage.is-horizontal")).toBeTruthy();
+    expect(tabs.map(tab => tab.getAttribute("aria-selected"))).toEqual(["false", "true"]);
+    expect(modal()?.querySelector('a[target="_blank"]')?.getAttribute("href"))
+      .toBe(videos[1].url);
+    act(() => tabs[0].click());
+    expect(activeSource()?.getAttribute("src")).toBe(videos[0].url);
+  });
+  it("supports keyboard navigation across both video variants", () => {
+    mount(withVideos);
+    open();
+    const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+    act(() => tabs[0].dispatchEvent(new KeyboardEvent("keydown", {
+      key:"ArrowRight", bubbles:true, cancelable:true,
+    })));
+    expect(activeSource()?.getAttribute("src")).toBe(videos[1].url);
+    expect(document.activeElement?.getAttribute("role")).toBe("tab");
+    act(() => tabs[1].dispatchEvent(new KeyboardEvent("keydown", {
+      key:"Home", bubbles:true, cancelable:true,
+    })));
+    expect(activeSource()?.getAttribute("src")).toBe(videos[0].url);
+  });
+  it("captures a preview only from an actually loaded video frame", () => {
+    const originalGetContext = HTMLCanvasElement.prototype.getContext;
+    const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+    Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+      configurable: true, value: vi.fn(() => ({drawImage: vi.fn()})),
     });
-    expect(document.querySelector(".etsy-video-ugc-modal")).not.toBeNull();
-    act(() => window.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true})));
-    expect(document.querySelector(".etsy-video-ugc-modal")).toBeNull();
-    expect(document.activeElement).toBe(button);
-    act(() => button?.click());
-    act(() => {
-      document.querySelector(".etsy-video-ugc-backdrop")?.dispatchEvent(
-        new MouseEvent("click", {bubbles: true}));
+    Object.defineProperty(HTMLCanvasElement.prototype, "toDataURL", {
+      configurable: true, value: vi.fn(() => "data:image/jpeg;base64,REAL_FRAME"),
     });
-    expect(document.querySelector(".etsy-video-ugc-modal")).toBeNull();
+    try {
+      mount(withVideos);
+      open();
+      const player = activeSource()!;
+      Object.defineProperty(player, "videoWidth", {configurable:true, value:1080});
+      Object.defineProperty(player, "videoHeight", {configurable:true, value:1920});
+      act(() => player.dispatchEvent(new Event("loadeddata", {bubbles: true})));
+      expect(modal()?.querySelectorAll(".etsy-video-ugc-version-preview img")).toHaveLength(1);
+      expect(modal()?.querySelector<HTMLImageElement>(".etsy-video-ugc-version-preview img")
+        ?.getAttribute("src")).toBe("data:image/jpeg;base64,REAL_FRAME");
+      expect(modal()?.querySelector(".etsy-video-ugc-load-status")).toBeNull();
+      expect(modal()?.querySelectorAll("video")).toHaveLength(1);
+    } finally {
+      Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+        configurable:true, value:originalGetContext,
+      });
+      Object.defineProperty(HTMLCanvasElement.prototype, "toDataURL", {
+        configurable:true, value:originalToDataURL,
+      });
+    }
+  });
+  it("exposes a retry action after the active MP4 encounters an error", () => {
+    mount(withVideos);
+    open();
+    const first = activeSource();
+    act(() => first?.dispatchEvent(new Event("error")));
+    expect(document.querySelector('.etsy-video-ugc-error[role="alert"]')).toBeTruthy();
+    expect(document.querySelector(".etsy-video-ugc-error")?.textContent).toContain("Thử lại");
+    act(() => document.querySelector<HTMLButtonElement>(".etsy-video-ugc-error button")?.click());
+    expect(document.querySelector(".etsy-video-ugc-error")).toBeNull();
+    expect(activeSource()).not.toBe(first);
+    expect(activeSource()?.getAttribute("src")).toBe(videos[0].url);
+  });
+  it("replaces a stuck video spinner with retry after 15 seconds", () => {
+    vi.useFakeTimers();
+    mount(withVideos);
+    open();
+    expect(document.querySelector(".etsy-video-ugc-load-status")?.textContent)
+      .toContain("Đang chuẩn bị video");
+    act(() => vi.advanceTimersByTime(15050));
+    expect(document.querySelector(".etsy-video-ugc-load-status")).toBeNull();
+    expect(document.querySelector(".etsy-video-ugc-error")?.textContent)
+      .toContain("Không thể tải video");
+    act(() => document.querySelector<HTMLButtonElement>(".etsy-video-ugc-error button")?.click());
+    expect(document.querySelector(".etsy-video-ugc-error")).toBeNull();
+    expect(document.querySelector(".etsy-video-ugc-load-status")).toBeTruthy();
+  });
+  it("waits for playable media instead of treating metadata as a loaded frame", () => {
+    mount(withVideos);
+    open();
+    expect(document.querySelector(".etsy-video-ugc-load-status")).toBeTruthy();
+    act(() => activeSource()?.dispatchEvent(new Event("loadedmetadata")));
+    expect(document.querySelector(".etsy-video-ugc-load-status")?.textContent)
+      .toContain("Đang tải dữ liệu video");
+    act(() => activeSource()?.dispatchEvent(new Event("canplay")));
+    expect(document.querySelector(".etsy-video-ugc-load-status")).toBeNull();
+    expect(document.querySelector(".etsy-video-ugc-player-stage")?.getAttribute("data-player-phase"))
+      .toBe("ready");
+  });
+  it("supports a single verified video without a nonfunctional second selector", () => {
+    mount({...base, videoUgc: {status:"partial", count:1, videos:[videos[0]]}});
+    open();
+    expect(modal()?.querySelectorAll("video")).toHaveLength(1);
+    expect(modal()?.querySelectorAll('[role="tab"]')).toHaveLength(0);
+    expect(modal()?.querySelector(".etsy-video-ugc-studio.is-single")).toBeTruthy();
+    expect(activeSource()?.getAttribute("src")).toBe(videos[0].url);
+  });
+  it("closes by Escape and by backdrop but not by player click", () => {
+    mount(withVideos);
+    const trigger = open();
+    act(() => modal()?.querySelector(".etsy-video-ugc-primary")?.dispatchEvent(
+      new MouseEvent("click", {bubbles:true})));
+    expect(modal()).toBeTruthy();
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", {
+      key:"Escape", bubbles:true,
+    })));
+    expect(modal()).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    act(() => trigger?.click());
+    act(() => document.querySelector(".etsy-video-ugc-backdrop")?.dispatchEvent(
+      new MouseEvent("click", {bubbles:true})));
+    expect(modal()).toBeNull();
   });
   it.each([
-    {status: "stalled", label: "Job gián đoạn", tone: "attention"},
-    {status: "queued", label: "Đang chờ", tone: "waiting"},
-    {status: "not_queued", label: "Chưa tạo", tone: "idle"},
-  ])("renders $status without claiming any saved video", ({status, label, tone}) => {
-    mount({...base, videoUgc: {status,count:0,videos:[]}});
+    {status:"stalled", label:"Job gián đoạn", tone:"attention"},
+    {status:"queued", label:"Đang chờ", tone:"waiting"},
+    {status:"not_queued", label:"Chưa tạo", tone:"idle"},
+  ])("does not claim a saved MP4 for $status", ({status,label,tone}) => {
+    mount({...base,videoUgc:{status,count:0,videos:[]}});
     expect(container.textContent).toContain(label);
-    expect(container.querySelector(".etsy-video-ugc-placeholder")?.className).toContain("tone-"+tone);
-    expect(container.querySelector(".etsy-video-ugc-badge")).toBeNull();
+    expect(container.querySelector(".etsy-video-ugc-placeholder")?.className)
+      .toContain("tone-"+tone);
+    expect(container.querySelector("video, .etsy-video-ugc-badge")).toBeNull();
   });
-  it("does not misrepresent a complete job without verified video URLs", () => {
-    mount({...base,videoUgc:{status:"completed",count:2,videos:[]}});
-    expect(container.textContent).toContain("Chờ đồng bộ");
-    expect(container.textContent).not.toContain("2/2 video");
-    expect(container.querySelector(".etsy-video-ugc-badge")).toBeNull();
-  });
-  it("does not play unverified external receipt URLs", () => {
-    mount({ ...base, videoUgc: { status: "receipt_only", count: 0, videos: [] } });
+  it("never plays a receipt-only or incomplete record without a verified URL", () => {
+    mount({...base,videoUgc:{status:"receipt_only",count:2,videos:[]}});
     expect(container.textContent).toContain("Chờ lưu Drive");
-    expect(container.querySelector("video")).toBeNull();
+    expect(container.querySelector("video, .etsy-video-ugc-badge")).toBeNull();
   });
 });

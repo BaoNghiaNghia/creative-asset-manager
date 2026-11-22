@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
+import type { SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
-import type { Listing } from "./api";
+import type { Listing, VideoUgcItem } from "./api";
 import "./VideoUGCCell.css";
 
 type VideoState = {
@@ -37,42 +38,137 @@ const VIDEO_STATES: Record<string, VideoState> = {
 export function getVideoUgcState(status: string): VideoState {
   return VIDEO_STATES[status] || VIDEO_STATES.not_queued;
 }
+
+type PlayerPhase = "loading" | "ready" | "buffering" | "error";
+
+function aspectName(aspect: string) {
+  return aspect === "9:16" ? "Video dọc" : "Video ngang";
+}
+
+function VideoUgcActivePlayer({
+  video, retryToken, poster, onPoster, onRetry,
+}: {
+  video: VideoUgcItem;
+  retryToken: number;
+  poster?: string;
+  onPoster: (image: string) => void;
+  onRetry: () => void;
+}) {
+  const [phase, setPhase] = useState<PlayerPhase>("loading");
+  const playerRef = useRef<HTMLVideoElement>(null);
+  const isVertical = video.aspectRatio === "9:16";
+
+  // Do not allow an endless spinner when Drive or the private MP4 stream fails.
+  useEffect(() => {
+    if (phase !== "loading" && phase !== "buffering") return;
+    const timer = window.setTimeout(() => setPhase(current =>
+      current === "loading" || current === "buffering" ? "error" : current), 15000);
+    return () => window.clearTimeout(timer);
+  }, [phase, video.url, retryToken]);
+
+  const captureRealFrame = (event: SyntheticEvent<HTMLVideoElement>) => {
+    if (poster) return;
+    const element = event.currentTarget;
+    if (!element.videoWidth || !element.videoHeight) return;
+    try {
+      const canvas = document.createElement("canvas");
+      const scale = Math.min(1, 180 / Math.max(element.videoWidth, element.videoHeight));
+      canvas.width = Math.max(1, Math.round(element.videoWidth * scale));
+      canvas.height = Math.max(1, Math.round(element.videoHeight * scale));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(element, 0, 0, canvas.width, canvas.height);
+      // Private frame preview lives only in current browser state; never uploaded.
+      onPoster(canvas.toDataURL("image/jpeg", 0.68));
+    } catch {
+      // Canvas may be restricted by browser or video origin; keep the fallback icon.
+    }
+  };
+  const onMediaError = () => setPhase("error");
+  return <div className={"etsy-video-ugc-player-stage " +
+    (isVertical ? "is-vertical" : "is-horizontal")} data-player-phase={phase}>
+    <video key={video.url + ":" + retryToken} ref={playerRef}
+      controls playsInline preload="auto" poster={poster}
+      src={video.url}
+      className={isVertical ? "vertical" : "horizontal"}
+      aria-label={"Phát " + aspectName(video.aspectRatio)}
+      onLoadedMetadata={() => setPhase("buffering")}
+      onCanPlay={() => setPhase("ready")}
+      onPlaying={() => setPhase("ready")}
+      onLoadedData={event => { setPhase("ready"); captureRealFrame(event); }}
+      onWaiting={() => setPhase("buffering")}
+      onStalled={() => setPhase("buffering")}
+      onError={onMediaError}/>
+    {phase === "loading" && <div className="etsy-video-ugc-load-status" role="status">
+      <span className="etsy-video-ugc-spinner" aria-hidden="true"/>
+      Đang chuẩn bị video…
+    </div>}
+    {phase === "buffering" && <div className="etsy-video-ugc-load-status" role="status">
+      <span className="etsy-video-ugc-spinner" aria-hidden="true"/>
+      Đang tải dữ liệu video…
+    </div>}
+    {phase === "error" && <div className="etsy-video-ugc-error" role="alert">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 4h.01"/>
+      </svg>
+      <strong>Không thể tải video</strong>
+      <span>Đường truyền hoặc nguồn MP4 có thể đang gián đoạn.</span>
+      <button type="button" onClick={onRetry}>Thử lại</button>
+    </div>}
+  </div>;
+}
+
 export function VideoUGCCell({ item }: { item: Listing }) {
   const [show, setShow] = useState(false);
-  const view = item.videoUgc;
-  const files = view?.videos ?? [];
+  const files = item.videoUgc?.videos ?? [];
   const saved = files.length;
-  const status = view?.status ?? "not_queued";
+  const status = item.videoUgc?.status ?? "not_queued";
   const state = getVideoUgcState(status);
   const label = saved ? (saved + "/2 video") : state.label;
-  const [activeAspect, setActiveAspect] = useState("9:16");
+  const [activeAspect, setActiveAspect] = useState<VideoUgcItem["aspectRatio"]>("9:16");
+  const [retryToken, setRetryToken] = useState(0);
+  const [posters, setPosters] = useState<Record<string, string>>({});
   const modalTitleId = useId();
   const tabGroupId = useId();
   const openButtonRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const modalRef = useRef<HTMLElement>(null);
+  const video = files.find(file => file.aspectRatio === activeAspect) ?? files[0];
+  const activeTabId = tabGroupId + "-tab-" + (video?.aspectRatio ?? "9:16").replace(":", "-");
 
-  const pausePlayers = () => {
-    modalRef.current?.querySelectorAll("video").forEach(player => {
+  useEffect(() => {
+    setShow(false);
+    setPosters({});
+    setRetryToken(0);
+  }, [item.listingKey]);
+
+  const pausePlayer = () => {
+    const media = modalRef.current?.querySelector("video");
+    if (media) {
       try {
-        if (!player.paused) player.pause();
-      } catch { /* Browser media controls are optional in test environments. */ }
-    });
+        if (!media.paused) media.pause();
+      } catch { /* Media not implemented in jsdom or unsupported browser. */ }
+    }
   };
   const closeModal = () => {
-    pausePlayers();
+    pausePlayer();
     setShow(false);
   };
   const openModal = () => {
-    setActiveAspect(files.find(video => video.aspectRatio === "9:16")?.aspectRatio
-      ?? files[0]?.aspectRatio ?? "9:16");
+    setActiveAspect(files.find(file => file.aspectRatio === "9:16")?.aspectRatio ??
+      files[0]?.aspectRatio ?? "9:16");
+    setRetryToken(0);
     setShow(true);
   };
-  const selectAspect = (aspect: string) => {
-    if (activeAspect === aspect) return;
-    pausePlayers();
+  const selectVideo = (aspect: VideoUgcItem["aspectRatio"]) => {
+    if (video?.aspectRatio === aspect) return;
+    pausePlayer();
+    setRetryToken(0);
     setActiveAspect(aspect);
   };
+  const savePoster = (aspect: string, frame: string) =>
+    setPosters(current => current[aspect] ? current : {...current, [aspect]: frame});
 
   useEffect(() => {
     if (!show) return;
@@ -82,15 +178,19 @@ export function VideoUGCCell({ item }: { item: Listing }) {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        closeModal();
+        const media = modalRef.current?.querySelector("video");
+        if (media && !media.paused) {
+          try { media.pause(); } catch { /* Media pause may be unavailable. */ }
+        }
+        setShow(false);
         return;
       }
       if (event.key !== "Tab" || !modalRef.current) return;
-      const focusables = Array.from(modalRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]):not([tabindex="-1"]), a[href], video[controls]'
+      const focusable = Array.from(modalRef.current.querySelectorAll<HTMLElement>(
+        'button:not(:disabled):not([tabindex="-1"]), a[href], video[controls]'
       )).filter(node => node.getClientRects().length > 0);
-      if (focusables.length === 0) return;
-      const first = focusables[0], last = focusables[focusables.length - 1];
+      if (!focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
@@ -111,7 +211,7 @@ export function VideoUGCCell({ item }: { item: Listing }) {
     {saved ? <button type="button" className="etsy-video-ugc-badge" ref={openButtonRef}
       onClick={openModal}
       title={label + " đã lưu trên Drive · " +
-        (files.some(video => video.qaStatus === "pending_review")
+        (files.some(file => file.qaStatus === "pending_review")
           ? "Chờ QA nội dung, không đồng nghĩa đã đạt QA."
           : "Mở các video đã xác minh của listing " + item.listingKey)}
       aria-label={"Xem " + label + " đã lưu trên Drive cho listing " + item.listingKey}>
@@ -125,10 +225,11 @@ export function VideoUGCCell({ item }: { item: Listing }) {
       </span>
       <span>{label}</span>
     </span>}
-    {show && saved > 0 && createPortal(
+    {show && video && createPortal(
       <div className="etsy-video-ugc-backdrop" role="presentation" onClick={closeModal}>
-        <section ref={modalRef} role="dialog" aria-modal="true" aria-labelledby={modalTitleId}
-          className="etsy-video-ugc-modal" onClick={event => event.stopPropagation()}>
+        <section ref={modalRef} className="etsy-video-ugc-modal"
+          role="dialog" aria-modal="true" aria-labelledby={modalTitleId}
+          onClick={event => event.stopPropagation()}>
           <header className="etsy-video-ugc-modal-head">
             <div className="etsy-video-ugc-modal-identity">
               <span className="etsy-video-ugc-modal-hero-icon" aria-hidden="true">
@@ -156,75 +257,107 @@ export function VideoUGCCell({ item }: { item: Listing }) {
             </div>
           </header>
           <div className="etsy-video-ugc-modal-content">
-            {files.length > 1 && <div className="etsy-video-ugc-mobile-tabs"
-              role="tablist" aria-label="Chọn định dạng video">
-              {files.map(video => <button type="button" key={video.aspectRatio}
-                role="tab" id={tabGroupId + "-tab-" + video.aspectRatio.replace(":", "-")}
-                aria-controls={tabGroupId + "-panel-" + video.aspectRatio.replace(":", "-")}
-                aria-selected={activeAspect === video.aspectRatio}
-                className={activeAspect === video.aspectRatio ? "is-active" : ""}
-                onClick={() => selectAspect(video.aspectRatio)}>
-                {video.aspectRatio === "9:16" ? "Dọc" : "Ngang"}
-                <span>{video.aspectRatio}</span>
-              </button>)}
-            </div>}
-            <div className={"etsy-video-ugc-players" + (files.length === 1 ? " is-single" : "")}>
-              {files.map(video => {
-                const vertical = video.aspectRatio === "9:16";
-                const waitingQa = video.qaStatus === "pending_review";
-                const panelId = tabGroupId + "-panel-" + video.aspectRatio.replace(":", "-");
-                const tabId = tabGroupId + "-tab-" + video.aspectRatio.replace(":", "-");
-                return <article key={video.aspectRatio}
-                  role={files.length > 1 ? "tabpanel" : undefined}
-                  id={panelId} aria-labelledby={files.length > 1 ? tabId : undefined}
-                  className={"etsy-video-ugc-player " + (vertical ? "is-vertical" : "is-horizontal") +
-                    (activeAspect === video.aspectRatio ? " is-active" : "")}>
-                  <div className="etsy-video-ugc-player-head">
-                    <div className="etsy-video-ugc-player-identity">
-                      <strong>{vertical ? "Video dọc" : "Video ngang"}</strong>
-                      <span className="etsy-video-ugc-ratio">{video.aspectRatio}</span>
-                    </div>
-                    <span className={"etsy-video-ugc-qa " + (waitingQa ? "is-pending" : "is-saved")}
-                      title={waitingQa
-                        ? "Video đã lưu nhưng đang chờ QA nội dung. Không đồng nghĩa đạt QA."
-                        : "Video đã lưu trên Drive. Trạng thái QA không xác định từ nhãn này."}>
-                      <span className="etsy-video-ugc-qa-dot" aria-hidden="true"/>
-                      {waitingQa ? "Chờ QA nội dung" : "Đã lưu"}
-                    </span>
+            <div className={"etsy-video-ugc-studio" + (files.length === 1 ? " is-single" : "")}>
+              <div className={"etsy-video-ugc-primary " +
+                (video.aspectRatio === "9:16" ? "is-vertical" : "is-horizontal")}
+                id={tabGroupId + "-panel"} role={files.length > 1 ? "tabpanel" : "group"}
+                aria-labelledby={files.length > 1 ? activeTabId : undefined}
+                aria-label={files.length === 1 ? aspectName(video.aspectRatio) : undefined}>
+                <div className="etsy-video-ugc-primary-head">
+                  <div className="etsy-video-ugc-player-identity">
+                    <strong>{aspectName(video.aspectRatio)}</strong>
+                    <span className="etsy-video-ugc-ratio">{video.aspectRatio}</span>
                   </div>
-                  <div className="etsy-video-ugc-stage">
-                    <video controls playsInline preload="metadata" src={video.url}
-                      aria-label={"Video " + video.aspectRatio}
-                      className={vertical ? "vertical" : "horizontal"}/>
-                  </div>
-                  <div className="etsy-video-ugc-player-foot">
-                    <span className="etsy-video-ugc-file-status">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/>
-                      </svg>
-                      Đã lưu Drive
-                    </span>
-                    <a href={video.url} target="_blank" rel="noopener noreferrer"
-                      aria-label={"Mở file video gốc " + video.aspectRatio + " trong tab mới"}>
-                      Mở file gốc
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                        strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M8 16 16 8M9 8h7v7"/>
-                      </svg>
-                    </a>
-                  </div>
-                </article>;
-              })}
+                  <span className={"etsy-video-ugc-qa " +
+                    (video.qaStatus === "pending_review" ? "is-pending" : "is-saved")}
+                    title={video.qaStatus === "pending_review"
+                      ? "Video đã lưu trên Drive, đang chờ QA nội dung."
+                      : "Video đã lưu trên Drive; không suy ra QA đạt."}>
+                    <span className="etsy-video-ugc-qa-dot" aria-hidden="true"/>
+                    {video.qaStatus === "pending_review" ? "Chờ QA nội dung" : "Đã lưu"}
+                  </span>
+                </div>
+                <VideoUgcActivePlayer key={video.url + ":" + retryToken}
+                  video={video} retryToken={retryToken}
+                  poster={posters[video.aspectRatio]}
+                  onPoster={frame => savePoster(video.aspectRatio, frame)}
+                  onRetry={() => setRetryToken(value => value + 1)}/>
+                <div className="etsy-video-ugc-primary-foot">
+                  <a href={video.url} target="_blank" rel="noopener noreferrer"
+                    aria-label={"Mở file video gốc " + video.aspectRatio + " trong tab mới"}>
+                    Mở file gốc
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+                      <path d="m7 17 10-10M9 7h8v8"/>
+                    </svg>
+                  </a>
+                </div>
+              </div>
+              <aside className="etsy-video-ugc-selector" aria-label="Chọn phiên bản video">
+                {files.length > 1 && <div className="etsy-video-ugc-version-group"
+                  role="tablist" aria-label="Chọn định dạng video">
+                  {files.map(file => {
+                    const active = video.aspectRatio === file.aspectRatio;
+                    const vertical = file.aspectRatio === "9:16";
+                    return <button type="button" key={file.aspectRatio}
+                      id={tabGroupId + "-tab-" + file.aspectRatio.replace(":", "-")}
+                      className={"etsy-video-ugc-version" + (active ? " is-active" : "")}
+                      role="tab" tabIndex={active ? 0 : -1}
+                      aria-selected={active} aria-controls={tabGroupId + "-panel"}
+                      onClick={() => selectVideo(file.aspectRatio)}
+                      onKeyDown={event => {
+                        const index = files.findIndex(x => x.aspectRatio === file.aspectRatio);
+                        const next = event.key === "ArrowRight" || event.key === "ArrowDown"
+                          ? (index + 1) % files.length
+                          : event.key === "ArrowLeft" || event.key === "ArrowUp"
+                            ? (index + files.length - 1) % files.length
+                            : event.key === "Home" ? 0
+                              : event.key === "End" ? files.length - 1 : -1;
+                        if (next >= 0) {
+                          event.preventDefault();
+                          selectVideo(files[next].aspectRatio);
+                          const nextId = tabGroupId + "-tab-" +
+                            files[next].aspectRatio.replace(":", "-");
+                          document.getElementById(nextId)?.focus();
+                        }
+                      }}>
+                      <span className={"etsy-video-ugc-version-preview " +
+                        (vertical ? "is-vertical" : "is-horizontal")}>
+                        {posters[file.aspectRatio]
+                          ? <img src={posters[file.aspectRatio]} alt="" loading="lazy"/>
+                          : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                              strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+                              <rect x="5" y="3" width="14" height="18" rx="2"/>
+                              <path d="m10 9 5 3-5 3V9Z"/>
+                            </svg>}
+                      </span>
+                      <span className="etsy-video-ugc-version-copy">
+                        <strong>{aspectName(file.aspectRatio)}</strong>
+                        <small>{file.aspectRatio} <span aria-hidden="true">·</span> MP4</small>
+                      </span>
+                      <span className="etsy-video-ugc-version-chevron" aria-hidden="true">›</span>
+                    </button>;
+                  })}
+                </div>}
+                <div className="etsy-video-ugc-selected-info">
+                  <h3>{aspectName(video.aspectRatio)}</h3>
+                  <p>{video.aspectRatio === "9:16"
+                    ? "Video tỷ lệ dọc, phù hợp TikTok và Reels."
+                    : "Video tỷ lệ ngang, phù hợp khung trình chiếu rộng."}</p>
+                  {typeof video.durationSeconds === "number" && video.durationSeconds > 0 &&
+                    <p>Thời lượng: {Math.round(video.durationSeconds)} giây</p>}
+                </div>
+                <div className="etsy-video-ugc-storage-note">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+                    aria-hidden="true">
+                    <circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>
+                  </svg>
+                  <span>File đã được xác minh trên Drive. Lưu file không đồng nghĩa đạt QA nội dung.</span>
+                </div>
+              </aside>
             </div>
           </div>
-          <footer className="etsy-video-ugc-modal-footnote">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/>
-            </svg>
-            Trạng thái lưu Drive và đánh giá QA nội dung là hai bước riêng biệt.
-          </footer>
         </section>
       </div>, document.body)}
   </td>;
