@@ -189,15 +189,20 @@ def _row_view(job):
                 "garment": "Comfort Colors C1717", "printPosition": "front_center",
                 "designTopBelowCollarCm": 10,
                 "artworkShaStrict": True,
-                "motionPromptVersion": "CAM_NATURAL_EVERYDAY_MOTION_V3",
+                "motionPromptVersion": "CAM_NATURAL_EVERYDAY_MOTION_V3_1",
                 "motionStyle": "unposed candid documentary footage; real-time human behavior, not fashion acting or a slow-motion portrait",
                 "startFramePolicy": (
-                    "PRE-RENDER CHECK: If the face is visible, choose an approved "
-                    "starting image with both eyes naturally open, relaxed jaw "
-                    "and neutral expression. If the only image has closed eyes, "
-                    "an exaggerated smile, a dramatic tilted neck, or a mid-action "
-                    "pose, choose another approved photo or crop below the mouth. "
-                    "Never animate an already closed-eye smiling portrait."
+                    "PRE-RENDER LIGHTING CHECK: Inspect the face, sun angle, "
+                    "eye direction and starting expression. Avoid facing the "
+                    "subject into strong direct sunlight: prefer open shade, "
+                    "diffuse side-light or gentle backlight with a relaxed face. "
+                    "If no suitable natural face-visible frame exists, crop "
+                    "from below the mouth to mid-thigh and keep the complete "
+                    "shirt artwork visible. NEVER force eyes open in harsh sun, "
+                    "morph a squint into an artificial stare, add sunshades or "
+                    "invent new props. If source integrity/renderer restrictions "
+                    "prevent a safe alternate image or crop, report blocked "
+                    "without rendering the same bad starting frame again."
                 ),
                 "motionPrompt": (
                     "One continuous 12-second candid UGC take. The subject is "
@@ -206,12 +211,15 @@ def _row_view(job):
                     "image and location: shift weight once by the garden fence, "
                     "take 1-2 unhurried steps if already standing freely, "
                     "or slightly adjust a seated position if already sitting. "
-                    "The action has a reason, begins and ends naturally within "
-                    "1-2 seconds at real-world speed. Afterwards the subject "
-                    "settles comfortably, with subtle independent movements, "
-                    "natural brief eye blinks, an ordinary changing expression, "
-                    "and a small off-camera glance when appropriate. Eyes stay "
-                    "mostly open when the face is visible. The camera feels like "
+                    "The action has a reason and takes a believable 2-4 seconds "
+                    "at real-world speed; do not manufacture a slow-motion pose. "
+                    "Then the subject settles naturally with subtle breathing, "
+                    "brief unforced blinks, relaxed facial muscles and an "
+                    "occasional small glance. Eye behavior MUST match lighting: "
+                    "slight ordinary squinting is acceptable in bright daylight, "
+                    "but sustained forced closing or staring is not. Prefer "
+                    "a print-focused crop if facial animation distracts. "
+                    "The camera feels like "
                     "an observer holding a phone steadily at chest height, with "
                     "barely perceptible human micro-sway. Maintain a mostly "
                     "front-facing torso, authentic cotton drape and a fully "
@@ -219,8 +227,9 @@ def _row_view(job):
                     "do not invent a coffee cup or other prop."
                 ),
                 "motionQaReject": [
-                    "closed eyes in starting image if face visible",
-                    "eyes closed for over 0.6 seconds outside a natural blink",
+                    "face aimed into harsh direct sunlight with no natural shade or crop alternative",
+                    "forced wide-eyed stare or unnaturally fixed smile in bright sun",
+                    "sustained eyelid closure inconsistent with the scene and human reaction",
                     "repeated slow head tilts, head rolls, nodding loops or robotic oscillation",
                     "fixed smiling expression for most of the clip",
                     "slow-motion or exaggerated acting instead of a motivated everyday action",
@@ -228,8 +237,15 @@ def _row_view(job):
                     "unrealistic hand, face, neck, fabric or artwork deformation",
                     "sudden camera jumps, hard scene cuts or looped body gestures",
                 ],
-                "camera": "single steady human handheld take; mostly chest-to-hip print-focused medium framing, minimal natural sway",
-                "lighting": "ordinary daylight with subtle natural shadows and soft backlight",
+                "camera": "single observational take; stable chest-to-hip print-focused medium framing, minimal natural sway",
+                "lighting": "prefer open shade, diffuse side-light or gentle backlight; avoid glare into subject's eyes",
+                "renderRetryPolicy": {
+                    "maxTriesPerAspectPerStartingFrame": 1,
+                    "newStartingFrameRequiredAfterEyeOrLightingFailure": True,
+                    "blockedByVideoTool": "stop and report; do not bypass or repeatedly retry an integrity refusal",
+                    "artworkOrPrintCropFailure": "reject; reframe with fully visible original print and correct physical scale",
+                    "noFakeOutputs": True,
+                },
                 "preserveArtworkScaleAcrossShots": True,
                 "noOpenAiApi": True,
                 "videoUploadPaths": {
