@@ -13,6 +13,8 @@ STORY_VERSION = "CAM_STORY_REAL_LIFE_V3_3"
 STORY_DURATION_SECONDS = 12
 STORY_MAX_NATIVE_TAKE_SECONDS = 10
 STORY_OUTPUT_CONTRACT = "CAM_STORY_12S_TWO_TAKE_V1"
+STORY_SOURCE_CONTRACT = "CAM_STORY_DUAL_HERO_FACE_V1"
+FACE_VISIBLE_MIN_SECONDS = 8.0
 STORY_FINAL_DURATION_BOUNDS = (11.5, 12.5)
 STORY_WARDROBE_POLICY = "CAM_STORY_WARDROBE_CASTING_V1"
 
@@ -48,7 +50,7 @@ WARDROBE_CASTING = {
         "unrealistic, exaggerated or inconsistent torso/waist/hip/leg proportions",
         "body slimming, reshaping, wardrobe morphing, or changing pants between frames",
         "pants hidden for the whole video so garment type cannot be verified",
-        "inconsistent pants or model body across 9:16 and 16:9 versions",
+        "inconsistent pants or model body between take A and take B of the SAME video",
     ],
 }
 
@@ -262,7 +264,7 @@ def build_story_spec(
     artwork_sha256: str,
     garment_code: str = "C1717",
 ) -> dict:
-    """Deterministic story per design; same narrative for both aspect ratios.
+    """Deterministic independent 9:16 and 16:9 story and hero plans.
 
     garment_code MUST be a trusted CAM SKU, never inferred from title.
     """
@@ -317,13 +319,17 @@ def build_story_spec(
         "trouser waistband and upper thighs clearly for at least two "
         "continuous seconds in BOTH aspect ratios while keeping the full "
         "front artwork visible. "
-        f"The starting scene must ALREADY contain {scene}; if it does not, "
-        "choose another approved start image before rendering, otherwise BLOCK. "
-        f"0-3s (hook, shot 1): {hook} "
-        f"3-9s (observable action, through the motivated cut): {action} "
-        f"9-12s (resolution, shot 2): {ending} "
+        "For EACH ratio use ONLY its own aspectPlans[ratio].prompt, "
+        "aspectPlans[ratio].sceneRequiresApprovedStartFrame, storyId, "
+        "cameraDirection, heroRequestId and heroSeed. Do not reuse a "
+        "shared setup, prompt, scene, frame or take across ratios. "
+        "The starting scene must match the corresponding aspect plan and "
+        "ALREADY contain any story object; if not, choose another independent "
+        "source image or BLOCK. 0-3s (hook, shot 1) establishes the aspect "
+        "story; 3-9s (observable action) has real purposeful human movement; "
+        "9-12s (resolution, shot 2) completes that aspect-specific event. "
         "Make leg, hip, torso, shoulder, hand and cotton-fabric motion physically "
-        f"coherent and driven by the action. Camera treatment: {camera} "
+        "coherent and driven by the corresponding action. "
         "Camera handheld but OBSERVATIONAL, "
         "not moving in place of the subject; no head-turn-only or sway-only video. "
         "All story objects and other people must already be present in the "
@@ -334,8 +340,18 @@ def build_story_spec(
         "The FIRST flat-ink pixel is 150 mm below the lower collar rib measured "
         "along garment fabric, same print box as the approved product image; "
         "NO embroidery, drift, warping, stretching or occluding hands. "
-        "Create matching 9:16 and 16:9 views of the SAME event, with natural "
-        "framing rather than cropping the graphic. "
+        "The full adult FACE must remain naturally visible, recognizable and "
+        "well lit for AT LEAST 8 of 12 seconds; never crop at the neck, "
+        "mask the face, generate a headless torso, or use a chest-only video. "
+        "Keep the face AND entire approved chest print simultaneously visible "
+        "in the main moving shots, with waist/upper thighs shown for pants QA. "
+        "Generate TWO INDEPENDENT ORIGINAL HERO IMAGES: one true portrait 9:16 "
+        "and one true landscape 16:9. They MUST be generated separately using "
+        "different prompts, seeds, generation request IDs, compositions and "
+        "natural actions, never derived from a single source image, video, "
+        "frame, resize, crop, outpaint or reframe. Use distinct aspectPlans "
+        "for the two independent shoots; sharing the same approved Native Master "
+        "artwork is required, but sharing the same source hero frame is FORBIDDEN. "
         "The 12-second FINAL export must be continuous in story, "
         "even when it uses two genuinely recorded takes. Do not invent "
         "additional story time with looped/reversed frames, duplicated "
@@ -343,9 +359,86 @@ def build_story_spec(
         "takes or a verified native 12-second source are unavailable, "
         "report BLOCKED rather than outputting fake 12-second video."
     )
+    # The two ratios are two independently generated images and shoots, not
+    # alternate crops of one still. Per-ratio request IDs/seeds are stable for
+    # retries but guaranteed distinct within the same listing.
+    aspect_plans = {}
+    for ratio, selection_offset, camera_offset, role, framing in (
+        ("9:16", 0, 0, "vertical_original_hero",
+         "portrait medium-full UGC frame showing natural face, complete shirt "
+         "print and waist/jeans or khakis; face visible through the main action"),
+        ("16:9", 1, 1, "horizontal_original_hero",
+         "landscape environmental medium-wide UGC frame with full face, "
+         "complete chest print and waist visible; native wide composition"),
+    ):
+        versioned = f"{listing_key}:{artwork_sha256}:{STORY_SOURCE_CONTRACT}:{ratio}"
+        generated = hashlib.sha256(versioned.encode()).digest()
+        variant = choices[(selection + selection_offset) % len(choices)]
+        variant_id, variant_title, variant_scene, variant_hook, variant_action, variant_end = variant
+        camera_variant = CAPTURE_STYLES[
+            (seed[1] + camera_offset) % len(CAPTURE_STYLES)
+        ]
+        hero_request_id = generated.hex()[:32]
+        # Same design base seed plus a nonzero ratio offset; cannot collide.
+        hero_seed = (int.from_bytes(seed[4:8], "big") +
+                     selection_offset * 0x9E3779B9) % (2 ** 32)
+        aspect_prompt = (
+            f"INDEPENDENT {ratio} ORIGINAL image-to-video shoot for the SAME "
+            f"approved {garment_name} printed product. Generate a UNIQUE hero "
+            f"source image from a FRESH image generation request ID "
+            f"{hero_request_id} and separate seed {hero_seed}. "
+            f"This is NOT a resized, cropped, reframed, outpainted or "
+            f"re-encoded image of the other aspect. Exact native {ratio} "
+            f"image framing: {framing}. "
+            "Show a realistic adult's FULL FACE and expressive eyes clearly "
+            "for at least 8 seconds of the final 12-second video; no face-free "
+            "torso or neck-down crop, even as a fallback. "
+            f"Location and visible source objects: {variant_scene}. "
+            f"0-3s: {variant_hook} 3-9s: {variant_action} "
+            f"9-12s: {variant_end} "
+            f"Camera: {camera_variant} "
+            "One truthful scene and TWO real 6-second moving takes joined by "
+            "one deliberate cut at second 6, with the SAME person, real "
+            "clothes and source scene within this ratio. Use natural "
+            "human motion, not camera-only motion or a stretched still. "
+            "Wear only denim jeans or khaki chinos, adult with natural "
+            "medium/average or moderately athletic proportions; never "
+            "alter a real person's body. Keep the T-shirt exactly the "
+            "CAM-approved color, relaxed short-sleeve fit and Native Master "
+            "flat ink, first ink exactly 150mm below the lower collar rib. "
+            "Maintain face, print and natural cotton drape throughout. "
+            "Never reuse any source image, generated take, frame, "
+            "video bytes, seed or hero generation request from the other "
+            "aspect. Only the approved product/artwork identity may be shared."
+        )
+        aspect_plans[ratio] = {
+            "aspectRatio": ratio,
+            "heroRole": role,
+            "heroRequestId": hero_request_id,
+            "heroSeed": hero_seed,
+            "heroGeneration": "new_independent_image_request",
+            "heroImageMustBeOriginalForRatio": True,
+            "heroImageSource": "muse_generated_distinct_and_cam_drive_verified",
+            "sceneRequiresApprovedStartFrame": variant_scene,
+            "storyId": variant_id,
+            "storyTitle": variant_title,
+            "cameraDirection": camera_variant,
+            "framing": framing,
+            "faceVisibleMinSeconds": FACE_VISIBLE_MIN_SECONDS,
+            "faceAndPrintVisibleTogether": True,
+            "showWaistForBottomsQaSeconds": 2,
+            "shotA": {"seconds": [0, 6], "action": variant_hook},
+            "shotB": {"seconds": [6, 12], "action": variant_end},
+            "meaningfulAction": variant_action,
+            "prompt": aspect_prompt,
+        }
+    assert aspect_plans["9:16"]["heroRequestId"] != aspect_plans["16:9"]["heroRequestId"]
+    assert aspect_plans["9:16"]["heroSeed"] != aspect_plans["16:9"]["heroSeed"]
+
     return {
         "storyVersion": STORY_VERSION,
         "storyOutputContract": STORY_OUTPUT_CONTRACT,
+        "storySourceContract": STORY_SOURCE_CONTRACT,
         "storyId": story_id,
         "storyTheme": theme,
         "storyTitle": title_safe,
@@ -357,7 +450,8 @@ def build_story_spec(
         "wardrobeCastingLock": {
             "policyVersion": STORY_WARDROBE_POLICY,
             **WARDROBE_CASTING,
-            "samePantsAndPersonAcrossRatios": True,
+            "samePantsAndPersonAcrossRatios": False,
+            "consistentWithinEachVideoAcrossItsTwoTakes": True,
             "onlyApprovedSourceFrame": True,
         },
         "garmentLock": {
@@ -376,6 +470,14 @@ def build_story_spec(
             "rejectChangesAcrossFrames": True,
         },
         "narrativePrompt": prompt,
+        "aspectPlans": aspect_plans,
+        "sourceProofPolicy": {"version": STORY_SOURCE_CONTRACT,
+            "heroImageUploadsPerListing": 2,
+            "oneNewOriginalHeroPerAspect": True,
+            "requireDifferentImageContent": True,
+            "requireIndependentGenerationIdsAndSeeds": True,
+            "rejectCrossAspectVideoConversion": True,
+            "manualFaceAndVisualDifferenceQaPending": True},
         "qaPolicy": {
             "requireMeaningfulActionSeconds": [3, 9],
             "reject": [
@@ -387,12 +489,18 @@ def build_story_spec(
                 *WARDROBE_CASTING["reject"],
                 "props, companions or vehicles hallucinated into the source scene",
                 "print size, lettering, color, SHA fidelity, 150 mm anchor or shape changed",
-                "two aspect ratios portray different events or shirt variants",
+                "two aspect ratios reuse one hero photo or derive one video from the other",
+                "face absent, cut off at the neck, hidden, or visible for fewer than 8 of 12 seconds",
+                "vertical 9:16 source stretched, reframed, outpainted or cropped into horizontal 16:9",
+                "different face, shirt, artwork, trousers or environment within the two takes of one video",
                 "12 seconds assembled with duplicated/frozen/reversed frames, synthetic holds or slowed footage",
                 "two shots fail to match the approved actor, trousers, shirt, print or location",
             ],
             "review": "independent garment, story-action, print and fabric motion QA per ratio",
             "storageIsNotApproval": True,
+            "faceVisibleMinSeconds": FACE_VISIBLE_MIN_SECONDS,
+            "independentHeroImageReviewRequired": True,
+            "faceVisibilityReviewRequired": True,
         },
         "renderPolicy": {
             "outputContractVersion": STORY_OUTPUT_CONTRACT,
@@ -419,6 +527,10 @@ def build_story_spec(
             "startFrameMismatch": "choose_another_approved_source_or_block",
             "existingSavedVideo": "never_regenerate_or_replace",
             "aspectRatios": ["9:16", "16:9"],
-            "sameStoryForBothRatios": True,
+            "sameStoryForBothRatios": False,
+            "differentHeroImagePerAspect": True,
+            "differentGenerationRequestAndSeedPerAspect": True,
+            "noCrossAspectCropOrReuse": True,
+            "sourceContract": STORY_SOURCE_CONTRACT,
         },
     }

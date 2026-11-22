@@ -32,8 +32,11 @@ There are 13 theme families with two script options each (26 stories):
 outdoors, ride, holiday, gaming, sports, birthday, pets/wildlife artwork,
 coffee, family, romance, retro, humor, everyday. Title cues identify a safe
 theme only: title text is NEVER new printed artwork or the garment SKU.
-The same deterministic story/person/wardrobe/artwork is used for 9:16 and 16:9;
-camera framing may be adapted but a camera pan cannot replace human action.
+Only the approved garment SKU, shirt color and exact Native Master artwork
+must match across 9:16 and 16:9. Their hero images, generation request IDs,
+seeds, compositions, actions and even models/scenes are generated separately.
+Within each individual video, keep the SAME person, pants and scene across
+both real takes. No camera pan can replace meaningful movement.
 
 ### Genuine 12-second assembly using a <=10s native renderer
 
@@ -52,6 +55,62 @@ The exported MP4 is accepted by the Bridge only if `ffprobe` reports
 11.5-12.5 seconds, valid aspect ratio and H.264. Duration checking does not
 verify meaningful motion or source integrity; a *separate visual QA* is required.
 For final assembly, use an actual encoded MP4, never a mock receipt.
+
+### FACE-ON + TWO ORIGINAL HERO IMAGES (2026-11-22)
+
+User-reviewed Nativity samples (both 12s) showed the head cropped out;
+the vertical and horizontal videos shared very similar settings/motion.
+Whether the renderer literally cropped one input into the other was not
+proven from video alone. V3.3 must now prevent this workflow by contract.
+
+**One listing, two INDEPENDENT image generations:**
+- `9:16`: generate ONE new original portrait image with an adult's FULL
+  natural face, printed C1717 front and jeans/chinos in frame; choose a
+  portrait-native action and camera plan.
+- `16:9`: generate a SECOND original landscape image via a SEPARATE
+  generation request and seed, with a different composition, theme-consistent
+  scene and action plan. DO NOT crop, resize, outpaint, stretch, reuse or
+  re-encode the vertical hero into this second source.
+- Source prompts live in `storySpecV33.aspectPlans["9:16"].prompt`
+  and `storySpecV33.aspectPlans["16:9"].prompt`. Each has separate
+  `heroRequestId`, `heroSeed`, `storyId`, and `cameraDirection`.
+  The same exact approved Native Master artwork is mandatory in both.
+- Each video still has two genuine moving 6s takes of its OWN source,
+  keeping its own actor, clothes, print and environment coherent through
+  its single edit at second 6. The two videos need NOT show the same actor
+  or identical event; they are separate shoots advertising the same product.
+- The FULL FACE must be visible for at least **8 of 12 seconds** in
+  each final MP4, with authentic expression, not a neck-down mockup.
+  Do not use the V3.1 neck-down fallback. Face and entire shirt print must
+  be visible together for the main action; waist/upper thighs visible
+  for at least 2s for jeans/khaki QA.
+
+**New V3.3 source proof API, no new DB:** After claiming with all three
+contract fields, upload each actual independently generated original hero
+JPEG or PNG to private CAM Drive with the same Muse lease:
+
+- `POST /api/v1/muse-bridge/jobs/{listingId}/hero/vertical`
+- `POST /api/v1/muse-bridge/jobs/{listingId}/hero/horizontal`
+- Content-Type: `image/jpeg` or `image/png`.
+- Headers: `X-Muse-Lease`, `X-CAM-Story-Source-Contract:
+  CAM_STORY_DUAL_HERO_FACE_V1`, `X-CAM-Hero-Request-Id`,
+  and `X-CAM-Hero-Seed`, taken verbatim from the respective aspect plan.
+- Image dimension/ratio, decoded bytes, SHA-256, a small pixel digest,
+  dHash similarity, distinct seeds/IDs and private Drive provenance are
+  verified. If either source is missing, same/near-identical, or wrong
+  native ratio, reject (409/422) before accepting its MP4.
+- MP4 uploads then supply `X-CAM-Hero-Sha256` and
+  `X-CAM-Hero-Request-Id` matching the actual uploaded hero receipt.
+  Existing saved per-aspect variants are NEVER regenerated or overwritten.
+  `videoSpec.savedHeroAspectRatios` allows safe retries.
+
+**QA limitation:** Source pixel evidence proves two different uploaded
+images with different aspect plans; it does not cryptographically prove
+a generator used two independent requests, nor detect every crop/outpaint,
+nor prove facial visibility. Both source images and final MP4s remain
+`faceVisibilityQa=pending_review` until independent visual QA inspects
+full face >=8s, different scene/composition and real human motion.
+Never change `pending_review` to PASS merely because Drive stored files.
 
 ### Approved person, garment and wardrobe
 
@@ -80,10 +139,13 @@ already present in an approved start frame, otherwise choose another or BLOCK.
 
 Use existing authenticated CAM Muse Bridge; do not create a duplicate task.
 `GET /api/v1/muse-bridge/video-work` advertises the story spec and capabilities
-even when the workflow is disabled. The bridge v1.3.4 /health returns:
+even when the workflow is disabled. The bridge v1.3.5 /health returns:
 `storyV33SpecAvailable=true`, `storyV33TargetDurationSeconds=12`,
 `storyV33MaxNativeTakeSeconds=10`,
 `storyV33OutputContract=CAM_STORY_12S_TWO_TAKE_V1`,
+`storyV33SourceContract=CAM_STORY_DUAL_HERO_FACE_V1`,
+`storyV33RequiresTwoOriginalHeroImages=true`,
+`storyV33RequiresFaceVisibleMinSeconds=8`,
 `storyV33NativeRendererVerified=false` and
 `storyV33TwoTakeAssemblyVerified=false` (until independently verified).
 
@@ -118,14 +180,18 @@ bridge advertises V3.3, the worker has proven the two-take assembly contract,
 and the operator has reviewed the flag cutover, claim a NEW eligible listing:
 
 ```json
-{"worker":"muse","storyVersion":"CAM_STORY_REAL_LIFE_V3_3","storyOutputContract":"CAM_STORY_12S_TWO_TAKE_V1"}
+{"worker":"muse","storyVersion":"CAM_STORY_REAL_LIFE_V3_3","storyOutputContract":"CAM_STORY_12S_TWO_TAKE_V1","storySourceContract":"CAM_STORY_DUAL_HERO_FACE_V1"}
 ```
 
 This pins a **12-second** V3.3 contract in existing `output_receipts` and
 cannot silently change an older 14-second pin or a partially saved V3.1 job.
-Upload each missing MP4 using `X-Muse-Lease`,
-`X-CAM-Motion-Version: CAM_STORY_REAL_LIFE_V3_3`, and
-`X-CAM-Story-Output-Contract: CAM_STORY_12S_TWO_TAKE_V1`.
+Upload each missing MP4 ONLY AFTER the separate original hero image is
+uploaded and verified for that ratio. Use `X-Muse-Lease`,
+`X-CAM-Motion-Version: CAM_STORY_REAL_LIFE_V3_3`,
+`X-CAM-Story-Output-Contract: CAM_STORY_12S_TWO_TAKE_V1`,
+`X-CAM-Story-Source-Contract: CAM_STORY_DUAL_HERO_FACE_V1`,
+`X-CAM-Hero-Sha256: <verified-sha256>`, and
+`X-CAM-Hero-Request-Id: <aspect-plan-hero-request-id>`.
 An older Muse worker that knows only the previous 14s V3.3 prompt is
 rejected at claim time (409), before rendering. Reject 10s or 14s final
 uploads (422), mismatched version and invalid lease before Drive storage.

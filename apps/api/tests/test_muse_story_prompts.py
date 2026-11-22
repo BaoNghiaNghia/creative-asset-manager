@@ -6,7 +6,7 @@ import hashlib
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
 from fastapi import HTTPException
 from sqlalchemy import create_engine
@@ -16,7 +16,7 @@ from app.modules.muse_bridge import router as muse
 from app.modules.muse_bridge import video_storage
 from app.modules.muse_bridge.model import CamMuseJob
 from app.modules.muse_bridge.story_prompts import (
-    STORY_DURATION_SECONDS, STORY_VERSION, STORY_OUTPUT_CONTRACT, STORY_WARDROBE_POLICY, GARMENT_PROFILES,
+    STORY_DURATION_SECONDS, STORY_VERSION, STORY_OUTPUT_CONTRACT, STORY_SOURCE_CONTRACT, FACE_VISIBLE_MIN_SECONDS, STORY_WARDROBE_POLICY, GARMENT_PROFILES,
     build_story_spec, detect_theme,
 )
 
@@ -120,7 +120,8 @@ class StoryCatalogTests(unittest.TestCase):
                 self.assertEqual(len(lock["allowedBottoms"]), 2)
                 self.assertIn("denim jeans", lock["allowedBottoms"][0])
                 self.assertIn("khaki/chino trousers", lock["allowedBottoms"][1])
-                self.assertTrue(lock["samePantsAndPersonAcrossRatios"])
+                self.assertFalse(lock["samePantsAndPersonAcrossRatios"])
+                self.assertTrue(lock["consistentWithinEachVideoAcrossItsTwoTakes"])
                 self.assertTrue(lock["onlyApprovedSourceFrame"])
                 self.assertIn("JEANS OR", spec["narrativePrompt"])
                 self.assertIn("KHAKI/CHINO TROUSERS", spec["narrativePrompt"])
@@ -177,7 +178,8 @@ class StoryCatalogTests(unittest.TestCase):
         spec = self.spec()
         self.assertEqual(spec, self.spec())
         self.assertEqual(spec["renderPolicy"]["aspectRatios"], ["9:16", "16:9"])
-        self.assertTrue(spec["renderPolicy"]["sameStoryForBothRatios"])
+        self.assertFalse(spec["renderPolicy"]["sameStoryForBothRatios"])
+        self.assertTrue(spec["renderPolicy"]["differentHeroImagePerAspect"])
         titles = [
             build_story_spec(title="Adventure Hiking Shirt", listing_key=str(4487783000 + i),
                              artwork_sha256=ART)["storyId"]
@@ -215,16 +217,18 @@ class MuseStoryRolloutTests(unittest.TestCase):
                 ), patch.object(muse, "_configured", return_value=("x" * 64, "tenant")):
                     status = muse.health()
                     schema = muse.scoped_openapi()
-                self.assertEqual(status["version"], "1.3.4")
+                self.assertEqual(status["version"], "1.3.5")
                 self.assertTrue(status["storyV33SpecAvailable"])
                 self.assertEqual(status["storyV33TargetDurationSeconds"], 12)
                 self.assertEqual(status["storyV33OutputContract"], STORY_OUTPUT_CONTRACT)
+                self.assertEqual(status["storyV33SourceContract"], STORY_SOURCE_CONTRACT)
+                self.assertTrue(status["storyV33RequiresTwoOriginalHeroImages"])
                 self.assertEqual(status["storyV33MaxNativeTakeSeconds"], 10)
                 self.assertEqual(status["storyV33Enabled"], enabled)
                 self.assertFalse(status["storyV33NativeRendererVerified"])
                 self.assertFalse(status["storyV33TwoTakeAssemblyVerified"])
                 self.assertFalse(status["videoGenerationEnabled"])
-                self.assertEqual(schema["info"]["version"], "1.3.4")
+                self.assertEqual(schema["info"]["version"], "1.3.5")
 
     def test_flag_disabled_keeps_legacy_12s_but_exposes_story_preview(self):
         with patch.dict("os.environ", {}, clear=True):
@@ -278,6 +282,19 @@ class MuseStoryRolloutTests(unittest.TestCase):
         self.assertEqual(video["targetDurationSeconds"], STORY_DURATION_SECONDS)
         self.assertEqual(video["motionPromptVersion"], STORY_VERSION)
         self.assertEqual(video["storyUploadOutputContractHeader"], STORY_OUTPUT_CONTRACT)
+        self.assertEqual(video["storySourceContract"], STORY_SOURCE_CONTRACT)
+        self.assertIn("9:16", video["motionPromptByAspect"])
+        self.assertIn("16:9", video["motionPromptByAspect"])
+        self.assertTrue(video["independentHeroSourcesRequired"])
+        self.assertIn("Never use neck-down crop", video["startFramePolicy"])
+        self.assertEqual(
+            video["storySpecV33"]["storySourceContract"], STORY_SOURCE_CONTRACT
+        )
+        self.assertNotEqual(
+            video["storySpecV33"]["aspectPlans"]["9:16"]["heroRequestId"],
+            video["storySpecV33"]["aspectPlans"]["16:9"]["heroRequestId"],
+        )
+        self.assertTrue(video["faceVisibilityQaRequired"])
         self.assertIn("3-9s", video["motionPrompt"])
         self.assertIn("two authentic moving shots", video["motionPrompt"])
         self.assertEqual(video["storySpecV33"]["garmentLock"]["sku"], "C1717")
@@ -304,6 +321,7 @@ class MuseStoryRolloutTests(unittest.TestCase):
         pin = {
             "storyVersion": STORY_VERSION,
             "storyOutputContract": STORY_OUTPUT_CONTRACT,
+            "storySourceContract": STORY_SOURCE_CONTRACT,
             "artworkSha256": ART,
             "garmentSku": "C1717",
             "targetDurationSeconds": 12,
@@ -353,6 +371,7 @@ class MuseStoryRolloutTests(unittest.TestCase):
         pin = {
             "storyVersion": STORY_VERSION,
             "storyOutputContract": STORY_OUTPUT_CONTRACT,
+            "storySourceContract": STORY_SOURCE_CONTRACT,
             "artworkSha256": ART,
             "garmentSku": "C1717",
             "targetDurationSeconds": 12,
@@ -376,6 +395,9 @@ class MuseStoryRolloutTests(unittest.TestCase):
                         listing_id=LID, aspect="vertical", request=request,
                         x_muse_lease=lease, x_cam_motion_version=version,
                         x_cam_story_output_contract=contract,
+                        x_cam_story_source_contract=STORY_SOURCE_CONTRACT,
+                        x_cam_hero_sha256=None,
+                        x_cam_hero_request_id=None,
                         tenant="boostgame", db=db,
                     ))
                 self.assertEqual(err.exception.status_code, 422)
@@ -446,13 +468,19 @@ class MuseStoryClaimTests(unittest.TestCase):
         with patch.dict("os.environ", {"CAM_MUSE_STORY_V33_ENABLED": "true"}):
             with Session(self.engine) as db:
                 reply = muse.claim(
-                    LID, muse.ClaimRequest(worker="muse", storyVersion=STORY_VERSION, storyOutputContract=STORY_OUTPUT_CONTRACT),
+                    LID, muse.ClaimRequest(worker="muse", storyVersion=STORY_VERSION, storyOutputContract=STORY_OUTPUT_CONTRACT, storySourceContract=STORY_SOURCE_CONTRACT),
                     tenant="boostgame", db=db,
                 )
                 self.assertEqual(reply["job"]["videoSpec"]["targetDurationSeconds"], 12)
                 pin = db.get(CamMuseJob, ("boostgame", LID)).output_receipts["story_contract_v33"]
                 self.assertEqual(pin["storyVersion"], STORY_VERSION)
                 self.assertEqual(pin["storyOutputContract"], STORY_OUTPUT_CONTRACT)
+                self.assertEqual(pin["storySourceContract"], STORY_SOURCE_CONTRACT)
+                self.assertEqual(set(pin["heroGenerationPlans"]), {"9:16", "16:9"})
+                self.assertNotEqual(
+                    pin["heroGenerationPlans"]["9:16"]["heroRequestId"],
+                    pin["heroGenerationPlans"]["16:9"]["heroRequestId"],
+                )
                 self.assertEqual(pin["artworkSha256"], ART)
                 self.assertEqual(pin["garmentSku"], "C1717")
                 self.assertEqual(pin["targetDurationSeconds"], 12)
@@ -463,11 +491,177 @@ class MuseStoryClaimTests(unittest.TestCase):
                 db.commit()
             with Session(self.engine) as db:
                 again = muse.claim(
-                    LID, muse.ClaimRequest(worker="muse", storyVersion=STORY_VERSION, storyOutputContract=STORY_OUTPUT_CONTRACT),
+                    LID, muse.ClaimRequest(worker="muse", storyVersion=STORY_VERSION, storyOutputContract=STORY_OUTPUT_CONTRACT, storySourceContract=STORY_SOURCE_CONTRACT),
                     tenant="boostgame", db=db,
                 )
                 self.assertEqual(again["job"]["attempts"], 2)
                 self.assertEqual(again["job"]["videoSpec"]["targetDurationSeconds"], 12)
+
+    def test_two_real_uploaded_heroes_gate_two_independent_videos(self):
+        """Do not accept a V3.3 MP4 until its ratio's real hero exists."""
+        from app.modules.muse_bridge import hero_storage
+
+        with patch.dict("os.environ", {"CAM_MUSE_STORY_V33_ENABLED": "true"}):
+            with Session(self.engine) as db:
+                claimed = muse.claim(
+                    LID,
+                    muse.ClaimRequest(
+                        worker="muse", storyVersion=STORY_VERSION,
+                        storyOutputContract=STORY_OUTPUT_CONTRACT,
+                        storySourceContract=STORY_SOURCE_CONTRACT,
+                    ), tenant="boostgame", db=db,
+                )
+                lease = claimed["lease"]
+                plans = claimed["job"]["videoSpec"]["storySpecV33"]["aspectPlans"]
+
+                class UploadRequest:
+                    def __init__(self, mime, data):
+                        self.headers = {"content-type": mime}
+                        self.data = data
+
+                    async def stream(self):
+                        yield self.data
+
+                for ratio, aspect, sha, pixel_hash, dhash in (
+                    ("9:16", "vertical", "1" * 64, "3" * 64, "0000000000000000"),
+                    ("16:9", "horizontal", "2" * 64, "4" * 64, "ffffffffffffffff"),
+                ):
+                    video_bytes = (b"video" + aspect.encode()) * 500
+                    with self.assertRaises(HTTPException) as err:
+                        asyncio.run(muse.upload_ugc_video(
+                            LID, aspect, UploadRequest("video/mp4", video_bytes),
+                            x_muse_lease=lease, x_cam_motion_version=STORY_VERSION,
+                            x_cam_story_output_contract=STORY_OUTPUT_CONTRACT,
+                            x_cam_story_source_contract=STORY_SOURCE_CONTRACT,
+                            x_cam_hero_sha256=sha,
+                            x_cam_hero_request_id=plans[ratio]["heroRequestId"],
+                            tenant="boostgame", db=db,
+                        ))
+                    self.assertEqual(err.exception.status_code, 409)
+                    plan = plans[ratio]
+                    image_meta = {
+                        "aspectRatio": ratio, "sha256": sha,
+                        "pixelsSha256": pixel_hash, "dHash64": dhash,
+                        "bytes": 4096, "width": 720 if aspect == "vertical" else 1280,
+                        "height": 1280 if aspect == "vertical" else 720,
+                        "contentType": "image/jpeg",
+                    }
+                    saved_hero = {
+                        **image_meta, "heroRequestId": plan["heroRequestId"],
+                        "heroSeed": plan["heroSeed"], "storageVerified": True,
+                    }
+                    with patch.object(
+                        hero_storage, "validate_hero_image", return_value=image_meta
+                    ), patch.object(
+                        hero_storage, "store_muse_hero",
+                        new=AsyncMock(return_value=saved_hero),
+                    ):
+                        proof = asyncio.run(muse.upload_ugc_hero(
+                            LID, aspect, UploadRequest("image/jpeg", b"p" * 4096),
+                            x_muse_lease=lease,
+                            x_cam_story_source_contract=STORY_SOURCE_CONTRACT,
+                            x_cam_hero_request_id=plan["heroRequestId"],
+                            x_cam_hero_seed=plan["heroSeed"],
+                            tenant="boostgame", db=db,
+                        ))
+                    self.assertEqual(proof["imageSha256"], sha)
+                    self.assertEqual(proof["faceVisibilityQa"], "pending_review")
+                    digest = hashlib.sha256(video_bytes).hexdigest()
+                    stored_video = {
+                        "sha256": digest, "relativeFolder": "testing/private",
+                        "storageVerified": True, "aspectRatio": ratio,
+                    }
+                    with patch.object(
+                        video_storage, "store_muse_video",
+                        new=AsyncMock(return_value=stored_video),
+                    ) as storage:
+                        uploaded = asyncio.run(muse.upload_ugc_video(
+                            LID, aspect, UploadRequest("video/mp4", video_bytes),
+                            x_muse_lease=lease,
+                            x_cam_motion_version=STORY_VERSION,
+                            x_cam_story_output_contract=STORY_OUTPUT_CONTRACT,
+                            x_cam_story_source_contract=STORY_SOURCE_CONTRACT,
+                            x_cam_hero_sha256=sha,
+                            x_cam_hero_request_id=plan["heroRequestId"],
+                            tenant="boostgame", db=db,
+                        ))
+                        self.assertEqual(storage.await_args.kwargs["required_duration_seconds"],
+                                         (11.5, 12.5))
+                    self.assertTrue(uploaded["storageVerified"])
+                row = db.get(CamMuseJob, ("boostgame", LID))
+                self.assertEqual(row.status, "submitted")
+                receipts = row.output_receipts
+                self.assertEqual(set(receipts["hero_sources"]), {"9:16", "16:9"})
+                self.assertEqual(set(receipts["drive_uploads"]), {"9:16", "16:9"})
+                self.assertNotEqual(
+                    receipts["hero_sources"]["9:16"]["sha256"],
+                    receipts["hero_sources"]["16:9"]["sha256"],
+                )
+                self.assertEqual(receipts["videoContentQa"], "pending_review")
+
+    def test_same_uploaded_hero_image_cannot_be_reused_for_horizontal(self):
+        from app.modules.muse_bridge import hero_storage
+
+        with patch.dict("os.environ", {"CAM_MUSE_STORY_V33_ENABLED": "true"}):
+            with Session(self.engine) as db:
+                response = muse.claim(
+                    LID,
+                    muse.ClaimRequest(
+                        worker="muse", storyVersion=STORY_VERSION,
+                        storyOutputContract=STORY_OUTPUT_CONTRACT,
+                        storySourceContract=STORY_SOURCE_CONTRACT,
+                    ), tenant="boostgame", db=db,
+                )
+                plans = response["job"]["videoSpec"]["storySpecV33"]["aspectPlans"]
+                lease = response["lease"]
+                class Req:
+                    headers = {"content-type": "image/jpeg"}
+
+                    async def stream(self):
+                        yield b"x" * 4096
+                img_meta = {
+                    "sha256": "f" * 64, "pixelsSha256": "e" * 64,
+                    "dHash64": "0000000000000000", "width": 720,
+                    "height": 1280, "aspectRatio": "9:16",
+                    "bytes": 4096, "contentType": "image/jpeg",
+                }
+                plan = plans["9:16"]
+                with patch.object(
+                    hero_storage, "validate_hero_image", return_value=img_meta
+                ), patch.object(
+                    hero_storage, "store_muse_hero",
+                    new=AsyncMock(return_value={
+                        **img_meta, "heroRequestId": plan["heroRequestId"],
+                        "heroSeed": plan["heroSeed"], "storageVerified": True,
+                    }),
+                ):
+                    asyncio.run(muse.upload_ugc_hero(
+                        LID, "vertical", Req(), x_muse_lease=lease,
+                        x_cam_story_source_contract=STORY_SOURCE_CONTRACT,
+                        x_cam_hero_request_id=plan["heroRequestId"],
+                        x_cam_hero_seed=plan["heroSeed"],
+                        tenant="boostgame", db=db,
+                    ))
+                other_plan = plans["16:9"]
+                with patch.object(
+                    hero_storage, "validate_hero_image", return_value={
+                        **img_meta, "width": 1280, "height": 720,
+                        "aspectRatio": "16:9",
+                    }
+                ), patch.object(
+                    hero_storage, "store_muse_hero",
+                    new=AsyncMock(),
+                ) as save:
+                    with self.assertRaises(HTTPException) as err:
+                        asyncio.run(muse.upload_ugc_hero(
+                            LID, "horizontal", Req(), x_muse_lease=lease,
+                            x_cam_story_source_contract=STORY_SOURCE_CONTRACT,
+                            x_cam_hero_request_id=other_plan["heroRequestId"],
+                            x_cam_hero_seed=other_plan["heroSeed"],
+                            tenant="boostgame", db=db,
+                        ))
+                    self.assertEqual(err.exception.status_code, 409)
+                    save.assert_not_awaited()
 
     def test_selected_pilot_can_claim_v33_while_bulk_remains_off(self):
         pilot_env = {
@@ -489,6 +683,7 @@ class MuseStoryClaimTests(unittest.TestCase):
                         worker="muse",
                         storyVersion=STORY_VERSION,
                         storyOutputContract=STORY_OUTPUT_CONTRACT,
+                        storySourceContract=STORY_SOURCE_CONTRACT,
                     ),
                     tenant="boostgame", db=db,
                 )
@@ -517,7 +712,8 @@ class MuseStoryClaimTests(unittest.TestCase):
         with patch.dict("os.environ", {"CAM_MUSE_STORY_V33_ENABLED": "true"}):
             for body in (
                 muse.ClaimRequest(worker="muse", storyVersion=STORY_VERSION),
-                muse.ClaimRequest(worker="muse", storyOutputContract=STORY_OUTPUT_CONTRACT),
+                muse.ClaimRequest(worker="muse", storyOutputContract=STORY_OUTPUT_CONTRACT, storySourceContract=STORY_SOURCE_CONTRACT),
+                muse.ClaimRequest(worker="muse", storyVersion=STORY_VERSION, storyOutputContract=STORY_OUTPUT_CONTRACT),
             ):
                 with self.subTest(body=body.model_dump()):
                     with Session(self.engine) as db:
@@ -561,7 +757,7 @@ class MuseStoryClaimTests(unittest.TestCase):
                 db.commit()
                 with self.assertRaises(HTTPException) as err:
                     muse.claim(
-                        LID, muse.ClaimRequest(worker="muse", storyVersion=STORY_VERSION, storyOutputContract=STORY_OUTPUT_CONTRACT),
+                        LID, muse.ClaimRequest(worker="muse", storyVersion=STORY_VERSION, storyOutputContract=STORY_OUTPUT_CONTRACT, storySourceContract=STORY_SOURCE_CONTRACT),
                         tenant="boostgame", db=db,
                     )
                 self.assertEqual(err.exception.status_code, 409)

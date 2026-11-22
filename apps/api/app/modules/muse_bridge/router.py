@@ -38,7 +38,7 @@ from .model import CamMuseJob, CamMuseCommand
 from .command_queue import claimable_commands_query
 from .story_prompts import (
     STORY_VERSION, STORY_DURATION_SECONDS, STORY_MAX_NATIVE_TAKE_SECONDS,
-    STORY_FINAL_DURATION_BOUNDS, STORY_OUTPUT_CONTRACT, build_story_spec,
+    STORY_FINAL_DURATION_BOUNDS, STORY_OUTPUT_CONTRACT, STORY_SOURCE_CONTRACT, build_story_spec,
 )
 
 router = APIRouter(prefix="/api/v1/muse-bridge", tags=["muse-bridge"])
@@ -133,6 +133,7 @@ class ClaimRequest(BaseModel):
     # Explicit worker capability; the legacy Muse scheduler remains supported.
     storyVersion: Literal["CAM_STORY_REAL_LIFE_V3_3"] | None = None
     storyOutputContract: Literal["CAM_STORY_12S_TWO_TAKE_V1"] | None = None
+    storySourceContract: Literal["CAM_STORY_DUAL_HERO_FACE_V1"] | None = None
 
 class VideoReceipt(BaseModel):
     aspectRatio: str
@@ -221,7 +222,8 @@ def _pinned_story_v33(job) -> dict | None:
             and pin.get("artworkSha256") == job.artwork_sha256
             and pin.get("garmentSku") == "C1717"
             and pin.get("targetDurationSeconds") == STORY_DURATION_SECONDS
-            and pin.get("storyOutputContract") == STORY_OUTPUT_CONTRACT):
+            and pin.get("storyOutputContract") == STORY_OUTPUT_CONTRACT
+            and pin.get("storySourceContract") == STORY_SOURCE_CONTRACT):
         return pin
     return None
 
@@ -426,7 +428,40 @@ def _row_view(job):
         video["storyEnabled"] = story_active
         video["storyUploadMotionVersionHeader"] = STORY_VERSION
         video["storyUploadOutputContractHeader"] = STORY_OUTPUT_CONTRACT
+        video["storySourceContract"] = STORY_SOURCE_CONTRACT
+        existing_receipts = job.output_receipts if isinstance(job.output_receipts, dict) else {}
+        hero_sources = existing_receipts.get("hero_sources") or {}
+        video["savedHeroAspectRatios"] = [
+            ratio for ratio in ("9:16", "16:9")
+            if isinstance(hero_sources.get(ratio), dict)
+            and hero_sources[ratio].get("storageVerified")
+        ]
+        video["heroSha256ByAspect"] = {
+            ratio: hero_sources[ratio]["sha256"]
+            for ratio in video["savedHeroAspectRatios"]
+        }
+        video["storyHeroUploadPaths"] = {
+            "9:16": f"/api/v1/muse-bridge/jobs/{job.listing_key}/hero/vertical",
+            "16:9": f"/api/v1/muse-bridge/jobs/{job.listing_key}/hero/horizontal",
+        }
         if story_active:
+            video["motionPromptByAspect"] = {
+                aspect: plan["prompt"]
+                for aspect, plan in story_preview["aspectPlans"].items()
+            }
+            video["faceVisibleMinSeconds"] = 8
+            video["independentHeroSourcesRequired"] = True
+            video["startFramePolicy"] = (
+                "MANDATORY V3.3 FACE-ON: Select TWO independently generated "
+                "native source hero photos for 9:16 and 16:9, each with an adult "
+                "full natural face, torso shirt print and jeans/khakis visible. "
+                "NEVER reuse one hero, stretch or crop from another ratio. "
+                "Never use neck-down crop even if eyes squint in sunlight. "
+                "Pick an approved alternate face-visible frame or BLOCK."
+            )
+            video["camera"] = "two independent ratio-native shoots; face and print visible, no cross-aspect reframe"
+            video["heroSourceQaRequired"] = True
+            video["faceVisibilityQaRequired"] = True
             video["targetDurationSeconds"] = STORY_DURATION_SECONDS
             video["motionPromptVersion"] = STORY_VERSION
             video["motionPrompt"] = story_preview["narrativePrompt"]
@@ -441,7 +476,7 @@ def health():
     """Non-sensitive liveness probe for Muse connectors."""
     _configured()
     return {
-        "ok": True, "service": "cam-muse-bridge", "version": "1.3.4",
+        "ok": True, "service": "cam-muse-bridge", "version": "1.3.5",
         "authentication": "Bearer", "queuePath": "/api/v1/muse-bridge/queue",
         "videoGenerationEnabled": False,
         "storyV33SpecAvailable": True,
@@ -450,6 +485,9 @@ def health():
         "storyV33Version": STORY_VERSION,
         "storyV33TargetDurationSeconds": STORY_DURATION_SECONDS,
         "storyV33OutputContract": STORY_OUTPUT_CONTRACT,
+        "storyV33SourceContract": STORY_SOURCE_CONTRACT,
+        "storyV33RequiresTwoOriginalHeroImages": True,
+        "storyV33RequiresFaceVisibleMinSeconds": 8,
         "storyV33NativeRendererVerified": False,
         "storyV33MaxNativeTakeSeconds": STORY_MAX_NATIVE_TAKE_SECONDS,
         "storyV33TwoTakeAssemblyVerified": False,
@@ -658,6 +696,18 @@ def missing_video_work(
             "savedAspectRatios": [x for x in ("9:16", "16:9") if x in saved],
             "storySpecV33": story_candidate,
             "storyEnabled": story_enabled,
+            "savedHeroAspectRatios": [
+                ratio for ratio in ("9:16", "16:9")
+                if isinstance(
+                    (job.output_receipts or {}).get("hero_sources", {}).get(ratio), dict
+                ) and (job.output_receipts or {}).get("hero_sources", {}).get(
+                    ratio, {}
+                ).get("storageVerified")
+            ] if story_enabled else [],
+            "storyHeroUploadPaths": {
+                "9:16": f"/api/v1/muse-bridge/jobs/{lid}/hero/vertical",
+                "16:9": f"/api/v1/muse-bridge/jobs/{lid}/hero/horizontal",
+            } if story_enabled else None,
             "storyPilotSelected": job.listing_key in _story_v33_pilot_listings(),
             "storyCapabilityRequired": story_enabled,
             "targetDurationSeconds": STORY_DURATION_SECONDS if story_enabled else 12,
@@ -701,6 +751,9 @@ def missing_video_work(
         "storyV33PilotConfiguredCount": len(_story_v33_pilot_listings()),
         "storyV33TargetDurationSeconds": STORY_DURATION_SECONDS,
         "storyV33OutputContract": STORY_OUTPUT_CONTRACT,
+        "storyV33SourceContract": STORY_SOURCE_CONTRACT,
+        "storyV33RequiresTwoOriginalHeroImages": True,
+        "storyV33RequiresFaceVisibleMinSeconds": 8,
         "storyV33NativeRendererVerified": False,
         "storyV33MaxNativeTakeSeconds": STORY_MAX_NATIVE_TAKE_SECONDS,
         "storyV33TwoTakeAssemblyVerified": False,
@@ -723,7 +776,8 @@ def missing_video_work(
             "storyNativeRenderMaxSecondsPerTake": STORY_MAX_NATIVE_TAKE_SECONDS,
             "storyPreferredAssembly": "two_genuine_motion_shots_motivated_cut",
             "storyRolloutEnabled": _story_v33_enabled(),
-            "storyClaimOptIn": "ClaimRequest.storyVersion+storyOutputContract",
+            "storyClaimOptIn": "ClaimRequest.storyVersion+storyOutputContract+storySourceContract",
+            "storySourceContract": STORY_SOURCE_CONTRACT,
             "storyOutputContract": STORY_OUTPUT_CONTRACT,
             "pilotMotionPromptVersion": "CAM_NATURAL_EVERYDAY_MOTION_V3_2",
             "pilotSizeNewListings": 3,
@@ -877,6 +931,10 @@ def claim(listing_id: str, payload: ClaimRequest,
         raise HTTPException(409, "Muse must acknowledge the 12-second two-take story contract")
     if payload.storyVersion is None and payload.storyOutputContract is not None:
         raise HTTPException(409, "Story output contract requires matching V3.3 version")
+    if payload.storyVersion == STORY_VERSION and payload.storySourceContract != STORY_SOURCE_CONTRACT:
+        raise HTTPException(409, "Muse must acknowledge independent face-visible hero source contract")
+    if payload.storyVersion is None and payload.storySourceContract is not None:
+        raise HTTPException(409, "Source contract requires matching V3.3 version")
     lease = secrets.token_urlsafe(36)
     now = _utc()
     claimable = ((CamMuseJob.status == "pending") |
@@ -912,11 +970,24 @@ def claim(listing_id: str, payload: ClaimRequest,
             receipts["story_contract_v33"] = {
                 "storyVersion": STORY_VERSION,
                 "storyOutputContract": STORY_OUTPUT_CONTRACT,
+                "storySourceContract": STORY_SOURCE_CONTRACT,
                 "garmentSku": "C1717",
                 "artworkSha256": row.artwork_sha256,
                 "targetDurationSeconds": STORY_DURATION_SECONDS,
                 "assemblyMode": "two_genuine_motion_shots_motivated_cut",
                 "maxNativeTakeSeconds": STORY_MAX_NATIVE_TAKE_SECONDS,
+                "heroGenerationPlans": {
+                    ratio: {
+                        "heroRequestId": plan["heroRequestId"],
+                        "heroSeed": plan["heroSeed"],
+                        "storyId": plan["storyId"],
+                    }
+                    for ratio, plan in build_story_spec(
+                        title=row.title, listing_key=row.listing_key,
+                        artwork_sha256=row.artwork_sha256,
+                        garment_code="C1717",
+                    )["aspectPlans"].items()
+                },
             }
             row.output_receipts = receipts
     elif _story_v33_allowed_for_job(row) and row.attempts == 1:
@@ -1010,6 +1081,138 @@ def submit(listing_id: str, payload: SubmitRequest,
             "message": "Video receipts await content QA and CAM ingestion"}
 
 @router.post(
+    "/jobs/{listing_id}/hero/{aspect}",
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "image/jpeg": {"schema": {"type": "string", "format": "binary"}},
+                "image/png": {"schema": {"type": "string", "format": "binary"}},
+            },
+        },
+    },
+)
+async def upload_ugc_hero(
+    listing_id: str, aspect: Literal["vertical", "horizontal"],
+    request: Request,
+    x_muse_lease: str | None = Header(default=None),
+    x_cam_story_source_contract: Literal["CAM_STORY_DUAL_HERO_FACE_V1"] | None = Header(default=None),
+    x_cam_hero_request_id: str | None = Header(default=None),
+    x_cam_hero_seed: int | None = Header(default=None),
+    tenant: str = Depends(_muse), db: Session = Depends(get_db),
+):
+    """Accept the ACTUAL independently generated hero image for this ratio.
+
+    An upload is image provenance and Drive storage, NOT independent approval
+    of face visibility, source originality, or correct artwork. For V3.3 only.
+    """
+    from .hero_storage import (
+        MAX_HERO_BYTES, validate_hero_image, heroes_are_distinct, store_muse_hero,
+    )
+    if not LISTING_ID.fullmatch(listing_id):
+        raise HTTPException(404, "Listing not found")
+    lease = x_muse_lease or ""
+    content_type = request.headers.get("content-type", "").split(";")[0].lower()
+    if not 32 <= len(lease) <= 120 or content_type not in ("image/jpeg", "image/png"):
+        raise HTTPException(422, "Lease and JPEG/PNG hero image required")
+    if x_cam_story_source_contract != STORY_SOURCE_CONTRACT:
+        raise HTTPException(422, "Independent dual-hero V3.3 source contract required")
+    row = db.get(CamMuseJob, (tenant, listing_id))
+    if (row is None or row.status != "claimed"
+            or row.source_state != "ready_for_muse" or not row.artwork_sha256
+            or not row.lease_hash or _aware(row.lease_expires_at) is None
+            or _aware(row.lease_expires_at) <= _utc()
+            or not hmac.compare_digest(
+                row.lease_hash, hashlib.sha256(lease.encode()).hexdigest()
+            )):
+        raise HTTPException(409, "Hero upload requires a valid Muse job lease")
+    pin = _pinned_story_v33(row)
+    story = _story_candidate_v33(row)
+    if not pin or not story:
+        raise HTTPException(409, "V3.3 dual-hero claim is not pinned")
+    ratio = "9:16" if aspect == "vertical" else "16:9"
+    plan = story["aspectPlans"][ratio]
+    pinned_plan = (pin.get("heroGenerationPlans") or {}).get(ratio)
+    if pinned_plan != {
+        "heroRequestId": plan["heroRequestId"],
+        "heroSeed": plan["heroSeed"],
+        "storyId": plan["storyId"],
+    }:
+        raise HTTPException(409, "Pinned independent hero plan differs from the active contract")
+    if (x_cam_hero_request_id != plan["heroRequestId"]
+            or x_cam_hero_seed != plan["heroSeed"]):
+        raise HTTPException(422, "Hero source does not match the planned independent request")
+    parts = bytearray()
+    async for chunk in request.stream():
+        parts.extend(chunk)
+        if len(parts) > MAX_HERO_BYTES:
+            raise HTTPException(413, "Hero source exceeds 12 MiB")
+    image_bytes = bytes(parts)
+    metadata = await asyncio.to_thread(
+        validate_hero_image, image_bytes, aspect, content_type
+    )
+    receipts = row.output_receipts if isinstance(row.output_receipts, dict) else {}
+    prior = dict(receipts.get("hero_sources") or {})
+    previous = prior.get(ratio)
+    if previous:
+        if (previous.get("sha256") != metadata["sha256"]
+                or previous.get("heroRequestId") != x_cam_hero_request_id):
+            raise HTTPException(409, "Approved original hero cannot be replaced")
+        return {"ok": True, "reused": True, "aspectRatio": ratio,
+                "imageSha256": previous["sha256"],
+                "faceVisibilityQa": "pending_review"}
+    if ratio in (receipts.get("drive_uploads") or {}):
+        raise HTTPException(409, "Cannot change hero source after video upload")
+    metadata["heroRequestId"] = x_cam_hero_request_id
+    metadata["heroSeed"] = x_cam_hero_seed
+    other = prior.get("16:9" if ratio == "9:16" else "9:16")
+    if other and not heroes_are_distinct(other, metadata):
+        raise HTTPException(409, "Duplicate or near-identical hero image across ratios")
+    saved = await store_muse_hero(
+        tenant_id=tenant, listing_id=listing_id,
+        artwork_sha256=row.artwork_sha256, aspect=aspect,
+        image_bytes=image_bytes, metadata=metadata,
+    )
+    db.expire_all()
+    locked = db.scalar(select(CamMuseJob).where(
+        CamMuseJob.tenant_id == tenant,
+        CamMuseJob.listing_key == listing_id,
+    ).with_for_update())
+    if (locked is None or locked.status != "claimed"
+            or locked.artwork_sha256 != row.artwork_sha256
+            or not locked.lease_hash or _aware(locked.lease_expires_at) is None
+            or _aware(locked.lease_expires_at) <= _utc()
+            or not hmac.compare_digest(
+                locked.lease_hash, hashlib.sha256(lease.encode()).hexdigest()
+            )):
+        db.rollback()
+        raise HTTPException(409, "Muse lease changed during hero upload")
+    updated = dict(locked.output_receipts) if isinstance(locked.output_receipts, dict) else {}
+    heroes = dict(updated.get("hero_sources") or {})
+    if ratio in heroes:
+        db.rollback()
+        raise HTTPException(409, "Hero image already uploaded by another request")
+    counterpart = heroes.get("16:9" if ratio == "9:16" else "9:16")
+    if counterpart and not heroes_are_distinct(counterpart, saved):
+        db.rollback()
+        raise HTTPException(409, "Hero source matches another aspect")
+    if ratio in (updated.get("drive_uploads") or {}):
+        db.rollback()
+        raise HTTPException(409, "Video already exists for this hero aspect")
+    heroes[ratio] = saved
+    updated["hero_sources"] = heroes
+    updated["heroSourceQa"] = "pending_review"
+    locked.output_receipts = updated
+    locked.updated_at = _utc()
+    db.commit()
+    return {"ok": True, "reused": False, "aspectRatio": ratio,
+            "imageSha256": saved["sha256"],
+            "heroRequestId": saved["heroRequestId"],
+            "differentFromOtherAspectVerified": counterpart is not None,
+            "storageVerified": True, "faceVisibilityQa": "pending_review"}
+
+
+@router.post(
     "/jobs/{listing_id}/videos/{aspect}",
     openapi_extra={
         "requestBody": {
@@ -1027,6 +1230,9 @@ async def upload_ugc_video(
         "CAM_STORY_REAL_LIFE_V3_3",
     ] | None = Header(default=None),
     x_cam_story_output_contract: Literal["CAM_STORY_12S_TWO_TAKE_V1"] | None = Header(default=None),
+    x_cam_story_source_contract: Literal["CAM_STORY_DUAL_HERO_FACE_V1"] | None = Header(default=None),
+    x_cam_hero_sha256: str | None = Header(default=None),
+    x_cam_hero_request_id: str | None = Header(default=None),
     tenant: str = Depends(_muse), db: Session = Depends(get_db),
 ):
     """Muse uploads the actual MP4; CAM verifies and saves to listing/design Drive.
@@ -1053,8 +1259,24 @@ async def upload_ugc_video(
         raise HTTPException(422, "Story V3.3 upload requires matching motion-version header")
     if story_pin and x_cam_story_output_contract != STORY_OUTPUT_CONTRACT:
         raise HTTPException(422, "Story V3.3 upload requires the 12s two-take contract header")
-    if (x_cam_motion_version == STORY_VERSION or x_cam_story_output_contract is not None) and not story_pin:
+    if story_pin and x_cam_story_source_contract != STORY_SOURCE_CONTRACT:
+        raise HTTPException(422, "Story V3.3 requires independent face-visible hero contract")
+    if (x_cam_motion_version == STORY_VERSION or x_cam_story_output_contract is not None
+            or x_cam_story_source_contract is not None) and not story_pin:
         raise HTTPException(409, "Story V3.3 requires a pinned capable-worker claim")
+    ratio = "9:16" if aspect == "vertical" else "16:9"
+    verified_hero = None
+    if story_pin:
+        receipts = row.output_receipts if isinstance(row.output_receipts, dict) else {}
+        verified_hero = (receipts.get("hero_sources") or {}).get(ratio)
+        expected_plan = _story_candidate_v33(row)
+        if (not isinstance(verified_hero, dict) or not verified_hero.get("storageVerified")
+                or expected_plan is None
+                or verified_hero.get("heroRequestId") !=
+                    expected_plan["aspectPlans"][ratio]["heroRequestId"]
+                or x_cam_hero_request_id != verified_hero.get("heroRequestId")
+                or x_cam_hero_sha256 != verified_hero.get("sha256")):
+            raise HTTPException(409, "V3.3 requires the uploaded original hero image for this ratio")
     parts = bytearray()
     async for chunk in request.stream():
         parts.extend(chunk)
@@ -1062,7 +1284,6 @@ async def upload_ugc_video(
             raise HTTPException(413, "MP4 exceeds 40 MiB limit")
     if len(parts) < 2048:
         raise HTTPException(422, "Missing MP4")
-    ratio = "9:16" if aspect == "vertical" else "16:9"
     digest = hashlib.sha256(parts).hexdigest()
     existing_receipts = row.output_receipts if isinstance(row.output_receipts, dict) else {}
     previous = (existing_receipts.get("drive_uploads") or {}).get(ratio)
@@ -1085,6 +1306,11 @@ async def upload_ugc_video(
     if story_pin:
         stored["storyVersion"] = STORY_VERSION
         stored["storyOutputContract"] = STORY_OUTPUT_CONTRACT
+        stored["storySourceContract"] = STORY_SOURCE_CONTRACT
+        stored["heroImageSha256"] = verified_hero["sha256"]
+        stored["heroImageRequestId"] = verified_hero["heroRequestId"]
+        stored["heroSourceVerified"] = True
+        stored["faceVisibilityQa"] = "pending_review"
         stored["storyQaStatus"] = "pending_review"
     if x_cam_motion_version is not None:
         # Muse-declared generation version, NOT an independent content-QA pass.
@@ -1108,6 +1334,13 @@ async def upload_ugc_video(
         raise HTTPException(409, "Muse lease changed during upload")
     receipts = dict(locked.output_receipts) if isinstance(locked.output_receipts, dict) else {}
     uploads = dict(receipts.get("drive_uploads") or {})
+    if story_pin:
+        current_hero = (receipts.get("hero_sources") or {}).get(ratio)
+        if (not isinstance(current_hero, dict)
+                or current_hero.get("sha256") != verified_hero["sha256"]
+                or current_hero.get("heroRequestId") != verified_hero["heroRequestId"]):
+            db.rollback()
+            raise HTTPException(409, "Hero source changed during MP4 upload")
     if ratio in uploads and uploads[ratio].get("sha256") != digest:
         db.rollback()
         raise HTTPException(409, "Conflicting video variant")
