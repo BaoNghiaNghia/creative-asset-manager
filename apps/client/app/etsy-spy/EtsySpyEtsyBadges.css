@@ -1,0 +1,199 @@
+/* CAM Etsy Spy: Etsy-style demand pills + separate compact CAM review signal.
+   The source badge is never inferred from a CAM review assessment. */
+.etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products th[data-etsy-col="badge"],
+.etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products td[data-etsy-col="badge"] {
+  box-sizing: border-box;
+  min-width: 177px;
+  width: 185px;
+  max-width: 197px;
+}
+.etsy-spy-page .etsy-table-wrap td[data-etsy-col="badge"] {
+  vertical-align: middle;
+  overflow: visible;
+}
+.etsy-spy-page .etsy-badge-stack {
+  display: flex;
+  flex-flow: row nowrap;
+  align-items: center;
+  align-content: center;
+  justify-content: flex-start;
+  gap: 6px;
+  min-width: 0;
+  min-height: 28px;
+}
+.etsy-spy-page .etsy-badge-stack > .etsy-pill.etsy-demand {
+  box-sizing: border-box;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 26px;
+  max-width: 146px;
+  margin: 0;
+  padding: 4px 10px 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 780;
+  line-height: 1.2;
+  letter-spacing: -.01em;
+  white-space: nowrap;
+  text-transform: none;
+}
+.etsy-spy-page .etsy-badge-stack > .etsy-pill.etsy-demand.bestseller {
+  background: #f8c65a;
+  color: #242424;
+  border-color: #f8c65a;
+}
+.etsy-spy-page .etsy-badge-stack > .etsy-pill.etsy-demand.popular {
+  background: #fff0d2;
+  color: #70481f;
+  border-color: #fff0d2;
+}
+.etsy-spy-page .etsy-badge-stack > .etsy-pill.etsy-demand.other {
+  background: #f3f5f7;
+  color: #4d5b6c;
+  border-color: #e4e9ef;
+  font-weight: 680;
+  max-width: 144px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.etsy-spy-page .etsy-badge-stack .etsy-demand-icon {
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  color: inherit;
+}
+.etsy-spy-page .etsy-badge-stack > .etsy-review-proof,
+.etsy-spy-page .etsy-badge-stack > .etsy-review-proof-waiting {
+  box-sizing: border-box;
+  position: relative;
+  flex: 0 0 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  max-width: 26px;
+  min-height: 26px;
+  max-height: 26px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+}
+.etsy-spy-page .etsy-badge-stack > .etsy-review-proof summary,
+.etsy-spy-page .etsy-badge-stack > .etsy-review-proof-waiting {
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  min-height: 26px;
+  max-width: 26px;
+  max-height: 26px;
+  padding: 4px;
+  margin: 0;
+  border: 1px solid #dce4ed;
+  border-radius: 50%;
+  color: #728298;
+  background: #f5f7fa;
+  list-style: none;
+  white-space: nowrap;
+}
+.etsy-spy-page .etsy-badge-stack > .etsy-review-proof summary::-webkit-details-marker {
+  display: none;
+}
+.etsy-spy-page .etsy-badge-stack > .etsy-review-proof summary > svg,
+.etsy-spy-page .etsy-badge-stack > .etsy-review-proof-waiting > svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+}
+.etsy-spy-page .etsy-badge-stack > .etsy-review-proof.verdict-review summary {
+  border-color: #f0d6a1;
+  background: #fff7e8;
+  color: #93641d;
+}
+.etsy-spy-page .etsy-badge-stack > .etsy-review-proof.verdict-skip summary {
+  border-color: #f0c7be;
+  background: #fff1ed;
+  color: #b34740;
+}
+.etsy-spy-page .etsy-badge-stack > .etsy-review-proof.verdict-take summary {
+  border-color: #bee3cb;
+  background: #f0f9f3;
+  color: #2c8051;
+}
+.etsy-spy-page .etsy-badge-stack > .etsy-review-proof-waiting {
+  border: 1px solid #dce4ed;
+  border-radius: 50%;
+  background: #f5f7fa;
+  color: #7c8ba0;
+  cursor: help;
+}
+.etsy-spy-page .etsy-badge-stack > .etsy-review-proof-waiting > svg {width: 15px;height: 15px;}
+.etsy-spy-page .etsy-badge-stack > .etsy-review-proof summary:hover {
+  filter: brightness(.97);
+}
+.etsy-spy-page .etsy-badge-stack > .etsy-review-proof summary:focus-visible {
+  outline: 2px solid #2365c4;
+  outline-offset: 2px;
+}
+.etsy-spy-page .etsy-badge-stack > .etsy-review-proof[open] summary {
+  outline: 2px solid #d7e3f2;
+  outline-offset: 1px;
+}
+.etsy-spy-page .etsy-badge-stack .etsy-review-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.etsy-spy-page .etsy-badge-stack .etsy-review-proof-details {
+  position: absolute;
+  left: auto;
+  right: 0;
+  top: calc(100% + 7px);
+  z-index: 60;
+  width: min(350px, calc(100vw - 38px));
+  max-width: none;
+  white-space: normal;
+}
+@media (max-width: 680px) {
+  .etsy-spy-page .etsy-v2-results-layout .etsy-data-table.is-products
+  .etsy-product-row td[data-etsy-col="badge"] {
+    display: flex !important;
+    flex-direction: row;
+    align-items: center;
+    grid-column: 1 / -1 !important;
+    min-width: 0 !important;
+    width: auto !important;
+    max-width: none;
+    padding: 4px 0 !important;
+    border-top: 1px solid #eff1f5 !important;
+  }
+  .etsy-spy-page .etsy-v2-results-layout .etsy-product-row
+  td[data-etsy-col="badge"] .etsy-badge-stack { gap: 7px; }
+  .etsy-spy-page .etsy-badge-stack .etsy-review-proof-details {
+    left: 0;
+    right: auto;
+    width: min(320px, calc(100vw - 38px));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .etsy-spy-page .etsy-badge-stack .etsy-review-proof summary { transition: none; }
+}

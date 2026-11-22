@@ -352,6 +352,10 @@ describe("Etsy Spy native CAM dashboard", () => {
       'details[data-review-verdict="skip"]');
     expect(audit).toBeTruthy();
     expect(audit?.querySelector("summary")?.textContent).toContain("Không nên lấy");
+    expect(audit?.querySelector("summary")?.getAttribute("aria-label")).toBe("CAM Review: Không nên lấy");
+    expect(audit?.querySelector("summary svg")).toBeTruthy();
+    expect(audit?.querySelector("summary")?.getAttribute("title")).toContain("Bấm để xem bằng chứng");
+    expect(audit?.querySelector(".etsy-review-proof-details")).toBeTruthy();
     await act(async () => {
       audit?.querySelector("summary")?.click();
     });
@@ -801,7 +805,12 @@ describe("Etsy Spy native CAM dashboard", () => {
     const stacks = container?.querySelectorAll(".etsy-product-row .etsy-badge-stack");
     expect(stacks).toHaveLength(3);
     expect(stacks?.[0]?.querySelector(".etsy-demand.bestseller")?.textContent).toBe("Bestseller");
+    expect(stacks?.[0]?.querySelector(".etsy-demand.bestseller")?.getAttribute("data-etsy-badge-kind")).toBe("bestseller");
+    expect(stacks?.[0]?.querySelector(".etsy-demand.bestseller svg.etsy-demand-icon")).toBeTruthy();
+    expect(stacks?.[0]?.querySelector(".etsy-demand.bestseller")?.getAttribute("aria-label")).toBe("Etsy: Bestseller");
     expect(stacks?.[1]?.querySelector(".etsy-demand.popular")?.textContent).toBe("Popular now");
+    expect(stacks?.[1]?.querySelector(".etsy-demand.popular svg.etsy-demand-icon")).toBeTruthy();
+    expect(stacks?.[1]?.querySelector(".etsy-demand.popular")?.getAttribute("aria-label")).toBe("Etsy: Popular now");
     expect(container?.querySelectorAll(".etsy-tm-badge, .etsy-tm-disclaimer, .etsy-mark-items")).toHaveLength(0);
     expect(container?.textContent).not.toContain("TM DEAD");
     expect(container?.textContent).not.toContain("TM: No match");

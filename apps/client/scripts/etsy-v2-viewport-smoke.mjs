@@ -7,7 +7,8 @@ import assert from "node:assert/strict";
 const client = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sheets = ["styles/workspace-page-header.css", "EtsySpyPage.css", "EtsySpyEvo.css",
   "EtsySpyHeader.css", "EtsySpyDayCarousel.css", "EtsySpyWorkspaceV2.css",
-  "EtsySpyCommandBar.css", "ListingImageCell.css", "VideoUGCCell.css"];
+  "EtsySpyCommandBar.css", "ListingImageCell.css", "VideoUGCCell.css",
+  "EtsySpyReviewAudit.css", "EtsySpyEtsyBadges.css"];
 const css = (await Promise.all(sheets.map(name =>
   readFile(resolve(client, name.startsWith("styles/") ? name : "app/etsy-spy/" + name), "utf8")))).join("\n");
 const columns = ["", "Product / Etsy", "Design", "TikTok SEO", "Media", "Video UGC",
@@ -24,7 +25,14 @@ const row = `<tr class="etsy-product-row">
   <div class="etsy-listing-image-badges"><button class="etsy-listing-image-badge"><span class="etsy-listing-image-count">13 ảnh</span><span class="etsy-listing-image-garment">C1717</span></button></div>
 </div></td><td class="etsy-video-ugc-cell" data-ugc-state="qa_hold"><span class="etsy-video-ugc-placeholder tone-waiting"><span class="etsy-video-ugc-status-icon">◷</span><span>Chờ QA ảnh</span></span></td>
 <td class="etsy-sms-cell" data-etsy-col="keywordSms">dinosaur shirt</td>
-<td data-etsy-col="badge">Bestseller</td><td class="etsy-num" data-etsy-col="bought24h">—</td><td class="etsy-num" data-etsy-col="views24h">35</td><td class="etsy-num" data-etsy-col="inCarts">20+</td><td class="etsy-time" data-etsy-col="observedAt">06:00</td>
+<td data-etsy-col="badge"><div class="etsy-badge-stack">
+<span class="etsy-pill etsy-demand bestseller" data-etsy-badge-kind="bestseller">
+<svg class="etsy-demand-icon" viewBox="0 0 24 24"><circle cx="12" cy="15" r="6"/></svg><span>Bestseller</span></span>
+<details class="etsy-review-proof verdict-review" data-review-verdict="review">
+<summary aria-label="CAM Review: Cần xem xét" title="CAM Review"><svg viewBox="0 0 24 24"><path d="M12 3 21 20H3Z"/></svg>
+<span class="etsy-review-visually-hidden">Review · Cần xem xét</span></summary>
+<div class="etsy-review-proof-details">Đã đọc review</div></details>
+</div></td><td class="etsy-num" data-etsy-col="bought24h">—</td><td class="etsy-num" data-etsy-col="views24h">35</td><td class="etsy-num" data-etsy-col="inCarts">20+</td><td class="etsy-time" data-etsy-col="observedAt">06:00</td>
 <td class="etsy-action-cell"><div class="etsy-row-actions"><button class="etsy-v2-inspect-trigger">Inspect</button><button class="etsy-pick-button">Picked</button></div></td></tr>`;
 const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{box-sizing:border-box}body{margin:0} ${css}</style></head>
 <body><main class="etsy-spy-page" style="width:100%;max-width:100%;"><section class="etsy-stage-canvas" style="width:100%;max-width:100%;">
@@ -56,6 +64,11 @@ try {
       const inspector = document.querySelector(".etsy-v2-inspector-layer");
       const table = document.querySelector(".etsy-table-wrap");
       const results = document.querySelector(".etsy-v2-results-layout");
+      const demandBadge = document.querySelector(".etsy-demand.bestseller");
+      const reviewIcon = document.querySelector(".etsy-review-proof summary");
+      const badgeStack = document.querySelector(".etsy-badge-stack");
+      const badgeRect = demandBadge.getBoundingClientRect();
+      const reviewRect = reviewIcon.getBoundingClientRect();
       const media = document.querySelector(".etsy-listing-image-cell");
       const video = document.querySelector(".etsy-video-ugc-cell");
       const mediaBox = media.getBoundingClientRect();
@@ -85,6 +98,17 @@ try {
       };
       return {
         headerLayout,
+        etsyBadgeLayout:{
+          badgeWidth: Math.round(badgeRect.width),
+          badgeHeight: Math.round(badgeRect.height),
+          badgeColor: getComputedStyle(demandBadge).backgroundColor,
+          badgeRadius: getComputedStyle(demandBadge).borderRadius,
+          rowWrap: getComputedStyle(badgeStack).flexWrap,
+          reviewWidth: Math.round(reviewRect.width),
+          reviewHeight: Math.round(reviewRect.height),
+          aligned: Math.abs(badgeRect.top - reviewRect.top) <= 2,
+          hasMedal: !!demandBadge.querySelector(".etsy-demand-icon"),
+        },
         mediaLayout:{
           mediaWidth:Math.round(mediaBox.width),
           videoWidth:Math.round(videoBox.width),
@@ -116,6 +140,14 @@ try {
     assert.equal(metrics.rowDisplay, width <= 680 ? "grid" : "table-row");
     assert.equal(metrics.inspectorPosition, width <= 1180 ? "fixed" : "static");
     assert(metrics.layoutWidth > 0 && metrics.tableWidth > 0);
+    assert.equal(metrics.etsyBadgeLayout.badgeColor, "rgb(248, 198, 90)");
+    assert.equal(metrics.etsyBadgeLayout.badgeHeight, 26);
+    assert.equal(metrics.etsyBadgeLayout.reviewWidth, 26);
+    assert.equal(metrics.etsyBadgeLayout.reviewHeight, 26);
+    assert.equal(metrics.etsyBadgeLayout.rowWrap, "nowrap");
+    assert(metrics.etsyBadgeLayout.badgeRadius.startsWith("999"));
+    assert(metrics.etsyBadgeLayout.aligned, `${width}px: badge/review are not aligned`);
+    assert(metrics.etsyBadgeLayout.hasMedal);
     if (width > 680) {
       assert(metrics.mediaLayout.mediaWidth >= 168 && metrics.mediaLayout.mediaWidth <= 205,
         `${width}px: Media column out of compact range ${JSON.stringify(metrics.mediaLayout)}`);

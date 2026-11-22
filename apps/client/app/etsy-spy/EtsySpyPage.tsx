@@ -24,6 +24,7 @@ import "./EtsySpySort.css";
 import "./EtsySpyReviewAudit.css";
 import "./EtsySpyWorkspaceV2.css";
 import "./EtsySpyCommandBar.css";
+import "./EtsySpyEtsyBadges.css";
 import { pickedPollInterval, reconcilePickedPage } from "./pickedPageReconciliation";
 import { TikTokListingCell, canQueueTikTokDraft } from "./TikTokListingCell";
 
@@ -212,6 +213,32 @@ const ProductThumbnail = memo(function ProductThumbnail({ thumb, full, url, titl
   </a>;
 });
 
+export function EtsyDemandBadge({ label }: { label: string | null | undefined }) {
+  if (!label?.trim()) return <span className="etsy-muted">—</span>;
+  // Treat only real, source-provided labels as Etsy demand badges. Unknown
+  // labels stay neutral; CAM review verdicts are always a separate control.
+  const normalized = label.trim().toLowerCase();
+  const kind = normalized === "bestseller" ? "bestseller" :
+    normalized === "popular now" ? "popular" : "other";
+  return <span className={"etsy-pill etsy-demand " + kind}
+    data-etsy-badge-kind={kind} title={"Etsy: " + label.trim()}
+    aria-label={"Etsy: " + label.trim()}>
+    {kind === "bestseller" && <svg className="etsy-demand-icon" viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 2h4l2 5 2-5h4l-3 7M9 9 6 2" />
+      <circle cx="12" cy="15.5" r="6" />
+      <path d="m12 11.7 1.1 2.3 2.5.4-1.8 1.8.4 2.5-2.2-1.2-2.2 1.2.4-2.5-1.8-1.8 2.5-.4Z" />
+    </svg>}
+    {kind === "popular" && <svg className="etsy-demand-icon" viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12.5 2c1.3 3.3-.9 5.1-.9 7.4 0 1.5 1.1 2.6 2.5 3 1.3-2.1 2.2-3.3 2-5.2C19.5 10.7 21 13 21 16a9 9 0 0 1-18 0c0-3.2 1.4-6.3 4.5-8.5-.1 2.6.9 4 2.4 4.8C9.9 8.6 10.4 5.3 12.5 2Z"/>
+    </svg>}
+    <span>{label.trim()}</span>
+  </span>;
+}
+
 function ReviewAssessmentBadge({ audit, itemReviews, cartLowerBound, inCarts }: {
   audit: ReviewAssessment | null | undefined;
   itemReviews?: number | null; cartLowerBound?: boolean | null; inCarts: number | null;
@@ -219,18 +246,33 @@ function ReviewAssessmentBadge({ audit, itemReviews, cartLowerBound, inCarts }: 
   const eligibleToAudit = cartLowerBound === true && Number(inCarts) >= 20 &&
     Number.isInteger(itemReviews) && Number(itemReviews) > 3;
   if (!audit && !eligibleToAudit) return null;
-  if (!audit) return <small className="etsy-review-proof-waiting"
-    title="Có 20+ carts và hơn 3 review của chính listing; chưa có bằng chứng đã đọc modal">
-    Review · chưa phân tích
-  </small>;
+  if (!audit) return <span className="etsy-review-proof-waiting"
+    role="img" aria-label="CAM Review: Chưa phân tích"
+    title="CAM Review · Chưa phân tích: có 20+ carts và hơn 3 review của chính listing; chưa có bằng chứng đã đọc modal">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+    </svg>
+    <span className="etsy-review-visually-hidden">Review · chưa phân tích</span>
+  </span>;
   const label = audit.verdict === "take" ? "Nên lấy"
     : audit.verdict === "skip" ? "Không nên lấy" : "Cần xem xét";
   const themes = Array.isArray(audit.concerns) ? audit.concerns.slice(0, 5) : [];
   const evidence = Array.isArray(audit.evidence) ? audit.evidence.slice(0, 5) : [];
   return <details className={"etsy-review-proof verdict-" + audit.verdict}
     data-review-verdict={audit.verdict}>
-    <summary title={"Đã đọc " + audit.sampled + " review của chính sản phẩm"}>
-      Review · {label}
+    <summary aria-label={"CAM Review: " + label}
+      title={"CAM Review · " + label + " · Đã đọc " + audit.sampled + " review của chính sản phẩm. Bấm để xem bằng chứng."}>
+      {audit.verdict === "take"
+        ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>
+          </svg>
+        : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m12 3 9 16H3L12 3Z"/><path d="M12 9v4m0 3h.01"/>
+          </svg>}
+      <span className="etsy-review-visually-hidden">Review · {label}</span>
     </summary>
     <div className="etsy-review-proof-details">
       <strong>{label}</strong>
@@ -390,7 +432,7 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
       </span>}
     </td>
     <td data-etsy-col="badge"><div className="etsy-badge-stack">
-      {item.badge || item.searchBadge ? <span className={"etsy-pill etsy-demand " + (/popular/i.test(item.badge || item.searchBadge || "") ? "popular" : "bestseller")}>{item.badge || item.searchBadge}</span> : <span className="etsy-muted">—</span>}
+      <EtsyDemandBadge label={item.badge || item.searchBadge} />
       <ReviewAssessmentBadge audit={item.reviewAssessment ?? item.metadata?.reviewAssessment}
         itemReviews={item.itemReviews} cartLowerBound={item.cartLowerBound}
         inCarts={item.inCarts} />
