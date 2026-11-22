@@ -72,6 +72,30 @@ class UGCPrivateR2Test(unittest.TestCase):
     def setUp(self):
         m._CACHE_STATUS.clear()
 
+    def test_cached_positive_never_outlives_original_30_day_retention(self):
+        c = config()
+        sha = "a" * 64
+        key = m.object_key("boostgame", sha, "playback")
+        now = 2_000_000_000
+        fake = FakeBucket()
+        fake.objects[key] = {
+            "Body": b"mp4",
+            "Metadata": {"cam-source-sha256": sha},
+            "ContentType": "video/mp4",
+            "LastModified": datetime.fromtimestamp(
+                now - 30 * 86400 + 5, timezone.utc,
+            ),
+        }
+        clock = {"seconds": float(now)}
+        with patch.object(m, "_client", return_value=fake), \
+             patch.object(m.time, "time", side_effect=lambda: clock["seconds"]), \
+             patch.object(m.time, "monotonic", side_effect=lambda: clock["seconds"]):
+            self.assertTrue(m._has_object(c, "boostgame", sha, "playback"))
+            # A page opened six seconds later must use Drive fallback, not a
+            # stale positive result that redirects to an expired R2 object.
+            clock["seconds"] += 6
+            self.assertFalse(m._has_object(c, "boostgame", sha, "playback"))
+
     def test_existing_private_r2_canary_is_reused_only_for_boostgame(self):
         fake_module = ModuleType("app.core.config")
         class Secret:

@@ -125,9 +125,14 @@ def _status(key: str) -> bool | None:
         return row[0]
 
 
-def _mark(key: str, hit: bool) -> None:
+def _mark(key: str, hit: bool, *, expiry_at: float | None = None) -> None:
+    ttl = 120 if hit else 20
+    if hit and expiry_at is not None:
+        # R2 objects are create-once; a successful HEAD cannot extend their
+        # absolute 30-day lifetime, including when read from the status cache.
+        ttl = max(0.0, min(ttl, expiry_at - time.time()))
     with _CACHE_LOCK:
-        _CACHE_STATUS[key] = (hit, time.monotonic() + (120 if hit else 20))
+        _CACHE_STATUS[key] = (hit, time.monotonic() + ttl)
         _CACHE_STATUS.move_to_end(key)
         while len(_CACHE_STATUS) > _MAX_STATUS:
             _CACHE_STATUS.popitem(last=False)
@@ -140,23 +145,33 @@ def _is_missing(exc: Exception) -> bool:
     )
 
 
-def _head(client, config: UgcCacheConfig, key: str, source_sha: str, kind: str) -> bool:
+def _head_expiry(client, config: UgcCacheConfig, key: str,
+                 source_sha: str, kind: str) -> float | None:
+    """Return immutable remote expiry, never a sliding cache TTL."""
     try:
         entry = client.head_object(Bucket=config.bucket, Key=key)
     except Exception as exc:
         if _is_missing(exc):
-            return False
+            return None
         raise
     metadata = entry.get("Metadata") or {}
     typ = "video/mp4" if kind == "playback" else "image/webp"
     modified = entry.get("LastModified")
-    # No cache renewal from reads: refuse an expired or wrong-content object.
-    age = (time.time() - modified.timestamp()) if hasattr(modified, "timestamp") else 31 * 86400
-    return (metadata.get("cam-source-sha256") == source_sha
+    if not hasattr(modified, "timestamp"):
+        return None
+    uploaded_at = modified.timestamp()
+    age = time.time() - uploaded_at
+    if (metadata.get("cam-source-sha256") == source_sha
             and entry.get("ContentType") == typ
             and 0 < int(entry.get("ContentLength", 0)) <= (
                 _MAX_MP4 + 2 * 1024 * 1024 if kind == "playback" else _MAX_POSTER)
-            and 0 <= age < 30 * 86400)
+            and 0 <= age < 30 * 86400):
+        return uploaded_at + 30 * 86400
+    return None
+
+
+def _head(client, config: UgcCacheConfig, key: str, source_sha: str, kind: str) -> bool:
+    return _head_expiry(client, config, key, source_sha, kind) is not None
 
 
 def _has_object(config: UgcCacheConfig, tenant: str, sha: str, kind: str) -> bool:
@@ -165,10 +180,11 @@ def _has_object(config: UgcCacheConfig, tenant: str, sha: str, kind: str) -> boo
     if cached is not None:
         return cached
     try:
-        hit = _head(_client(config), config, key, sha, kind)
+        expiry_at = _head_expiry(_client(config), config, key, sha, kind)
     except Exception:
-        hit = False
-    _mark(key, hit)
+        expiry_at = None
+    hit = expiry_at is not None and expiry_at > time.time()
+    _mark(key, hit, expiry_at=expiry_at)
     return hit
 
 
