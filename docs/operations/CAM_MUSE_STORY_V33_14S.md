@@ -81,6 +81,23 @@ invent objects or force an implausible pose.
 - **Gaming:** stand up from an already visible desk/chair and leave for
   a break; no newly invented controller/monitor.
 
+## API discovery and version probe
+
+The legacy production bridge reports `1.1.0` from `/health`, even when
+in-development router code adds new fields. The new bridge exposes API
+version `1.3.3` in both `/health` and its scoped OpenAPI description, and
+always reports `bridgeVersion=1.3.3` plus `storyV33SpecAvailable=true`
+from authenticated `GET /video-work`, including for an empty queue.
+
+The separate fields `storyV33Enabled` and
+`storyV33NativeRendererVerified=false` intentionally distinguish
+a deployed spec from a working 14-second Muse renderer. **Never treat the
+version number or a successful bridge deploy as evidence of native 14-second
+rendering.** The Muse-side video tool currently reports a maximum of
+10 seconds per render, so V3.3 must stay gated until the renderer or an
+explicitly approved alternative workflow can genuinely meet the acceptance
+criteria. Do not bypass that by duplicating or stretching frames.
+
 ## API contract and rollout safety
 
 `GET /api/v1/muse-bridge/video-work` exposes `storySpecV33`,

@@ -181,6 +181,23 @@ class StoryCatalogTests(unittest.TestCase):
 
 
 class MuseStoryRolloutTests(unittest.TestCase):
+    def test_bridge_capability_is_discoverable_without_claiming_native_renderer(self):
+        for enabled in (False, True):
+            with self.subTest(enabled=enabled):
+                with patch.dict(
+                    "os.environ",
+                    {"CAM_MUSE_STORY_V33_ENABLED": "true" if enabled else "false"},
+                ), patch.object(muse, "_configured", return_value=("x" * 64, "tenant")):
+                    status = muse.health()
+                    schema = muse.scoped_openapi()
+                self.assertEqual(status["version"], "1.3.3")
+                self.assertTrue(status["storyV33SpecAvailable"])
+                self.assertEqual(status["storyV33TargetDurationSeconds"], 14)
+                self.assertEqual(status["storyV33Enabled"], enabled)
+                self.assertFalse(status["storyV33NativeRendererVerified"])
+                self.assertFalse(status["videoGenerationEnabled"])
+                self.assertEqual(schema["info"]["version"], "1.3.3")
+
     def test_flag_disabled_keeps_legacy_12s_but_exposes_story_preview(self):
         with patch.dict("os.environ", {}, clear=True):
             output = muse._row_view(fake_job())

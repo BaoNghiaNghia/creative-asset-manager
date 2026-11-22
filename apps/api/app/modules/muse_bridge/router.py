@@ -418,9 +418,14 @@ def health():
     """Non-sensitive liveness probe for Muse connectors."""
     _configured()
     return {
-        "ok": True, "service": "cam-muse-bridge", "version": "1.1.0",
+        "ok": True, "service": "cam-muse-bridge", "version": "1.3.3",
         "authentication": "Bearer", "queuePath": "/api/v1/muse-bridge/queue",
         "videoGenerationEnabled": False,
+        "storyV33SpecAvailable": True,
+        "storyV33Enabled": _story_v33_enabled(),
+        "storyV33Version": STORY_VERSION,
+        "storyV33TargetDurationSeconds": STORY_DURATION_SECONDS,
+        "storyV33NativeRendererVerified": False,
     }
 
 
@@ -428,7 +433,7 @@ def health():
 def scoped_openapi():
     """Publish only the Muse-facing contract, never internal CAM agent routes."""
     schema = get_openapi(
-        title="CAM Muse Bridge", version="1.1.0",
+        title="CAM Muse Bridge", version="1.3.3",
         routes=router.routes,
         servers=[{"url": "https://creative-assets.ddns.net"}],
     )
@@ -662,6 +667,11 @@ def missing_video_work(
         "inventoryTotal": inventory_total,
         "inventoryScanned": len(all_jobs),
         "remainingCountIsPartial": inventory_total > len(all_jobs),
+        "bridgeVersion": "1.3.3",
+        "storyV33SpecAvailable": True,
+        "storyV33Enabled": _story_v33_enabled(),
+        "storyV33TargetDurationSeconds": STORY_DURATION_SECONDS,
+        "storyV33NativeRendererVerified": False,
         "pollAfterSeconds": 20,
         "longPollPath": "/api/v1/muse-bridge/commands/wait?waitSeconds=20",
         "requiresMuseWorker": True,
