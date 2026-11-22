@@ -37,6 +37,30 @@ short-sleeve, relaxed garment-dyed T-shirt regardless of listing titles saying
 but they must be selected from authoritative CAM SKU metadata in a future
 separate implementation, never guessed from a title.
 
+### Model casting and trousers — CAM_STORY_WARDROBE_CASTING_V1
+
+For all NEW V3.3 story videos, use an adult model with natural,
+proportionate average/medium to moderately athletic build, without exaggerated
+bulky body proportions. This is a **casting/start-frame selection preference**:
+NEVER reshape, slim, retouch or alter the body of a real person in an existing
+approved reference.
+
+The only acceptable bottoms are **denim jeans** (blue/black or neutral
+washed denim) OR **cotton-twill khaki/chino trousers** (beige/tan/olive),
+in a believable straight or relaxed fit. Do NOT select shorts, sweatpants,
+joggers, leggings, skirts or formal trousers. Trousers and model build must
+already match an APPROVED starting frame; select another approved reference
+or BLOCK, rather than generating a wardrobe swap or making a person's body
+appear different. Apply exactly the same person, trousers, shade and fit to
+both 9:16 and 16:9. At least two continuous seconds per aspect must visibly
+show waistband/upper-thigh area sufficient to identify the bottoms, while
+keeping the entire front print readable.
+
+Run garment/wardrobe/model-consistency QA on both ratios before video approval.
+A valid SHA/Google Drive receipt does not prove pants or proportions are correct.
+Versioned policy is emitted in `videoSpec.storySpecV33.wardrobeCastingLock`
+for compatible Muse workers; V3.1 jobs and completed variants are unchanged.
+
 Retain original Native Master SHA, lettering, color, scale, flat ink and
 top-of-ink 150 mm below lower collar rib along actual fabric. Do not create
 new pets, actors, motorcycles, coffees, doors or scenery absent the approved

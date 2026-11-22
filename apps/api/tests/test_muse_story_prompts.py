@@ -15,7 +15,7 @@ from app.modules.muse_bridge import router as muse
 from app.modules.muse_bridge import video_storage
 from app.modules.muse_bridge.model import CamMuseJob
 from app.modules.muse_bridge.story_prompts import (
-    STORY_DURATION_SECONDS, STORY_VERSION, GARMENT_PROFILES,
+    STORY_DURATION_SECONDS, STORY_VERSION, STORY_WARDROBE_POLICY, GARMENT_PROFILES,
     build_story_spec, detect_theme,
 )
 
@@ -77,6 +77,50 @@ class StoryCatalogTests(unittest.TestCase):
         self.assertIn("short-sleeve", spec["garmentLock"]["construction"])
         self.assertIn("crewneck sweatshirt", spec["garmentLock"]["rejectGarmentTypes"])
         self.assertIn("DO NOT turn a T-shirt into a sweatshirt", spec["narrativePrompt"])
+
+    def test_jeans_or_khaki_required_in_every_story_theme(self):
+        theme_examples = (
+            "Adventure Hiking Shirt", "Tonight We Ride Shirt",
+            "Merry Christmas Shirt", "Pixel Gamer Shirt",
+            "Hockey Sports Shirt", "Vintage Birthday Shirt",
+            "Tiger Wildlife Shirt", "Coffee Lover Shirt",
+            "Mama Family Shirt", "Valentine Heart Shirt",
+            "Retro 90s Shirt", "Funny Meme Shirt", "Classic Plain Shirt",
+        )
+        for title in theme_examples:
+            with self.subTest(title=title):
+                spec = self.spec(title)
+                lock = spec["wardrobeCastingLock"]
+                self.assertEqual(lock["policyVersion"], STORY_WARDROBE_POLICY)
+                self.assertEqual(len(lock["allowedBottoms"]), 2)
+                self.assertIn("denim jeans", lock["allowedBottoms"][0])
+                self.assertIn("khaki/chino trousers", lock["allowedBottoms"][1])
+                self.assertTrue(lock["samePantsAndPersonAcrossRatios"])
+                self.assertTrue(lock["onlyApprovedSourceFrame"])
+                self.assertIn("JEANS OR", spec["narrativePrompt"])
+                self.assertIn("KHAKI/CHINO TROUSERS", spec["narrativePrompt"])
+
+    def test_average_build_selection_is_pre_render_not_body_retouching(self):
+        spec = self.spec("Retro Birthday Tee")
+        lock = spec["wardrobeCastingLock"]
+        self.assertIn("average/medium", lock["subjectBuild"])
+        self.assertIn("proportions", lock["subjectBuild"])
+        self.assertIn("choose a different approved frame or BLOCK",
+                      lock["preRenderSelection"])
+        self.assertIn("Never slim, reshape, retouch", lock["noAlteration"])
+        self.assertIn("NEVER reshape or digitally slim", spec["narrativePrompt"])
+
+    def test_wardrobe_is_visually_verifiable_and_rejects_wrong_bottoms(self):
+        spec = self.spec()
+        lock = spec["wardrobeCastingLock"]
+        self.assertIn("two continuous seconds per aspect ratio", lock["visibility"])
+        self.assertIn("waistband and upper thighs", spec["narrativePrompt"])
+        rejects = " ".join(spec["qaPolicy"]["reject"])
+        for wrong in ("shorts", "joggers", "skirts", "body slimming",
+                      "pants hidden", "9:16 and 16:9"):
+            self.assertIn(wrong, rejects)
+        self.assertEqual(spec["targetDurationSeconds"], 14)
+        self.assertEqual(spec["printLock"]["firstInkBelowLowerCollarMm"], 150)
 
     def test_other_skus_use_the_correct_construction_only_when_explicit(self):
         expectations = {
@@ -155,6 +199,12 @@ class MuseStoryRolloutTests(unittest.TestCase):
         self.assertEqual(video["motionPromptVersion"], STORY_VERSION)
         self.assertIn("3-10s", video["motionPrompt"])
         self.assertEqual(video["storySpecV33"]["garmentLock"]["sku"], "C1717")
+        self.assertEqual(
+            video["storySpecV33"]["wardrobeCastingLock"]["policyVersion"],
+            STORY_WARDROBE_POLICY,
+        )
+        self.assertIn("denim", video["motionPrompt"])
+        self.assertIn("moderately athletic", video["motionPrompt"])
         self.assertTrue(video["storyQaRequired"])
 
     def test_partial_legacy_video_and_inflight_claim_are_never_upgraded(self):

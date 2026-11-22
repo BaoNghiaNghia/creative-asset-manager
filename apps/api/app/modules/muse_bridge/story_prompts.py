@@ -11,6 +11,43 @@ import re
 
 STORY_VERSION = "CAM_STORY_REAL_LIFE_V3_3"
 STORY_DURATION_SECONDS = 14
+STORY_WARDROBE_POLICY = "CAM_STORY_WARDROBE_CASTING_V1"
+
+# Applies to new V3.3 story renders only; choose a suitable approved model
+# and source frame before generating, NEVER re-shape a real person's body or
+# replace trousers after the fact.
+WARDROBE_CASTING = {
+    "allowedBottoms": [
+        "classic denim jeans (blue, black or neutral washed denim)",
+        "casual khaki/chino trousers (cotton twill, beige, tan or olive)",
+    ],
+    "bottomFit": "straight or relaxed natural trouser fit; believable waist, hips and leg drape",
+    "subjectBuild": (
+        "adult model with an average/medium or moderately athletic build, "
+        "balanced, realistic proportions; avoid exaggerated or very bulky silhouettes"
+    ),
+    "preRenderSelection": (
+        "Select an approved starting frame already showing the required "
+        "jeans or khaki trousers and intended proportionate model build. "
+        "If not available, choose a different approved frame or BLOCK."
+    ),
+    "noAlteration": (
+        "Never slim, reshape, retouch or otherwise change an existing person's "
+        "body; never transform shorts, joggers or other clothing into trousers."
+    ),
+    "visibility": (
+        "Show enough waist/upper-thigh area to recognize the trousers for at "
+        "least two continuous seconds per aspect ratio, while keeping the "
+        "entire front shirt print readable."
+    ),
+    "reject": [
+        "shorts, leggings, sweatpants, joggers, skirts or dress trousers instead of jeans or khaki chinos",
+        "unrealistic, exaggerated or inconsistent torso/waist/hip/leg proportions",
+        "body slimming, reshaping, wardrobe morphing, or changing pants between frames",
+        "pants hidden for the whole video so garment type cannot be verified",
+        "inconsistent pants or model body across 9:16 and 16:9 versions",
+    ],
+}
 
 # Authoritative SKU must come from CAM job metadata / an approved garment
 # reference. This catalog never infers the garment from marketplace titles.
@@ -255,6 +292,19 @@ def build_story_spec(
         f"The approved start frame MUST show a genuine {garment_name}: {garment['form']}. "
         "Use exactly the approved shirt COLOR, fit, sleeve length and collar; "
         "DO NOT turn a T-shirt into a sweatshirt or hoodie. "
+        "Wardrobe and casting are mandatory: the adult model has a natural "
+        "average/medium or moderately athletic, proportionate silhouette, "
+        "not an exaggerated bulky or very heavyset look. The model MUST "
+        "wear classic denim JEANS OR casual cotton-twill KHAKI/CHINO TROUSERS "
+        "with a natural straight or relaxed fit, never shorts, leggings, "
+        "sweatpants, joggers, or a skirt. Match the garment, model and "
+        "pants already present in an approved starting frame; choose another "
+        "approved frame or BLOCK if the requested trousers and body build "
+        "are missing. NEVER reshape or digitally slim an existing person, "
+        "swap trousers during animation or invent clothing. Show the "
+        "trouser waistband and upper thighs clearly for at least two "
+        "continuous seconds in BOTH aspect ratios while keeping the full "
+        "front artwork visible. "
         f"The starting scene must ALREADY contain {scene}; if it does not, "
         "choose another approved start image before rendering, otherwise BLOCK. "
         f"0-3s (hook): {hook} "
@@ -287,6 +337,12 @@ def build_story_spec(
         "storyStructure": "one_continuous_take_three_act_real_life",
         "sceneRequiresApprovedStartFrame": scene,
         "beats": beats,
+        "wardrobeCastingLock": {
+            "policyVersion": STORY_WARDROBE_POLICY,
+            **WARDROBE_CASTING,
+            "samePantsAndPersonAcrossRatios": True,
+            "onlyApprovedSourceFrame": True,
+        },
         "garmentLock": {
             "sku": garment_code,
             "product": garment_name,
@@ -311,6 +367,7 @@ def build_story_spec(
                 "looped forward-backwards walking, repeated hand gesture or frozen ending",
                 "unmotivated movement or action inconsistent with approved starting scene",
                 "incorrect garment SKU, sleeves, neckline, fit, base color or fabric",
+                *WARDROBE_CASTING["reject"],
                 "props, companions or vehicles hallucinated into the source scene",
                 "print size, lettering, color, SHA fidelity, 150 mm anchor or shape changed",
                 "two aspect ratios portray different events or shirt variants",
