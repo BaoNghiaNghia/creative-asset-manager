@@ -34,10 +34,13 @@ const gallery:ListingImageGallery={
   ],
 };
 let root:Root,container:HTMLDivElement;
-function mount(record:Listing=item) {
+function mount(record:Listing=item, options:{
+  canDelete?: boolean; onImageDeleted?: () => void;
+}={}) {
   container=document.createElement("div");document.body.append(container);
   root=createRoot(container);
-  act(()=>root.render(<table><tbody><tr><ListingImageCell item={record}/></tr></tbody></table>));
+  act(()=>root.render(<table><tbody><tr><ListingImageCell item={record}
+    canDelete={options.canDelete} onImageDeleted={options.onImageDeleted}/></tr></tbody></table>));
 }
 afterEach(()=>{act(()=>root?.unmount());container?.remove();
   document.querySelectorAll(".etsy-listing-image-overlay").forEach(node=>node.remove());spy.mockReset();});
@@ -66,6 +69,11 @@ describe("Listing Image saved output badges",()=>{
       "10 C1717", "6 G180",
     ]);
     expect(badges.every(button => button.parentElement === layout?.lastElementChild)).toBe(true);
+    // No empty UGC status row: the Media cell shows the saved image
+    // thumbnail and garment badges without introducing an inactive control.
+    expect(container.querySelectorAll("td")).toHaveLength(1);
+    expect(layout?.querySelector(".etsy-listing-media-ugc")).toBeNull();
+    expect(layout?.textContent).not.toContain("UGC: chưa có");
     expect(spy).not.toHaveBeenCalled();
   });
   it("keeps the placeholder left and all four model badges to the right",()=>{
@@ -180,16 +188,10 @@ describe("Listing Image saved output badges",()=>{
     expect(previewImage()?.getAttribute("src")).not.toContain("/original");
     expect(previewImage()?.getAttribute("data-review-quality")).toBe("webp");
     const frame=dialog?.querySelector<HTMLElement>(".etsy-listing-image-review-frame");
-    const fitToggle=frame?.querySelector<HTMLButtonElement>(".etsy-listing-image-fit-toggle");
-    expect(frame?.dataset.fitMode).toBe("cover");
-    expect(fitToggle?.getAttribute("aria-label")).toBe("Xem toàn bộ ảnh, không cắt");
-    await act(async()=>{fitToggle?.click();});
-    expect(frame?.dataset.fitMode).toBe("contain");
-    expect(fitToggle?.getAttribute("aria-pressed")).toBe("true");
+    // Preview always fits its card; there is no cover/contain toggle.
+    expect(frame?.dataset.fitMode).toBeUndefined();
+    expect(frame?.querySelector(".etsy-listing-image-fit-toggle")).toBeNull();
     expect(previewImage()?.getAttribute("src")).toContain("/1/preview");
-    await act(async()=>{fitToggle?.click();});
-    expect(frame?.dataset.fitMode).toBe("cover");
-    expect(fitToggle?.getAttribute("aria-pressed")).toBe("false");
     const next=document.querySelector<HTMLButtonElement>(".etsy-listing-image-nav.is-next");
     const previous=document.querySelector<HTMLButtonElement>(".etsy-listing-image-nav.is-prev");
     expect(next?.getAttribute("aria-label")).toBe("Ảnh tiếp theo");
@@ -347,17 +349,9 @@ describe("Listing Image saved output badges",()=>{
     expect(middle.defaultPrevented).toBe(true);
     expect(frame.dataset.zoomScale).toBe("1.000");
     expect(preview.style.transform).toBe("translate(0px, 0px) scale(1)");
-    // Switching the view mode also resets any wheel zoom, so the
-    // contain/cover toggle never opens at a stale cropped offset.
-    await act(async()=>{frame.dispatchEvent(new WheelEvent("wheel",{
-      bubbles:true,cancelable:true,deltaY:-200,clientX:430,clientY:160,
-    }));});
-    expect(Number(frame.dataset.zoomScale)).toBeGreaterThan(1);
-    await act(async()=>{
-      frame.querySelector<HTMLButtonElement>(".etsy-listing-image-fit-toggle")?.click();
-    });
-    expect(frame.dataset.fitMode).toBe("contain");
-    expect(frame.dataset.zoomScale).toBe("1.000");
+    // No cover/contain switch: the preview always fits its square card.
+    expect(frame.querySelector(".etsy-listing-image-fit-toggle")).toBeNull();
+    expect(frame.dataset.fitMode).toBeUndefined();
     expect(link.getAttribute("href")).toContain("/original");
     expect(spy).toHaveBeenCalledTimes(1);
   });
@@ -426,6 +420,108 @@ describe("Listing Image saved output badges",()=>{
     const click=new MouseEvent("click",{bubbles:true,cancelable:true,button:0});
     act(()=>{link.dispatchEvent(click);});
     expect(click.defaultPrevented).toBe(true);
+  });
+  it("never exposes deletion selection to users without manage permission",async()=>{
+    spy.mockResolvedValueOnce(gallery);
+    mount();
+    await act(async()=>{document.querySelector<HTMLButtonElement>(".etsy-listing-image-badge")?.click();});
+    expect(document.querySelector(".etsy-listing-image-delete-trigger")).toBeNull();
+    expect(document.querySelector(".etsy-listing-image-select-all")).toBeNull();
+  });
+  it("selects, deselects and deletes exactly one chosen image with SHA guard",async()=>{
+    const changed=vi.fn();
+    const image=gallery.groups[0].images[0];
+    spy.mockResolvedValueOnce(gallery).mockResolvedValueOnce({
+      ok:true,deleted:true,drive_deleted:true,
+      packId:image.packId,slot:image.slot,sha256:image.sha256,
+    });
+    mount(item,{canDelete:true,onImageDeleted:changed});
+    await act(async()=>{document.querySelector<HTMLButtonElement>(".etsy-listing-image-badge")?.click();});
+    const trigger=document.querySelector<HTMLButtonElement>(".etsy-listing-image-delete-trigger")!;
+    expect(trigger.textContent).toContain("Chọn ảnh để xóa");
+    await act(async()=>{trigger.click();});
+    const tiles=Array.from(document.querySelectorAll<HTMLButtonElement>(".etsy-listing-image-tile"));
+    expect(tiles[0].getAttribute("aria-pressed")).toBe("false");
+    await act(async()=>{tiles[0].click();});
+    expect(tiles[0].getAttribute("aria-pressed")).toBe("true");
+    await act(async()=>{tiles[0].click();});
+    expect(tiles[0].getAttribute("aria-pressed")).toBe("false");
+    await act(async()=>{tiles[0].click();});
+    expect(document.querySelector(".etsy-listing-image-selected-count")?.textContent)
+      .toContain("1/2 ảnh");
+    await act(async()=>{document.querySelector<HTMLButtonElement>(".etsy-listing-image-delete-trigger.is-danger")?.click();});
+    expect(document.querySelector("#etsy-listing-image-delete-title")?.textContent)
+      .toContain("Xóa 1 ảnh đã chọn?");
+    await act(async()=>{
+      document.querySelector<HTMLButtonElement>(".etsy-listing-image-confirm-actions .is-danger")?.click();
+    });
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(spy.mock.calls[1][0]).toContain("/listings/1234567890/listing-images/"+pack+"/1?sha256="+image.sha256);
+    expect(spy.mock.calls[1][1]).toEqual({method:"DELETE"});
+    expect(document.querySelectorAll(".etsy-listing-image-tile")).toHaveLength(1);
+    expect(document.querySelector(".etsy-listing-image-delete-notice")?.textContent).toContain("Đã xóa 1 ảnh");
+    expect(changed).toHaveBeenCalledTimes(1);
+  });
+  it("select all deletes only Listing Images of this opened design across garments",async()=>{
+    const otherPack="sp-"+"c".repeat(40);
+    const other={...gallery.groups[0].images[0],packId:otherPack,
+      sha256:"c".repeat(64),thumbnailUrl:"/g500/thumb",previewUrl:"/g500/preview",
+      originalUrl:"/g500/original"};
+    const multi={...gallery,total:3,groups:[
+      gallery.groups[0],{garmentCode:"G500",count:1,images:[other]},
+    ]};
+    spy.mockResolvedValueOnce(multi);
+    for(const image of [...gallery.groups[0].images,other]){
+      spy.mockResolvedValueOnce({ok:true,deleted:true,drive_deleted:true,
+        packId:image.packId,slot:image.slot,sha256:image.sha256});
+    }
+    mount(item,{canDelete:true});
+    await act(async()=>{document.querySelector<HTMLButtonElement>(".etsy-listing-image-badge")?.click();});
+    await act(async()=>{document.querySelector<HTMLButtonElement>(".etsy-listing-image-delete-trigger")?.click();});
+    await act(async()=>{document.querySelector<HTMLButtonElement>(".etsy-listing-image-select-all")?.click();});
+    expect(document.querySelectorAll(".etsy-listing-image-tile.is-marked")).toHaveLength(3);
+    expect(document.querySelector(".etsy-listing-image-selected-count")?.textContent).toContain("3/3 ảnh");
+    await act(async()=>{document.querySelector<HTMLButtonElement>(".etsy-listing-image-delete-trigger.is-danger")?.click();});
+    expect(document.querySelector("#etsy-listing-image-delete-title")?.textContent)
+      .toContain("Xóa toàn bộ 3 ảnh của design này?");
+    expect(document.querySelector(".etsy-listing-image-confirm-selection")?.textContent)
+      .toContain("G500: 1 ảnh");
+    await act(async()=>{
+      document.querySelector<HTMLButtonElement>(".etsy-listing-image-confirm-actions .is-danger")?.click();
+    });
+    expect(spy).toHaveBeenCalledTimes(4);
+    const deletes=spy.mock.calls.slice(1);
+    expect(deletes.every(call=>call[1]?.method==="DELETE" &&
+      String(call[0]).startsWith("/listings/1234567890/listing-images/"))).toBe(true);
+    expect(deletes[2][0]).toContain(otherPack);
+    expect(document.querySelectorAll(".etsy-listing-image-tile")).toHaveLength(0);
+    expect(document.querySelector(".etsy-listing-image-delete-notice")?.textContent)
+      .toContain("Đã xóa toàn bộ 3 ảnh");
+  });
+  it("stops a multi-delete after a Drive failure, preserving the remaining selected images",async()=>{
+    const first=gallery.groups[0].images[0];
+    const third={...first,slot:3,sha256:"c".repeat(64)};
+    spy.mockResolvedValueOnce({
+      ...gallery,total:3,groups:[{...gallery.groups[0],count:3,
+        images:[...gallery.groups[0].images,third]}],
+    }).mockResolvedValueOnce({ok:true,deleted:true,drive_deleted:true,
+      packId:first.packId,slot:first.slot,sha256:first.sha256})
+      .mockRejectedValueOnce(new Error("Drive tạm lỗi"));
+    const changed=vi.fn();
+    mount(item,{canDelete:true,onImageDeleted:changed});
+    await act(async()=>{document.querySelector<HTMLButtonElement>(".etsy-listing-image-badge")?.click();});
+    await act(async()=>{document.querySelector<HTMLButtonElement>(".etsy-listing-image-delete-trigger")?.click();});
+    await act(async()=>{document.querySelector<HTMLButtonElement>(".etsy-listing-image-select-all")?.click();});
+    await act(async()=>{document.querySelector<HTMLButtonElement>(".etsy-listing-image-delete-trigger.is-danger")?.click();});
+    await act(async()=>{
+      document.querySelector<HTMLButtonElement>(".etsy-listing-image-confirm-actions .is-danger")?.click();
+    });
+    expect(spy).toHaveBeenCalledTimes(3); // GET, slot 1 success, slot 2 failure; slot 3 untouched
+    expect(document.querySelectorAll(".etsy-listing-image-tile")).toHaveLength(2);
+    expect(document.querySelectorAll(".etsy-listing-image-tile.is-marked")).toHaveLength(2);
+    expect(document.querySelector(".etsy-listing-image-confirm-error")?.textContent)
+      .toContain("Đã xóa 1/3 ảnh");
+    expect(changed).toHaveBeenCalledTimes(1);
   });
   it("shows neutral empty value when no saved output exists",()=>{
     mount({...item,listingImages:[]});

@@ -9,6 +9,8 @@ import "./ListingImageCell.css";
 const MODEL = /^(C1717|G500|G180|G185)$/;
 const safeBadge = (code: string, count: number) =>
   MODEL.test(code) && Number.isSafeInteger(count) && count > 0 && count <= 1000;
+const imageSelectionKey = (image: ListingImageOutput) =>
+  image.packId + ":" + image.slot + ":" + image.sha256;
 
 type Props = {
   item: Listing;
@@ -52,9 +54,6 @@ function ListingZoomPreview({ image, garmentCode }: {
   const suppressClickRef = useRef(false);
   const [zoom, setZoom] = useState<ImageZoom>(FIT_ZOOM);
   const [dragging, setDragging] = useState(false);
-  // Product photos fill the wide center card by default. Full-view mode
-  // remains available for infographics and prints near the image edges.
-  const [fitMode, setFitMode] = useState<"cover" | "contain">("cover");
   const resetZoom = () => {
     dragRef.current = null;
     suppressClickRef.current = false;
@@ -137,7 +136,7 @@ function ListingZoomPreview({ image, garmentCode }: {
   };
 
   return <div className="etsy-listing-image-review-frame" ref={frameRef}
-    data-zoom-scale={zoom.scale.toFixed(3)} data-fit-mode={fitMode}>
+    data-zoom-scale={zoom.scale.toFixed(3)}>
     <a className={"etsy-listing-image-fullsize" +
       (zoom.scale > 1 ? " is-zoomed" : "") + (dragging ? " is-dragging" : "")}
       href={image.originalUrl}
@@ -158,16 +157,6 @@ function ListingZoomPreview({ image, garmentCode }: {
         transform={`translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})`} />
       <span className="etsy-listing-image-open-icon" aria-hidden="true">↗</span>
     </a>
-    <button type="button" className="etsy-listing-image-fit-toggle"
-      aria-label={fitMode === "cover" ? "Xem toàn bộ ảnh, không cắt" : "Lấp đầy khung preview"}
-      aria-pressed={fitMode === "contain"}
-      title={fitMode === "cover" ? "Xem toàn ảnh" : "Lấp đầy khung"}
-      onClick={() => {
-        resetZoom();
-        setFitMode(current => current === "cover" ? "contain" : "cover");
-      }}>
-      {fitMode === "cover" ? "Toàn ảnh" : "Đầy khung"}
-    </button>
   </div>;
 }
 
@@ -296,8 +285,11 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<ListingImageOutput | null>(null);
   const [retryKey, setRetryKey] = useState(0);
-  const [deleteTarget, setDeleteTarget] = useState<ListingImageOutput | null>(null);
+  const [deleteMode, setDeleteMode] = useState(false);
+  const [markedImageKeys, setMarkedImageKeys] = useState<string[]>([]);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteProgress, setDeleteProgress] = useState<{done: number; total: number} | null>(null);
   const [deleteError, setDeleteError] = useState("");
   const [deleteNotice, setDeleteNotice] = useState("");
   const galleryCache = useRef<GalleryCache | null>(null);
@@ -321,48 +313,81 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
   const selectedGarment = gallery?.groups.find(group => group.images.some(image =>
     image.packId === selected?.packId && image.sha256 === selected?.sha256))?.garmentCode;
   const orderedImages = gallery?.groups.flatMap(group => group.images) || [];
+  const markedSet = new Set(markedImageKeys);
+  const deleteQueue = orderedImages.filter(image => markedSet.has(imageSelectionKey(image)));
+  const allMarked = orderedImages.length > 0 && deleteQueue.length === orderedImages.length;
+  const closeGallery = () => {
+    setOpen(false);
+    setDeleteMode(false);
+    setMarkedImageKeys([]);
+    setConfirmDelete(false);
+    setDeleteError("");
+    setDeleteProgress(null);
+  };
+  // Reuse the existing tenant-checked, SHA-guarded single-image endpoint.
+  // Delete serially so we can report partial Drive failures without hiding
+  // or marking other files as deleted. Never delete a whole Drive folder.
   const deleteSelected = async () => {
-    if (!deleteTarget || deleting || !gallery || !canDelete) return;
-    const target = deleteTarget;
+    if (!confirmDelete || deleting || !gallery || !canDelete || !deleteQueue.length) return;
+    const targets = [...deleteQueue];
+    const deletingWholeDesign = targets.length === orderedImages.length;
+    const completed: ListingImageOutput[] = [];
+    let failure = "";
     setDeleting(true);
     setDeleteError("");
+    setDeleteProgress({done: 0, total: targets.length});
     try {
-      const result = await spyFetch<{
-        ok: boolean; deleted: boolean; drive_deleted: boolean;
-        packId: string; slot: number; sha256: string;
-      }>("/listings/" + encodeURIComponent(item.listingKey) +
-        "/listing-images/" + encodeURIComponent(target.packId) +
-        "/" + target.slot + "?sha256=" + encodeURIComponent(target.sha256), {
-        method: "DELETE",
-      });
-      if (!result.ok || !result.deleted || !result.drive_deleted ||
-        result.packId !== target.packId || result.slot !== target.slot ||
-        result.sha256 !== target.sha256) {
-        throw new Error("CAM chưa xác nhận xóa đủ PNG gốc và thumbnail trên Google Drive.");
+      for (const target of targets) {
+        try {
+          const result = await spyFetch<{
+            ok: boolean; deleted: boolean; drive_deleted: boolean;
+            packId: string; slot: number; sha256: string;
+          }>("/listings/" + encodeURIComponent(item.listingKey) +
+            "/listing-images/" + encodeURIComponent(target.packId) +
+            "/" + target.slot + "?sha256=" + encodeURIComponent(target.sha256), {
+            method: "DELETE",
+          });
+          if (!result.ok || !result.deleted || !result.drive_deleted ||
+            result.packId !== target.packId || result.slot !== target.slot ||
+            result.sha256 !== target.sha256) {
+            throw new Error("CAM chưa xác nhận đã xóa cả PNG gốc và thumbnail trên Drive.");
+          }
+          completed.push(target);
+          setDeleteProgress({done: completed.length, total: targets.length});
+        } catch (reason) {
+          failure = reason instanceof Error ? reason.message :
+            "Không thể xác nhận thao tác xóa ảnh trên Google Drive.";
+          break; // Do not retry an uncertain remote deletion automatically.
+        }
       }
-      const after = gallery.groups.map(group => {
-        const images = group.images.filter(image => !(
-          image.packId === target.packId &&
-          image.slot === target.slot &&
-          image.sha256 === target.sha256
-        ));
-        return { ...group, images, count: images.length };
-      }).filter(group => group.count > 0);
-      const remaining = after.flatMap(group => group.images);
-      const previousIndex = orderedImages.findIndex(image =>
-        image.packId === target.packId && image.slot === target.slot &&
-        image.sha256 === target.sha256);
-      const updated = { ...gallery, groups: after, total: remaining.length };
-      galleryCache.current = null;
-      setGallery(updated);
-      setSelected(remaining[Math.min(Math.max(0, previousIndex), remaining.length - 1)] || null);
-      setDeleteTarget(null);
-      setDeleteNotice("Đã xóa ảnh " + String(target.slot).padStart(2, "0") +
-        " khỏi CAM và Google Drive. Slot trống được giữ lại để tạo ảnh mới sau.");
-      onImageDeleted?.();
-    } catch (reason) {
-      setDeleteError(reason instanceof Error ? reason.message :
-        "Không thể xóa ảnh trên Google Drive. Ảnh vẫn được giữ lại trong CAM.");
+      if (completed.length) {
+        const deletedKeys = new Set(completed.map(imageSelectionKey));
+        const after = gallery.groups.map(group => {
+          const images = group.images.filter(image => !deletedKeys.has(imageSelectionKey(image)));
+          return {...group, images, count: images.length};
+        }).filter(group => group.count > 0);
+        const remaining = after.flatMap(group => group.images);
+        const formerIndex = orderedImages.findIndex(image =>
+          deletedKeys.has(imageSelectionKey(image)));
+        galleryCache.current = null;
+        setGallery({...gallery, groups: after, total: remaining.length});
+        setSelected(previous => previous && !deletedKeys.has(imageSelectionKey(previous))
+          ? previous : remaining[Math.min(formerIndex, remaining.length - 1)] || null);
+        setMarkedImageKeys(current => current.filter(key => !deletedKeys.has(key)));
+        onImageDeleted?.();
+      }
+      if (failure) {
+        setDeleteError("Đã xóa " + completed.length + "/" + targets.length +
+          " ảnh. Dừng khi gặp lỗi: " + failure +
+          " Các ảnh chưa xóa vẫn được chọn; hãy kiểm tra lại trước khi thử tiếp.");
+      } else {
+        setConfirmDelete(false);
+        setDeleteMode(false);
+        setMarkedImageKeys([]);
+        setDeleteNotice((deletingWholeDesign ? "Đã xóa toàn bộ " : "Đã xóa ") +
+          targets.length + " ảnh Listing Image của design này khỏi CAM và Google Drive. " +
+          "Các slot trống sẽ được tạo lại ở lượt sau, không tự chạy ngay.");
+      }
     } finally {
       setDeleting(false);
     }
@@ -411,14 +436,21 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
   useEffect(() => {
     if (!open) return;
     const onEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !deleting) {
-        if (deleteTarget) setDeleteTarget(null);
-        else setOpen(false);
+      if (event.key !== "Escape" || deleting) return;
+      if (confirmDelete) {
+        setConfirmDelete(false);
+        setDeleteError("");
+        setDeleteProgress(null);
+      } else if (deleteMode) {
+        setDeleteMode(false);
+        setMarkedImageKeys([]);
+      } else {
+        closeGallery();
       }
     };
     window.addEventListener("keydown", onEscape);
     return () => window.removeEventListener("keydown", onEscape);
-  }, [open, deleteTarget, deleting]);
+  }, [open, confirmDelete, deleteMode, deleting]);
 
   const openGallery = () => { onPreviewStart?.(); setOpen(true); };
   return <>
@@ -439,7 +471,7 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
             title="Chưa nhận được ảnh đã lưu từ ImageGen Extension">Chưa đồng bộ ảnh</span>}
         </div>
         {badges.length > 0 && <div className="etsy-listing-image-badges"
-          aria-label="Ảnh đã lưu theo mã áo">
+          aria-label="Số ảnh theo mã áo">
           {badges.map(b => <button type="button"
             className="etsy-listing-image-badge" key={b.garmentCode}
             title={b.count + " ảnh " + b.garmentCode + " đã lưu từ CAM Image Extension"}
@@ -454,7 +486,7 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
       <div className="etsy-listing-image-overlay"
         role="presentation"
         onMouseDown={event => {
-          if (event.target === event.currentTarget && !deleting && !deleteTarget) setOpen(false);
+          if (event.target === event.currentTarget && !deleting && !confirmDelete) closeGallery();
         }}>
         <section role="dialog" aria-modal="true"
           aria-label={"Listing Image đã lưu cho " + item.pageTitle}
@@ -462,55 +494,100 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
           <header className="etsy-listing-image-dialog-head">
             <h2>Listing Image</h2>
             <div className="etsy-listing-image-head-actions">
-              {canDelete && selected && <button type="button"
-                className="etsy-listing-image-delete-trigger"
+              {canDelete && orderedImages.length > 0 && (deleteMode ? <>
+                <span className="etsy-listing-image-selected-count" aria-live="polite">
+                  {deleteQueue.length}/{orderedImages.length} ảnh đã chọn
+                </span>
+                <button type="button" className="etsy-listing-image-select-all"
+                  disabled={deleting} aria-pressed={allMarked}
+                  onClick={() => setMarkedImageKeys(allMarked ? [] :
+                    orderedImages.map(imageSelectionKey))}>
+                  {allMarked ? "Bỏ chọn tất cả" : "Chọn tất cả"}
+                </button>
+                <button type="button" className="etsy-listing-image-delete-trigger is-danger"
+                  disabled={deleting || deleteQueue.length === 0}
+                  onClick={() => {
+                    setDeleteError("");
+                    setDeleteProgress(null);
+                    setConfirmDelete(true);
+                  }}>
+                  Xóa {deleteQueue.length} ảnh
+                </button>
+                <button type="button" className="etsy-listing-image-select-cancel"
+                  disabled={deleting} onClick={() => {
+                    setDeleteMode(false);
+                    setMarkedImageKeys([]);
+                    setDeleteError("");
+                  }}>Hủy chọn</button>
+              </> : <button type="button" className="etsy-listing-image-delete-trigger"
                 disabled={deleting}
-                title={"Xóa vĩnh viễn ảnh " + String(selected.slot).padStart(2, "0") +
-                  " khỏi CAM và Google Drive"}
-                aria-label={"Xóa ảnh " + String(selected.slot).padStart(2, "0") +
-                  " " + (selectedGarment || "")}
                 onClick={() => {
-                  setDeleteError("");
+                  setDeleteMode(true);
+                  setMarkedImageKeys([]);
                   setDeleteNotice("");
-                  setDeleteTarget(selected);
+                  setDeleteError("");
                 }}>
-                Xóa ảnh {String(selected.slot).padStart(2, "0")}
-              </button>}
+                Chọn ảnh để xóa
+              </button>)}
               <button type="button" className="etsy-listing-image-close"
-                disabled={deleting} onClick={() => setOpen(false)}
+                disabled={deleting} onClick={closeGallery}
                 aria-label="Đóng Listing Image">×</button>
             </div>
           </header>
           {deleteNotice && <p className="etsy-listing-image-delete-notice" role="status">
             {deleteNotice}
           </p>}
-          {deleteTarget && <div className="etsy-listing-image-confirm-backdrop">
-            <div className="etsy-listing-image-confirm" role="alertdialog"
-              aria-modal="true" aria-labelledby="etsy-listing-image-delete-title"
-              aria-describedby="etsy-listing-image-delete-description">
-              <h3 id="etsy-listing-image-delete-title">
-                Xóa ảnh {String(deleteTarget.slot).padStart(2, "0")}?
-              </h3>
-              <p id="etsy-listing-image-delete-description">
-                Xóa đúng ảnh đã chọn khỏi CAM và xóa vĩnh viễn PNG gốc cùng
-                thumbnail của ảnh này trên Google Drive. Các ảnh khác được giữ nguyên.
-                Slot sẽ để trống cho lượt tạo lại sau, không tự tạo ngay lúc xóa.
-              </p>
-              {deleteError && <p className="etsy-listing-image-confirm-error" role="alert">
-                {deleteError}
-              </p>}
-              <div className="etsy-listing-image-confirm-actions">
-                <button type="button" disabled={deleting}
-                  onClick={() => { setDeleteTarget(null); setDeleteError(""); }}>
-                  Hủy
-                </button>
-                <button type="button" className="is-danger" disabled={deleting}
-                  onClick={() => { void deleteSelected(); }}>
-                  {deleting ? "Đang xóa trên Drive…" : "Xóa khỏi CAM và Google Drive"}
-                </button>
+          {confirmDelete && deleteQueue.length > 0 &&
+            <div className="etsy-listing-image-confirm-backdrop">
+              <div className="etsy-listing-image-confirm" role="alertdialog"
+                aria-modal="true" aria-labelledby="etsy-listing-image-delete-title"
+                aria-describedby="etsy-listing-image-delete-description">
+                <h3 id="etsy-listing-image-delete-title">
+                  {allMarked
+                    ? "Xóa toàn bộ " + deleteQueue.length + " ảnh của design này?"
+                    : "Xóa " + deleteQueue.length + " ảnh đã chọn?"}
+                </h3>
+                <p id="etsy-listing-image-delete-description">
+                  Chỉ xóa Listing Image thuộc design đang mở, gồm PNG gốc và
+                  thumbnail trên Google Drive cùng bản ghi trong CAM.
+                  {allMarked
+                    ? " Bạn đang chọn tất cả ảnh Listing Image của design này."
+                    : " Các ảnh không được chọn sẽ được giữ nguyên."}
+                  {" "}Ảnh thiết kế gốc không bị xóa. Các slot trống chỉ được tạo lại ở lượt sau.
+                </p>
+                <p className="etsy-listing-image-confirm-selection">
+                  {deleteQueue.length} / {orderedImages.length} ảnh của design này
+                  {gallery?.groups.map(group => {
+                    const count = group.images.filter(image =>
+                      markedSet.has(imageSelectionKey(image))).length;
+                    return count ? <span key={group.garmentCode}>
+                      {group.garmentCode}: {count} ảnh
+                    </span> : null;
+                  })}
+                </p>
+                {deleteProgress && deleting && <p role="status">
+                  Đang xóa trên Drive: {deleteProgress.done}/{deleteProgress.total} ảnh…
+                </p>}
+                {deleteError && <p className="etsy-listing-image-confirm-error" role="alert">
+                  {deleteError}
+                </p>}
+                <div className="etsy-listing-image-confirm-actions">
+                  <button type="button" disabled={deleting}
+                    onClick={() => {
+                      setConfirmDelete(false);
+                      setDeleteError("");
+                      setDeleteProgress(null);
+                    }}>Hủy</button>
+                  <button type="button" className="is-danger"
+                    disabled={deleting || deleteQueue.length === 0}
+                    onClick={() => { void deleteSelected(); }}>
+                    {deleting ? "Đang xóa…" :
+                      allMarked ? "Xóa tất cả " + deleteQueue.length + " ảnh" :
+                      "Xóa " + deleteQueue.length + " ảnh đã chọn"}
+                  </button>
+                </div>
               </div>
-            </div>
-          </div>}
+            </div>}
           {!gallery && !error && <div className="etsy-listing-image-notice" role="status">Đang tải ảnh…</div>}
           {error && <div className="etsy-listing-image-notice is-error" role="alert">
             {error} <button type="button" onClick={() => {
@@ -534,13 +611,33 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
                       <div className="etsy-listing-image-grid">
                         {designImages.map(image => <button type="button"
                           className={"etsy-listing-image-tile" +
-                            (selected?.packId === image.packId && selected?.sha256 === image.sha256 ? " is-selected" : "")}
+                            (selected?.packId === image.packId && selected?.sha256 === image.sha256 ? " is-selected" : "") +
+                            (deleteMode && markedSet.has(imageSelectionKey(image)) ? " is-marked" : "")}
                           key={image.packId + "-" + image.slot}
+                          disabled={deleting}
                           title={group.garmentCode + " · Ảnh " + String(image.slot).padStart(2, "0")}
-                          aria-label={"Xem ảnh " + image.slot + " / " + group.garmentCode}
-                          aria-pressed={selected?.packId === image.packId && selected?.sha256 === image.sha256}
-                          onClick={() => setSelected(image)}>
+                          aria-label={deleteMode
+                            ? (markedSet.has(imageSelectionKey(image)) ? "Bỏ chọn ảnh " : "Chọn ảnh ") +
+                              image.slot + " / " + group.garmentCode + " để xóa"
+                            : "Xem ảnh " + image.slot + " / " + group.garmentCode}
+                          aria-pressed={deleteMode
+                            ? markedSet.has(imageSelectionKey(image))
+                            : selected?.packId === image.packId && selected?.sha256 === image.sha256}
+                          onClick={() => {
+                            setSelected(image);
+                            if (deleteMode) setMarkedImageKeys(current => {
+                              const key = imageSelectionKey(image);
+                              return current.includes(key) ?
+                                current.filter(value => value !== key) : [...current, key];
+                            });
+                          }}>
                           <EtsyDeferredImage src={image.thumbnailUrl} alt="" />
+                          {deleteMode && <span
+                            className={"etsy-listing-image-select-mark" +
+                              (markedSet.has(imageSelectionKey(image)) ? " is-checked" : "")}
+                            aria-hidden="true">
+                            {markedSet.has(imageSelectionKey(image)) ? "✓" : ""}
+                          </span>}
                           <span className="etsy-listing-image-slot" aria-hidden="true">
                             {String(image.slot).padStart(2, "0")}
                           </span>

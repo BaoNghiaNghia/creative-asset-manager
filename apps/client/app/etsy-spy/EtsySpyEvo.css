@@ -62,13 +62,7 @@ body:has(.etsy-spy-page) .etsy-tiktok-dialog button:focus-visible {
 .etsy-spy-page .etsy-tab-copy small { font-size: 9.5px; color: var(--cam-evo-muted); }
 .etsy-spy-page .etsy-tab-number { color: #7d899a; }
 
-/* Use one card surface for the stage, then hairlines within it. */
-.etsy-spy-page .etsy-stage-card {
-  border: 1px solid var(--cam-evo-hairline);
-  border-radius: var(--cam-evo-radius-card);
-  background: var(--cam-evo-surface);
-  box-shadow: none;
-}
+/* Flat Etsy Spy workspace: section borders only, no outer card. */
 .etsy-spy-page .etsy-stage-heading h2 {
   font-size: clamp(17px, 1.4vw, 21px);
   font-weight: 790;
@@ -86,9 +80,9 @@ body:has(.etsy-spy-page) .etsy-tiktok-dialog button:focus-visible {
 .etsy-spy-page .etsy-stats { gap: 7px; margin-bottom: 12px; }
 .etsy-spy-page .etsy-stat {
   min-width: 0;
-  min-height: 74px;
-  padding: 9px 10px;
-  gap: 4px;
+  min-height: 58px;
+  padding: 8px 10px;
+  gap: 2px;
   border: 1px solid var(--cam-evo-hairline);
   border-radius: var(--cam-evo-radius-control);
   background: #fff;
@@ -122,11 +116,6 @@ body:has(.etsy-spy-page) .etsy-tiktok-dialog button:focus-visible {
   font-size: 21px;
   font-variant-numeric: tabular-nums;
   font-weight: 780;
-}
-.etsy-spy-page .etsy-stat > small {
-  color: var(--cam-evo-muted);
-  font-size: 9px;
-  line-height: 1.3;
 }
 
 /* Form controls / compact action vocabulary. */
@@ -181,57 +170,6 @@ body:has(.etsy-spy-page) .etsy-tiktok-dialog button:focus-visible {
 }
 .etsy-spy-page .etsy-search-box input { padding-left: 35px; }
 .etsy-spy-page .etsy-clear-filters { color: var(--cam-evo-brand); }
-/* Applied filter context: visible when a day/keyword really narrows results.
-   Neutral chips communicate state without adding another navigation layer. */
-.etsy-spy-page .etsy-filter-context {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  min-width: 0;
-  margin: 0 0 12px;
-  padding: 7px 9px;
-  border: 1px solid var(--cam-evo-hairline);
-  border-radius: var(--cam-evo-radius-control);
-  background: var(--cam-evo-hover);
-}
-.etsy-spy-page .etsy-filter-context-heading {
-  margin-right: 3px;
-  color: var(--cam-evo-muted);
-  font-size: 10.5px;
-  font-weight: 720;
-}
-.etsy-spy-page .etsy-filter-chip {
-  display: inline-block;
-  max-width: min(260px, 100%);
-  overflow: hidden;
-  padding: 5px 8px;
-  border: 1px solid var(--cam-evo-hairline);
-  border-radius: 6px;
-  background: #fff;
-  color: var(--cam-evo-ink);
-  font-size: 11px;
-  font-weight: 620;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.etsy-spy-page .etsy-filter-reset {
-  min-height: 32px;
-  margin-left: auto;
-  padding: 5px 10px;
-  border: 1px solid var(--cam-evo-input-border);
-  border-radius: var(--cam-evo-radius-control);
-  background: #fff;
-  color: var(--cam-evo-brand);
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 720;
-}
-.etsy-spy-page .etsy-filter-reset:hover {
-  background: var(--cam-evo-brand-soft);
-  border-color: var(--cam-evo-focus);
-}
 .etsy-spy-page .etsy-bulk-bar {
   background: var(--cam-evo-hover);
   border-color: var(--cam-evo-hairline);
@@ -535,7 +473,6 @@ body:has(.etsy-spy-page) .etsy-tiktok-copy-title button {
     min-width: 0; min-height: 43px; padding: 7px 4px;
   }
   .etsy-spy-page .etsy-stage-canvas { padding: 8px 6px; }
-  .etsy-spy-page .etsy-stage-card { padding: 11px 9px; }
   .etsy-spy-page .etsy-stats {
     display: grid;
     grid-auto-flow: column;
@@ -553,9 +490,6 @@ body:has(.etsy-spy-page) .etsy-tiktok-copy-title button {
   .etsy-spy-page .etsy-search-filters { gap: 7px; }
   .etsy-spy-page .etsy-empty-guided { min-height: 175px; padding: 28px 14px 32px; }
   .etsy-spy-page .etsy-empty-action { min-height: 42px; max-width: 100%; }
-  .etsy-spy-page .etsy-filter-context { gap: 6px; padding: 8px; }
-  .etsy-spy-page .etsy-filter-context-heading { flex-basis: 100%; }
-  .etsy-spy-page .etsy-filter-reset { min-height: 40px; padding: 8px 12px; }
   .etsy-spy-page .etsy-search-filters :is(input, select),
   .etsy-spy-page .etsy-stage-heading-actions :is(input, select) {
     min-height: 40px; font-size: 12px;

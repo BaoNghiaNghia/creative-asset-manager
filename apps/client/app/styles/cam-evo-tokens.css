@@ -4,7 +4,7 @@
   --cam-evo-brand: #265cbd;
   --cam-evo-brand-hover: #1b4a9a;
   --cam-evo-brand-soft: #edf3fd;
-  --cam-evo-page: #f6f8fb;
+  --cam-evo-page: #ffffff;
   --cam-evo-surface: #ffffff;
   --cam-evo-ink: #17243a;
   --cam-evo-muted: #64748b;
@@ -26,3 +26,6 @@
   --cam-evo-font: "Be Vietnam Pro", system-ui, -apple-system, sans-serif;
   --cam-evo-elevation-modal: 0 24px 70px rgba(18, 33, 59, 0.19);
 }
+
+/* CAM console white canvas; keep component-specific semantic backgrounds. */
+html, body, #root, .app-route-content { background-color: var(--cam-evo-page); }

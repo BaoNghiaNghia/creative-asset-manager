@@ -267,13 +267,12 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
             : status === "failed" ? "Chưa tạo được nội dung SEO"
             : "Chưa có bản nháp SEO"}
         </span>}
-        <span className="etsy-tiktok-preview-footer">
-          {status !== "needs_fact_check" && status !== "not_queued" &&
+        {status !== "needs_fact_check" && status !== "not_queued" &&
+          <span className="etsy-tiktok-preview-footer">
             <span className={"etsy-tiktok-state is-" + status}>
               {LABELS[status] || status}
-            </span>}
-          <span className="etsy-tiktok-open-hint" aria-hidden="true">Mở SEO ↗</span>
-        </span>
+            </span>
+          </span>}
       </button>
       {canGenerate && <button type="button" className="etsy-tiktok-queue-action"
         disabled={queueing} onClick={() => void enqueue()}

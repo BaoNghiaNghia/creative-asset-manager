@@ -123,7 +123,10 @@ describe("Picked TikTok Shop listing column", () => {
     expect(open?.textContent).not.toContain("Cần duyệt");
     expect(open?.textContent).toContain("Search terms");
     expect(open?.textContent).toContain("2 gợi ý");
-    expect(open?.textContent).toContain("Mở SEO");
+    expect(open?.textContent).not.toContain("Mở SEO");
+    expect(open?.querySelector(".etsy-tiktok-open-hint")).toBeNull();
+    expect(open?.querySelector(".etsy-tiktok-preview-footer")).toBeNull();
+    expect(open?.getAttribute("aria-label")).toContain("Mở TikTok SEO");
     expect(Array.from(open?.querySelectorAll(".etsy-tiktok-term") || [], node => node.textContent))
       .toEqual(["mountain sweatshirt", "sunset art"]);
     expect(open?.querySelector(".etsy-tiktok-state.is-needs_fact_check")).toBeNull();
@@ -337,6 +340,10 @@ describe("Picked TikTok Shop listing column", () => {
   });
   it("offers explicit failed-job retry, preserving the open modal until close", async () => {
     const {fetchMock, onQueued} = await render("failed");
+    const preview = document.querySelector(".etsy-tiktok-listing-open");
+    expect(preview?.textContent).not.toContain("Mở SEO");
+    expect(preview?.querySelector(".etsy-tiktok-open-hint")).toBeNull();
+    expect(preview?.querySelector(".etsy-tiktok-state.is-failed")?.textContent).toBe("Tạo lỗi");
     await act(async () => {
       document.querySelector<HTMLButtonElement>(".etsy-tiktok-listing-open")?.click();
     });

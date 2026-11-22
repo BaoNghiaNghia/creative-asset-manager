@@ -11,7 +11,7 @@
   --ce-surface: var(--cam-evo-surface, #fff);
   color: var(--ce-ink);
 }
-.cam-evo-explorer .explorer-content { background: var(--cam-evo-page, #f6f8fb); min-width: 0; }
+.cam-evo-explorer .explorer-content { background: var(--cam-evo-page, #ffffff); min-width: 0; }
 .cam-evo-explorer .explorer-content > header {
   gap: 12px;
   border-bottom-color: var(--ce-border);
@@ -106,7 +106,7 @@
 /* Job Queue — status controls in one slim rail and a readable internal-scroll table. */
 .job-queue-shell .job-queue-main {
   min-width: 0;
-  background: var(--cam-evo-page, #f6f8fb);
+  background: var(--cam-evo-page, #ffffff);
   color: var(--cam-evo-ink, #17243a);
 }
 .job-queue-shell .job-queue-header {
@@ -270,7 +270,7 @@
 .inventory-workspace {
   min-width: 0;
   color: var(--cam-evo-ink, #17243a);
-  background: var(--cam-evo-page, #f6f8fb);
+  background: var(--cam-evo-page, #ffffff);
 }
 .inventory-workspace .inventory-workspace-content {
   padding: 16px clamp(12px, 2vw, 28px) 40px;
@@ -375,7 +375,7 @@
 .access-shell {
   min-width: 0;
   color: var(--cam-evo-ink, #17243a);
-  background: var(--cam-evo-page, #f6f8fb);
+  background: var(--cam-evo-page, #ffffff);
 }
 .access-shell .access-main { min-width: 0; }
 .access-shell .access-header {

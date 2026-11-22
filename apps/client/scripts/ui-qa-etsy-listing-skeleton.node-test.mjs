@@ -14,10 +14,10 @@ const imageCss = readFileSync(
 test("Main Listing Image thumbnail contains its own absolute loading skeleton", () => {
   const rule = listingCss.match(/\.etsy-listing-image-main\s*\{([^}]*)\}/)?.[1];
   assert.ok(rule, "Main thumbnail CSS selector must exist");
-  assert.match(rule, /position:\s*relative/, "skeleton must anchor to 80px button");
+  assert.match(rule, /position:\s*relative/, "skeleton must anchor to the compact thumbnail button");
   assert.match(rule, /isolation:\s*isolate/, "loading stack cannot cover other cells");
   assert.match(rule, /overflow:\s*hidden/, "no skeleton overflow beyond Main");
-  assert.match(rule, /width:\s*80px;height:\s*80px/, "thumbnail geometry stays stable");
+  assert.match(rule, /width:\s*72px;height:\s*72px/, "thumbnail geometry stays stable");
 });
 
 test("shared Etsy image skeleton styles also anchor Listing Image Main", () => {
