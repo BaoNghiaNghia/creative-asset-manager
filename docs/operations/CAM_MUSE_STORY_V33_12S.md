@@ -80,9 +80,10 @@ already present in an approved start frame, otherwise choose another or BLOCK.
 
 Use existing authenticated CAM Muse Bridge; do not create a duplicate task.
 `GET /api/v1/muse-bridge/video-work` advertises the story spec and capabilities
-even when the workflow is disabled. The bridge v1.3.3 /health returns:
+even when the workflow is disabled. The bridge v1.3.4 /health returns:
 `storyV33SpecAvailable=true`, `storyV33TargetDurationSeconds=12`,
 `storyV33MaxNativeTakeSeconds=10`,
+`storyV33OutputContract=CAM_STORY_12S_TWO_TAKE_V1`,
 `storyV33NativeRendererVerified=false` and
 `storyV33TwoTakeAssemblyVerified=false` (until independently verified).
 
@@ -92,13 +93,16 @@ bridge advertises V3.3, the worker has proven the two-take assembly contract,
 and the operator has reviewed the flag cutover, claim a NEW eligible listing:
 
 ```json
-{"worker":"muse","storyVersion":"CAM_STORY_REAL_LIFE_V3_3"}
+{"worker":"muse","storyVersion":"CAM_STORY_REAL_LIFE_V3_3","storyOutputContract":"CAM_STORY_12S_TWO_TAKE_V1"}
 ```
 
 This pins a **12-second** V3.3 contract in existing `output_receipts` and
 cannot silently change an older 14-second pin or a partially saved V3.1 job.
-Upload each missing MP4 using `X-Muse-Lease` and
-`X-CAM-Motion-Version: CAM_STORY_REAL_LIFE_V3_3`. Reject 10s or 14s final
+Upload each missing MP4 using `X-Muse-Lease`,
+`X-CAM-Motion-Version: CAM_STORY_REAL_LIFE_V3_3`, and
+`X-CAM-Story-Output-Contract: CAM_STORY_12S_TWO_TAKE_V1`.
+An older Muse worker that knows only the previous 14s V3.3 prompt is
+rejected at claim time (409), before rendering. Reject 10s or 14s final
 uploads (422), mismatched version and invalid lease before Drive storage.
 Never upload a different MP4 over an already verified ratio. Completing
 storage still leaves independent garment/print/motion QA pending.
@@ -111,7 +115,8 @@ storage still leaves independent garment/print/motion QA pending.
   matching approved model/jeans or khakis/C1717, accurate Native Master,
   150mm print anchor, and matching two aspect ratios. Reject the entire
   video when the only motion is gaze, sway or camera movement.
-- Test fresh V3.3 claim, V3.1 legacy claim protection, old 14s pin refusal,
+- Test fresh V3.3 claim with explicit output-contract acknowledgment,
+  old 14s worker refusal, V3.1 legacy claim protection, old 14s pin refusal,
   one-ratio saved retry, 10s final rejection, correct 12s final acceptance,
   lease expiry and no overwritten verified Drive uploads.
 - Run CI and reviewed backend release health gates. Do not bypass historical

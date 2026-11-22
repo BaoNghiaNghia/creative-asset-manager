@@ -12,6 +12,7 @@ import re
 STORY_VERSION = "CAM_STORY_REAL_LIFE_V3_3"
 STORY_DURATION_SECONDS = 12
 STORY_MAX_NATIVE_TAKE_SECONDS = 10
+STORY_OUTPUT_CONTRACT = "CAM_STORY_12S_TWO_TAKE_V1"
 STORY_FINAL_DURATION_BOUNDS = (11.5, 12.5)
 STORY_WARDROBE_POLICY = "CAM_STORY_WARDROBE_CASTING_V1"
 
@@ -344,6 +345,7 @@ def build_story_spec(
     )
     return {
         "storyVersion": STORY_VERSION,
+        "storyOutputContract": STORY_OUTPUT_CONTRACT,
         "storyId": story_id,
         "storyTheme": theme,
         "storyTitle": title_safe,
@@ -393,6 +395,7 @@ def build_story_spec(
             "storageIsNotApproval": True,
         },
         "renderPolicy": {
+            "outputContractVersion": STORY_OUTPUT_CONTRACT,
             "targetFinalDurationSeconds": STORY_DURATION_SECONDS,
             "maxNativeDurationSecondsPerTake": STORY_MAX_NATIVE_TAKE_SECONDS,
             "minAcceptableFinalDurationSeconds": STORY_FINAL_DURATION_BOUNDS[0],

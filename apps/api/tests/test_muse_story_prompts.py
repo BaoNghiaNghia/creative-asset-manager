@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 import unittest
@@ -15,7 +16,7 @@ from app.modules.muse_bridge import router as muse
 from app.modules.muse_bridge import video_storage
 from app.modules.muse_bridge.model import CamMuseJob
 from app.modules.muse_bridge.story_prompts import (
-    STORY_DURATION_SECONDS, STORY_VERSION, STORY_WARDROBE_POLICY, GARMENT_PROFILES,
+    STORY_DURATION_SECONDS, STORY_VERSION, STORY_OUTPUT_CONTRACT, STORY_WARDROBE_POLICY, GARMENT_PROFILES,
     build_story_spec, detect_theme,
 )
 
@@ -74,6 +75,8 @@ class StoryCatalogTests(unittest.TestCase):
     def test_two_real_shots_respect_ten_second_native_tool_cap(self):
         spec = self.spec("Adventure Hiking Shirt")
         plan = spec["renderPolicy"]
+        self.assertEqual(spec["storyOutputContract"], STORY_OUTPUT_CONTRACT)
+        self.assertEqual(plan["outputContractVersion"], STORY_OUTPUT_CONTRACT)
         self.assertEqual(plan["targetFinalDurationSeconds"], 12)
         self.assertEqual(plan["maxNativeDurationSecondsPerTake"], 10)
         self.assertEqual(plan["preferredAssembly"], "two_genuine_motion_shots_motivated_cut")
@@ -212,15 +215,16 @@ class MuseStoryRolloutTests(unittest.TestCase):
                 ), patch.object(muse, "_configured", return_value=("x" * 64, "tenant")):
                     status = muse.health()
                     schema = muse.scoped_openapi()
-                self.assertEqual(status["version"], "1.3.3")
+                self.assertEqual(status["version"], "1.3.4")
                 self.assertTrue(status["storyV33SpecAvailable"])
                 self.assertEqual(status["storyV33TargetDurationSeconds"], 12)
+                self.assertEqual(status["storyV33OutputContract"], STORY_OUTPUT_CONTRACT)
                 self.assertEqual(status["storyV33MaxNativeTakeSeconds"], 10)
                 self.assertEqual(status["storyV33Enabled"], enabled)
                 self.assertFalse(status["storyV33NativeRendererVerified"])
                 self.assertFalse(status["storyV33TwoTakeAssemblyVerified"])
                 self.assertFalse(status["videoGenerationEnabled"])
-                self.assertEqual(schema["info"]["version"], "1.3.3")
+                self.assertEqual(schema["info"]["version"], "1.3.4")
 
     def test_flag_disabled_keeps_legacy_12s_but_exposes_story_preview(self):
         with patch.dict("os.environ", {}, clear=True):
@@ -238,6 +242,7 @@ class MuseStoryRolloutTests(unittest.TestCase):
         self.assertTrue(video["storyEnabled"])
         self.assertEqual(video["targetDurationSeconds"], STORY_DURATION_SECONDS)
         self.assertEqual(video["motionPromptVersion"], STORY_VERSION)
+        self.assertEqual(video["storyUploadOutputContractHeader"], STORY_OUTPUT_CONTRACT)
         self.assertIn("3-9s", video["motionPrompt"])
         self.assertIn("two authentic moving shots", video["motionPrompt"])
         self.assertEqual(video["storySpecV33"]["garmentLock"]["sku"], "C1717")
@@ -263,6 +268,7 @@ class MuseStoryRolloutTests(unittest.TestCase):
     def test_pinned_story_survives_feature_flag_off_and_worker_retry(self):
         pin = {
             "storyVersion": STORY_VERSION,
+            "storyOutputContract": STORY_OUTPUT_CONTRACT,
             "artworkSha256": ART,
             "garmentSku": "C1717",
             "targetDurationSeconds": 12,
@@ -306,6 +312,38 @@ class MuseStoryRolloutTests(unittest.TestCase):
                 self.assertEqual(err.exception.status_code, 422)
                 drive.assert_not_called()
 
+
+    def test_story_video_upload_requires_12s_contract_and_motion_headers(self):
+        lease = "x" * 48
+        pin = {
+            "storyVersion": STORY_VERSION,
+            "storyOutputContract": STORY_OUTPUT_CONTRACT,
+            "artworkSha256": ART,
+            "garmentSku": "C1717",
+            "targetDurationSeconds": 12,
+        }
+        row = fake_job(
+            status="claimed",
+            lease_hash=hashlib.sha256(lease.encode()).hexdigest(),
+            lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+            output_receipts={"story_contract_v33": pin},
+        )
+        db = SimpleNamespace(get=lambda _model, _key: row)
+        request = SimpleNamespace(headers={"content-type": "video/mp4"})
+        variants = (
+            (None, STORY_OUTPUT_CONTRACT),
+            (STORY_VERSION, None),
+        )
+        for version, contract in variants:
+            with self.subTest(version=version, contract=contract):
+                with self.assertRaises(HTTPException) as err:
+                    asyncio.run(muse.upload_ugc_video(
+                        listing_id=LID, aspect="vertical", request=request,
+                        x_muse_lease=lease, x_cam_motion_version=version,
+                        x_cam_story_output_contract=contract,
+                        tenant="boostgame", db=db,
+                    ))
+                self.assertEqual(err.exception.status_code, 422)
 
     def test_valid_twelve_second_export_passes_duration_gate_without_drive_write(self):
         with patch.object(
@@ -373,12 +411,13 @@ class MuseStoryClaimTests(unittest.TestCase):
         with patch.dict("os.environ", {"CAM_MUSE_STORY_V33_ENABLED": "true"}):
             with Session(self.engine) as db:
                 reply = muse.claim(
-                    LID, muse.ClaimRequest(worker="muse", storyVersion=STORY_VERSION),
+                    LID, muse.ClaimRequest(worker="muse", storyVersion=STORY_VERSION, storyOutputContract=STORY_OUTPUT_CONTRACT),
                     tenant="boostgame", db=db,
                 )
                 self.assertEqual(reply["job"]["videoSpec"]["targetDurationSeconds"], 12)
                 pin = db.get(CamMuseJob, ("boostgame", LID)).output_receipts["story_contract_v33"]
                 self.assertEqual(pin["storyVersion"], STORY_VERSION)
+                self.assertEqual(pin["storyOutputContract"], STORY_OUTPUT_CONTRACT)
                 self.assertEqual(pin["artworkSha256"], ART)
                 self.assertEqual(pin["garmentSku"], "C1717")
                 self.assertEqual(pin["targetDurationSeconds"], 12)
@@ -389,11 +428,26 @@ class MuseStoryClaimTests(unittest.TestCase):
                 db.commit()
             with Session(self.engine) as db:
                 again = muse.claim(
-                    LID, muse.ClaimRequest(worker="muse", storyVersion=STORY_VERSION),
+                    LID, muse.ClaimRequest(worker="muse", storyVersion=STORY_VERSION, storyOutputContract=STORY_OUTPUT_CONTRACT),
                     tenant="boostgame", db=db,
                 )
                 self.assertEqual(again["job"]["attempts"], 2)
                 self.assertEqual(again["job"]["videoSpec"]["targetDurationSeconds"], 12)
+
+    def test_old_fourteen_second_worker_cannot_claim_without_12s_ack(self):
+        with patch.dict("os.environ", {"CAM_MUSE_STORY_V33_ENABLED": "true"}):
+            for body in (
+                muse.ClaimRequest(worker="muse", storyVersion=STORY_VERSION),
+                muse.ClaimRequest(worker="muse", storyOutputContract=STORY_OUTPUT_CONTRACT),
+            ):
+                with self.subTest(body=body.model_dump()):
+                    with Session(self.engine) as db:
+                        with self.assertRaises(HTTPException) as err:
+                            muse.claim(LID, body, tenant="boostgame", db=db)
+                        self.assertEqual(err.exception.status_code, 409)
+                        row = db.get(CamMuseJob, ("boostgame", LID))
+                        self.assertEqual(row.status, "pending")
+                        self.assertEqual(row.attempts, 0)
 
     def test_legacy_worker_cannot_claim_new_work_after_enablement(self):
         with patch.dict("os.environ", {"CAM_MUSE_STORY_V33_ENABLED": "true"}):
@@ -428,7 +482,7 @@ class MuseStoryClaimTests(unittest.TestCase):
                 db.commit()
                 with self.assertRaises(HTTPException) as err:
                     muse.claim(
-                        LID, muse.ClaimRequest(worker="muse", storyVersion=STORY_VERSION),
+                        LID, muse.ClaimRequest(worker="muse", storyVersion=STORY_VERSION, storyOutputContract=STORY_OUTPUT_CONTRACT),
                         tenant="boostgame", db=db,
                     )
                 self.assertEqual(err.exception.status_code, 409)

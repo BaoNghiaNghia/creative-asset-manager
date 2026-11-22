@@ -38,7 +38,7 @@ from .model import CamMuseJob, CamMuseCommand
 from .command_queue import claimable_commands_query
 from .story_prompts import (
     STORY_VERSION, STORY_DURATION_SECONDS, STORY_MAX_NATIVE_TAKE_SECONDS,
-    STORY_FINAL_DURATION_BOUNDS, build_story_spec,
+    STORY_FINAL_DURATION_BOUNDS, STORY_OUTPUT_CONTRACT, build_story_spec,
 )
 
 router = APIRouter(prefix="/api/v1/muse-bridge", tags=["muse-bridge"])
@@ -132,6 +132,7 @@ class ClaimRequest(BaseModel):
     worker: str = Field(default="muse", max_length=80)
     # Explicit worker capability; the legacy Muse scheduler remains supported.
     storyVersion: Literal["CAM_STORY_REAL_LIFE_V3_3"] | None = None
+    storyOutputContract: Literal["CAM_STORY_12S_TWO_TAKE_V1"] | None = None
 
 class VideoReceipt(BaseModel):
     aspectRatio: str
@@ -203,7 +204,8 @@ def _pinned_story_v33(job) -> dict | None:
             and pin.get("storyVersion") == STORY_VERSION
             and pin.get("artworkSha256") == job.artwork_sha256
             and pin.get("garmentSku") == "C1717"
-            and pin.get("targetDurationSeconds") == STORY_DURATION_SECONDS):
+            and pin.get("targetDurationSeconds") == STORY_DURATION_SECONDS
+            and pin.get("storyOutputContract") == STORY_OUTPUT_CONTRACT):
         return pin
     return None
 
@@ -407,6 +409,7 @@ def _row_view(job):
         video["storySpecV33"] = story_preview
         video["storyEnabled"] = story_active
         video["storyUploadMotionVersionHeader"] = STORY_VERSION
+        video["storyUploadOutputContractHeader"] = STORY_OUTPUT_CONTRACT
         if story_active:
             video["targetDurationSeconds"] = STORY_DURATION_SECONDS
             video["motionPromptVersion"] = STORY_VERSION
@@ -422,13 +425,14 @@ def health():
     """Non-sensitive liveness probe for Muse connectors."""
     _configured()
     return {
-        "ok": True, "service": "cam-muse-bridge", "version": "1.3.3",
+        "ok": True, "service": "cam-muse-bridge", "version": "1.3.4",
         "authentication": "Bearer", "queuePath": "/api/v1/muse-bridge/queue",
         "videoGenerationEnabled": False,
         "storyV33SpecAvailable": True,
         "storyV33Enabled": _story_v33_enabled(),
         "storyV33Version": STORY_VERSION,
         "storyV33TargetDurationSeconds": STORY_DURATION_SECONDS,
+        "storyV33OutputContract": STORY_OUTPUT_CONTRACT,
         "storyV33NativeRendererVerified": False,
         "storyV33MaxNativeTakeSeconds": STORY_MAX_NATIVE_TAKE_SECONDS,
         "storyV33TwoTakeAssemblyVerified": False,
@@ -439,7 +443,7 @@ def health():
 def scoped_openapi():
     """Publish only the Muse-facing contract, never internal CAM agent routes."""
     schema = get_openapi(
-        title="CAM Muse Bridge", version="1.3.3",
+        title="CAM Muse Bridge", version="1.3.4",
         routes=router.routes,
         servers=[{"url": "https://creative-assets.ddns.net"}],
     )
@@ -673,10 +677,11 @@ def missing_video_work(
         "inventoryTotal": inventory_total,
         "inventoryScanned": len(all_jobs),
         "remainingCountIsPartial": inventory_total > len(all_jobs),
-        "bridgeVersion": "1.3.3",
+        "bridgeVersion": "1.3.4",
         "storyV33SpecAvailable": True,
         "storyV33Enabled": _story_v33_enabled(),
         "storyV33TargetDurationSeconds": STORY_DURATION_SECONDS,
+        "storyV33OutputContract": STORY_OUTPUT_CONTRACT,
         "storyV33NativeRendererVerified": False,
         "storyV33MaxNativeTakeSeconds": STORY_MAX_NATIVE_TAKE_SECONDS,
         "storyV33TwoTakeAssemblyVerified": False,
@@ -699,7 +704,8 @@ def missing_video_work(
             "storyNativeRenderMaxSecondsPerTake": STORY_MAX_NATIVE_TAKE_SECONDS,
             "storyPreferredAssembly": "two_genuine_motion_shots_motivated_cut",
             "storyRolloutEnabled": _story_v33_enabled(),
-            "storyClaimOptIn": "ClaimRequest.storyVersion",
+            "storyClaimOptIn": "ClaimRequest.storyVersion+storyOutputContract",
+            "storyOutputContract": STORY_OUTPUT_CONTRACT,
             "pilotMotionPromptVersion": "CAM_NATURAL_EVERYDAY_MOTION_V3_2",
             "pilotSizeNewListings": 3,
             "pilotManagedBy": "existing CAM Auto Video scheduled task in Muse",
@@ -848,6 +854,10 @@ def claim(listing_id: str, payload: ClaimRequest,
           tenant: str = Depends(_muse), db: Session = Depends(get_db)):
     if not LISTING_ID.fullmatch(listing_id):
         raise HTTPException(404)
+    if payload.storyVersion == STORY_VERSION and payload.storyOutputContract != STORY_OUTPUT_CONTRACT:
+        raise HTTPException(409, "Muse must acknowledge the 12-second two-take story contract")
+    if payload.storyVersion is None and payload.storyOutputContract is not None:
+        raise HTTPException(409, "Story output contract requires matching V3.3 version")
     lease = secrets.token_urlsafe(36)
     now = _utc()
     claimable = ((CamMuseJob.status == "pending") |
@@ -882,6 +892,7 @@ def claim(listing_id: str, payload: ClaimRequest,
         if fresh and not pinned:
             receipts["story_contract_v33"] = {
                 "storyVersion": STORY_VERSION,
+                "storyOutputContract": STORY_OUTPUT_CONTRACT,
                 "garmentSku": "C1717",
                 "artworkSha256": row.artwork_sha256,
                 "targetDurationSeconds": STORY_DURATION_SECONDS,
@@ -996,6 +1007,7 @@ async def upload_ugc_video(
         "CAM_NATURAL_EVERYDAY_MOTION_V3_2",
         "CAM_STORY_REAL_LIFE_V3_3",
     ] | None = Header(default=None),
+    x_cam_story_output_contract: Literal["CAM_STORY_12S_TWO_TAKE_V1"] | None = Header(default=None),
     tenant: str = Depends(_muse), db: Session = Depends(get_db),
 ):
     """Muse uploads the actual MP4; CAM verifies and saves to listing/design Drive.
@@ -1020,7 +1032,9 @@ async def upload_ugc_video(
     story_pin = _pinned_story_v33(row)
     if story_pin and x_cam_motion_version != STORY_VERSION:
         raise HTTPException(422, "Story V3.3 upload requires matching motion-version header")
-    if x_cam_motion_version == STORY_VERSION and not story_pin:
+    if story_pin and x_cam_story_output_contract != STORY_OUTPUT_CONTRACT:
+        raise HTTPException(422, "Story V3.3 upload requires the 12s two-take contract header")
+    if (x_cam_motion_version == STORY_VERSION or x_cam_story_output_contract is not None) and not story_pin:
         raise HTTPException(409, "Story V3.3 requires a pinned capable-worker claim")
     parts = bytearray()
     async for chunk in request.stream():
@@ -1051,6 +1065,7 @@ async def upload_ugc_video(
     stored = await store_muse_video(**storage_kwargs)
     if story_pin:
         stored["storyVersion"] = STORY_VERSION
+        stored["storyOutputContract"] = STORY_OUTPUT_CONTRACT
         stored["storyQaStatus"] = "pending_review"
     if x_cam_motion_version is not None:
         # Muse-declared generation version, NOT an independent content-QA pass.
