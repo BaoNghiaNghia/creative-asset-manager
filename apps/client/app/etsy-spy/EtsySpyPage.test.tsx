@@ -848,7 +848,8 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(location(".etsy-filter-context")).toBe(-1);
     expect(location(".etsy-bulk-bar")).toBe(-1);
     expect(location(".etsy-facet-explorer")).toBeGreaterThan(location(".etsy-stats"));
-    expect(location(".etsy-table-card")).toBeGreaterThan(location(".etsy-facet-explorer"));
+    expect(location(".etsy-v2-results-layout")).toBeGreaterThan(location(".etsy-facet-explorer"));
+    expect(container?.querySelector(".etsy-v2-results-layout > .etsy-table-card")).toBeTruthy();
     expect(container?.querySelector(".etsy-table-wrap th button[aria-label='Sort by Carts']")).toBeTruthy();
     const cartsCells = container?.querySelectorAll(".etsy-product-row td:nth-child(7)");
     expect(cartsCells).toHaveLength(3);
@@ -858,6 +859,31 @@ describe("Etsy Spy native CAM dashboard", () => {
       url.includes("observed_day=" + today))).toBe(true);
     expect(container?.querySelector(".etsy-observed-day[aria-pressed='true']")?.getAttribute(
       "data-observed-day")).toBe(today);
+  });
+
+  it("opens Quick Inspect and customizes table density/columns without changing filters", async () => {
+    await start();
+    const originalLocation = window.location.search;
+    const inspect = container?.querySelector<HTMLButtonElement>(".etsy-v2-inspect-trigger");
+    expect(inspect).toBeTruthy();
+    await act(async () => { inspect?.click(); });
+    expect(container?.querySelector(".etsy-v2-inspector-title")?.textContent).toContain("Rudolph Shirt");
+    expect(container?.querySelector(".etsy-v2-results-layout.has-inspector")).toBeTruthy();
+
+    const compact = container?.querySelector<HTMLButtonElement>('[aria-label="Mật độ Gọn"]');
+    await act(async () => { compact?.click(); });
+    expect(container?.querySelector(".etsy-table-card.etsy-v2-density-compact")).toBeTruthy();
+    const viewsLabel = Array.from(container?.querySelectorAll(".etsy-v2-column-popover label") || [])
+      .find(node => node.textContent?.includes("Views / 24h"));
+    await act(async () => { viewsLabel?.querySelector("input")?.click(); });
+    expect(container?.querySelector(".etsy-data-table.etsy-v2-hide-views24h")).toBeTruthy();
+
+    const close = container?.querySelector<HTMLButtonElement>(".etsy-v2-inspector-header button");
+    await act(async () => { close?.click(); });
+    expect(container?.querySelector(".etsy-v2-inspector")).toBeNull();
+    expect(window.location.search).toBe(originalLocation);
+    window.localStorage.removeItem("cam-etsy-table-density-v2");
+    window.localStorage.removeItem("cam-etsy-hidden-columns-v2");
   });
 
   it("shows exclusive daily topic badges and filters the selected day's listings", async () => {
