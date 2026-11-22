@@ -7,6 +7,7 @@ never proof of Google Drive ingestion or CAM listing linkage.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import ipaddress
@@ -25,14 +26,16 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Literal
 from sqlalchemy import delete, select, update, func, or_
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
-from app.core.database import get_db
+from app.core.database import get_db, SessionLocal
 from app.modules.etsy_spy.model import EtsySpyPicked
 from app.modules.etsy_spy.extraction import EXTRACTION_JOB_TYPE
 from app.modules.processing.model import ProcessingJobModel
 from app.modules.etsy_spy.service import authenticate_agent
 from app.modules.etsy_spy.image_agent import _private_drive_design, _checked_design_media
 from .model import CamMuseJob, CamMuseCommand
+from .command_queue import claimable_commands_query
 
 router = APIRouter(prefix="/api/v1/muse-bridge", tags=["muse-bridge"])
 HEX64 = re.compile(r"^[a-f0-9]{64}$")
@@ -42,6 +45,11 @@ ARTWORK_PATH = re.compile(
 )
 STATES = {"ready_for_muse", "qa_hold", "missing_source"}
 VIDEO_HOSTS = {"drive.google.com", "docs.google.com"}
+# User-approved print-only photo/video contract. The actual ink-to-collar gap
+# is measured along shirt fabric; never infer centimeters from MP4 pixels.
+PRINT_INK_CLEARANCE_MM = 150
+PRINT_ANCHOR_POLICY = "CAM_PRINT_TOP_150MM_V2"
+PRINT_BOX_POLICY = "CAM_PRINT_BOX_CONSISTENCY_V2"
 
 def _configured():
     token = os.environ.get("CAM_MUSE_BRIDGE_TOKEN", "")
@@ -206,7 +214,12 @@ def _motion_v32_pilot_spec():
             "with the body. No motionless person while snow, leaves or other "
             "background effects move. Do not force constant head bobbing or "
             "repetitive swaying as fake motion. Keep the front print completely "
-            "visible, undistorted, and at the exact approved physical scale."
+            "visible, undistorted, and at the exact approved physical scale. "
+            "This is FLAT INK, never embroidery or stitched patches. In EVERY "
+            "frame and aspect ratio the TOPMOST PRINT INK stays exactly "
+            "150mm (15cm) below the LOWER collar rib along real garment fabric, "
+            "matching approved folded/worn listing photos at the SAME width, "
+            "size, proportion and horizontal anchor. No print drift."
         ),
         "camera": "single steady human handheld phone shot, tiny believable micro-movement, no hard cuts, dramatic zooms or forced slow motion",
         "environmentCheck": (
@@ -225,6 +238,8 @@ def _motion_v32_pilot_spec():
             "repeated theatrical nodding, rocking, dancing or forced facial acting",
             "hard scene cuts, abrupt camera movement or slow-motion performance",
             "cropped, obscured, re-lettered or distorted front print",
+            "print moved from the 150mm collar-to-topmost-ink physical anchor",
+            "embroidery, stitches, patches, or raised print instead of flat ink",
         ],
         "qaMethod": (
             "Watch the whole video for human motion and clothing realism, "
@@ -232,7 +247,11 @@ def _motion_v32_pilot_spec():
             "merely by a stored MP4 or an asserted motion-version header."
         ),
         "preserveNativeMaster": True,
-        "designTopBelowCollarCm": 10,
+        "designTopBelowCollarCm": 15,
+                "designTopBelowCollarMm": PRINT_INK_CLEARANCE_MM,
+                "placementPolicy": PRINT_ANCHOR_POLICY,
+                "printBoxPolicy": PRINT_BOX_POLICY,
+                "decorationMethod": "flat_ink_print_only",
         "formats": ["9:16", "16:9"],
         "completedVideoPolicy": "do_not_regenerate_without_user_approval",
         "motionVersionUploadHeader": "X-CAM-Motion-Version",
@@ -250,7 +269,11 @@ def _row_view(job):
             "videoSpec": {
                 "formats": ["9:16", "16:9"], "targetDurationSeconds": 12,
                 "garment": "Comfort Colors C1717", "printPosition": "front_center",
-                "designTopBelowCollarCm": 10,
+                "designTopBelowCollarCm": 15,
+                "designTopBelowCollarMm": PRINT_INK_CLEARANCE_MM,
+                "placementPolicy": PRINT_ANCHOR_POLICY,
+                "printBoxPolicy": PRINT_BOX_POLICY,
+                "decorationMethod": "flat_ink_print_only",
                 "artworkShaStrict": True,
                 "motionPromptVersion": "CAM_NATURAL_EVERYDAY_MOTION_V3_1",
                 "pilotMotionSpecV32": _motion_v32_pilot_spec(),
@@ -288,7 +311,11 @@ def _row_view(job):
                     "an observer holding a phone steadily at chest height, with "
                     "barely perceptible human micro-sway. Maintain a mostly "
                     "front-facing torso, authentic cotton drape and a fully "
-                    "visible, stable front print. Preserve original scene objects; "
+                    "visible, stable FLAT INK front print, never embroidery. The first ink "
+                    "stays exactly 150mm (15cm) below LOWER collar rib along "
+                    "the fabric in every frame; match approved still images "
+                    "for print width, size, aspect and horizontal position. "
+                    "Preserve original scene objects; "
                     "do not invent a coffee cup or other prop."
                 ),
                 "motionQaReject": [
@@ -301,6 +328,8 @@ def _row_view(job):
                     "unmotivated hand gestures or hands obscuring the front print",
                     "unrealistic hand, face, neck, fabric or artwork deformation",
                     "sudden camera jumps, hard scene cuts or looped body gestures",
+                    "flat-ink artwork shifted from the 150mm below-collar anchor",
+                    "embroidered, stitched or raised graphic instead of flat print",
                 ],
                 "camera": "single observational take; stable chest-to-hip print-focused medium framing, minimal natural sway",
                 "lighting": "prefer open shade, diffuse side-light or gentle backlight; avoid glare into subject's eyes",
@@ -481,12 +510,10 @@ def missing_video_work(
         if job.source_state != "missing_source"
         and len(_verified_video_ratios(job)) < 2
     )
-    candidates = db.scalars(select(CamMuseCommand).where(
-        CamMuseCommand.tenant_id == tenant,
-        CamMuseCommand.action.in_(("create_video", "review_artwork")),
-        CamMuseCommand.status.in_(("pending", "claimed")),
-        CamMuseCommand.attempts < 5,
-    ).order_by(CamMuseCommand.created_at.asc()).limit(100)).all()
+    # Filter active leases in SQL BEFORE LIMIT: they must not starve later work.
+    candidates = db.scalars(claimable_commands_query(
+        tenant, _utc(), actions=("create_video", "review_artwork"),
+    ).limit(2000)).all()
 
     items = []
     seen = set()
@@ -497,7 +524,13 @@ def missing_video_work(
                 and (cmd.lease_expires_at is None
                      or _aware(cmd.lease_expires_at) > _utc())):
             continue
+        # The 1,000-row inventory view is only for approximate counts;
+        # listings beyond it must still be eligible for Muse dispatch.
         job = by_listing.get(cmd.listing_key)
+        if job is None and cmd.listing_key:
+            job = db.get(CamMuseJob, (tenant, cmd.listing_key))
+            if job is not None:
+                by_listing[cmd.listing_key] = job
         if not job or job.artwork_sha256 != cmd.artwork_sha256:
             continue
         saved = _verified_video_ratios(job)
@@ -514,6 +547,14 @@ def missing_video_work(
             "listingId": lid,
             "title": job.title,
             "artworkSha256": job.artwork_sha256,
+            "printPlacement": {
+                "policy": PRINT_ANCHOR_POLICY,
+                "printBoxPolicy": PRINT_BOX_POLICY,
+                "decorationMethod": "flat_ink_print_only",
+                "topmostInkBelowLowerCollarMm": PRINT_INK_CLEARANCE_MM,
+                "requiredAcross": ["image_01_13", "video_9_16", "video_16_9"],
+                "measurement": "along garment fabric, not frame pixels",
+            },
             "nextStep": phase,
             "missingAspectRatios": missing,
             "savedAspectRatios": [x for x in ("9:16", "16:9") if x in saved],
@@ -551,10 +592,16 @@ def missing_video_work(
         "inventoryTotal": inventory_total,
         "inventoryScanned": len(all_jobs),
         "remainingCountIsPartial": inventory_total > len(all_jobs),
-        "pollAfterSeconds": 300,
+        "pollAfterSeconds": 20,
+        "longPollPath": "/api/v1/muse-bridge/commands/wait?waitSeconds=20",
         "requiresMuseWorker": True,
         "needsComparativeArtworkQA": True,
         "motionPolicy": {
+            "printPlacementPolicy": PRINT_ANCHOR_POLICY,
+            "printBoxPolicy": PRINT_BOX_POLICY,
+            "topmostFlatInkBelowLowerCollarMm": PRINT_INK_CLEARANCE_MM,
+            "decorationMethod": "flat_ink_print_only",
+            "rejectPrintPositionDrift": True,
             "defaultMotionPromptVersion": "CAM_NATURAL_EVERYDAY_MOTION_V3_1",
             "pilotMotionPromptVersion": "CAM_NATURAL_EVERYDAY_MOTION_V3_2",
             "pilotSizeNewListings": 3,
@@ -1189,16 +1236,11 @@ def create_operator_command(payload: CommandCreate,
     return {"ok": True, "reused": False, **_command_status(candidate)}
 
 
-@router.get("/commands")
-def list_muse_commands(limit: int = Query(default=10, ge=1, le=20),
-                       tenant: str = Depends(_muse),
-                       db: Session = Depends(get_db)):
-    """Muse polls this endpoint; commands are never pushed into a chat session."""
-    rows = db.scalars(select(CamMuseCommand).where(
-        CamMuseCommand.tenant_id == tenant,
-        CamMuseCommand.status.in_(("pending", "claimed")),
-        CamMuseCommand.attempts < 5,
-    ).order_by(CamMuseCommand.created_at.asc()).limit(100)).all()
+def _muse_command_list_payload(limit: int, tenant: str, db: Session):
+    """Read-only tenant-scoped command discovery; never claims a command."""
+    # Leased commands must not consume the first 100 database rows.
+    # Limit the filtered set, not the pre-filtered set.
+    rows = db.scalars(claimable_commands_query(tenant, _utc()).limit(2000))
     items = []
     for cmd in rows:
         if len(items) >= limit:
@@ -1234,7 +1276,58 @@ def list_muse_commands(limit: int = Query(default=10, ge=1, le=20),
                       "videoExecutor": "muse",
                       "camInternalVideoGenerationEnabled": False,
                       "requiresMusePolling": True})
-    return {"ok": True, "items": items, "count": len(items)}
+    return {
+        "ok": True, "items": items, "count": len(items),
+        "pollAfterSeconds": 20,
+        "longPollPath": "/api/v1/muse-bridge/commands/wait?waitSeconds=20",
+    }
+
+
+@router.get("/commands")
+def list_muse_commands(
+    response: Response,
+    limit: int = Query(default=10, ge=1, le=20),
+    tenant: str = Depends(_muse),
+    db: Session = Depends(get_db),
+):
+    """Authenticated read-only Muse command poll; never cache job instructions."""
+    response.headers["Cache-Control"] = "private, no-store"
+    return _muse_command_list_payload(limit, tenant, db)
+
+
+def _read_muse_commands_for_long_poll(tenant: str, limit: int):
+    """Use a fresh short-lived DB session per probe, not a held transaction."""
+    with SessionLocal() as session:
+        return _muse_command_list_payload(limit, tenant, session)
+
+
+@router.get("/commands/wait")
+async def wait_muse_commands(
+    response: Response,
+    limit: int = Query(default=1, ge=1, le=20),
+    wait_seconds: int = Query(default=20, ge=0, le=20, alias="waitSeconds"),
+    tenant: str = Depends(_muse),
+):
+    """Bounded long poll for a continuously running Muse dispatcher.
+
+    This is a read-only hint, not a claim; an authorized worker must POST /claim.
+    Legacy scheduled polling remains compatible until Muse adopts this endpoint.
+    """
+    response.headers["Cache-Control"] = "private, no-store"
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    deadline = started + wait_seconds
+    while True:
+        result = await run_in_threadpool(
+            _read_muse_commands_for_long_poll, tenant, limit,
+        )
+        if result["items"] or loop.time() >= deadline:
+            return {
+                **result,
+                "longPoll": True,
+                "waitedSeconds": round(loop.time() - started, 3),
+            }
+        await asyncio.sleep(min(2.0, max(0.0, deadline - loop.time())))
 
 
 @router.get("/commands/{command_id}/status", include_in_schema=False)
