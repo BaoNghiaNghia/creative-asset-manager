@@ -646,7 +646,8 @@ describe("Etsy Spy native CAM dashboard", () => {
     const anchor = first?.querySelector(".etsy-product-thumbnail-link") as HTMLAnchorElement;
     expect(anchor?.href).toBe("https://i.etsystatic.com/123/il_fullxfull.primary.jpg");
     expect(anchor?.rel).toContain("noopener");
-    expect(img?.getAttribute("loading")).toBe("lazy");
+    // The IntersectionObserver queue already gates network requests.
+    expect(img?.getAttribute("loading")).toBe("eager");
     const noImageRow = Array.from(container?.querySelectorAll(".etsy-product-row") || [])
       .find(row => row.textContent?.includes("Popular sample"));
     expect(noImageRow?.querySelector(".etsy-product-glyph")?.textContent).toBe("E");

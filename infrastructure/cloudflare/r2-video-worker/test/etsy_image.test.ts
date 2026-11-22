@@ -79,6 +79,23 @@ test("preview WebP route uses same read-only bucket, HEAD metadata only",async()
   assert.deepEqual([bucket.heads,bucket.reads,bucket.writes],[1,0,0]);
   assert.equal((await send(read,env)).status,200);
 });
+test("all thirteen listing slots have independent signed private PNG and WebP routes",async()=>{
+  const {bucket,env}=fixture();
+  for (const slot of [10,11,12,13]) {
+    for (const format of ["thumbnail", "preview"] as const) {
+      const path="/etsy-images/v1/"+TENANT+"/"+PACK+"/"+String(slot).padStart(2,"0")+
+        "/"+format+"/"+SHA+(format==="thumbnail"?".png":"-w720v1.webp");
+      bucket.mime=format==="thumbnail"?"image/png":"image/webp";
+      const signed=await url(path);
+      const response=await send(signed,env);
+      assert.equal(response.status,200);
+      assert.equal(response.headers.get("Content-Type"),bucket.mime);
+      assert.equal(bucket.key,path.slice(1));
+      assert.equal((await send(signed.replace("/"+String(slot).padStart(2,"0")+"/","/14/"),env)).status,403);
+    }
+  }
+  assert.equal(bucket.writes,0);
+});
 test("missing object gives 404 only for valid signature",async()=>{
   const {bucket,env}=fixture();bucket.found=false;
   assert.equal((await send(await url(),env)).status,404);
@@ -96,7 +113,8 @@ test("reject unsigned, wrong tenant, expired, overlong, original, malformed, vid
   assert.equal((await send((await url())+"&extra=1",env)).status,403);
   assert.equal((await send("https://media.example.test"+PNG_PATH.replace("/thumbnail/","/original/"),
     env)).status,403);
-  assert.equal((await send((await url()).replace("/01/","/11/"),env)).status,403);
+  assert.equal((await send((await url()).replace("/01/","/14/"),env)).status,403);
+  assert.equal((await send((await url()).replace("/01/","/00/"),env)).status,403);
   const badSig=createHmac("sha256",SECRET)
     .update("v1\nread\n"+PNG_PATH+"\n"+String(NOW+45))
     .digest("base64url");

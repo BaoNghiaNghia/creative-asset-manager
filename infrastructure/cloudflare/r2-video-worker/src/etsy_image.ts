@@ -28,7 +28,7 @@ export interface ImageEnv {
 }
 
 const IMAGE_PATH =
-  /^\/etsy-images\/v1\/[0-9a-f]{24}\/sp-[0-9a-f]{40}\/(?:0[1-9]|10)\/(?:thumbnail\/[0-9a-f]{64}\.png|preview\/[0-9a-f]{64}-w720v1\.webp)$/;
+  /^\/etsy-images\/v1\/[0-9a-f]{24}\/sp-[0-9a-f]{40}\/(?:0[1-9]|1[0-3])\/(?:thumbnail\/[0-9a-f]{64}\.png|preview\/[0-9a-f]{64}-w720v1\.webp)$/;
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 const MAX_IMAGE_TICKET_SECONDS = 60;
 const INTERNAL_ORIGIN = "https://cam-r2-etsy-image-cache.internal";

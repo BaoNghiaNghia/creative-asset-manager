@@ -25,12 +25,19 @@ import httpx
 
 from app.core.config import get_settings
 from .request_metrics import ETSY_PERFORMANCE
+from .thumbnail_memory_cache import ThumbnailMemoryCache
 
 _LOG = logging.getLogger("app.etsy_spy_r2_cache")
 _PACK = re.compile(r"sp-[0-9a-f]{40}\Z")
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 _TYPES = {"thumbnail": ("image/png", ".png"), "preview": ("image/webp", "-w720v1.webp")}
 _MAX_OBJECT_BYTES = 2 * 1024 * 1024
+# Memory-only reuse after the tenant + Picked ACL. Keep small on this VPS:
+# 16 MiB per API process, 90 seconds; no PNG/preview persisted locally.
+_DERIVATIVE_MEMORY = ThumbnailMemoryCache(
+    max_bytes=16 * 1024 * 1024, max_item_bytes=_MAX_OBJECT_BYTES,
+    ttl_seconds=90,
+)
 _MAX_DAILY_UPLOAD_BYTES = 128 * 1024 * 1024  # per process, small initial canary
 _READ_SLOTS = BoundedSemaphore(4)
 _WRITE_SLOTS = BoundedSemaphore(2)
@@ -93,7 +100,7 @@ def config_for_tenant(tenant_id: str) -> ExistingR2Config | None:
 def object_key(config: ExistingR2Config, *, tenant_id: str, pack_id: str,
                slot: int, quality: str, sha256: str) -> str:
     if (not tenant_id or not _PACK.fullmatch(pack_id) or not isinstance(slot, int)
-            or not 1 <= slot <= 10 or quality not in _TYPES
+            or type(slot) is not int or not 1 <= slot <= 13 or quality not in _TYPES
             or not _SHA.fullmatch(sha256)):
         raise ValueError("Invalid R2 Etsy image derivative identity")
     # Domain separation protects the existing video namespace and conceals raw
@@ -220,6 +227,12 @@ async def read_derivative(config: ExistingR2Config, *, tenant_id: str,
                           sha256: str) -> bytes | None:
     key = object_key(config, tenant_id=tenant_id, pack_id=pack_id,
                      slot=slot, quality=quality, sha256=sha256)
+    memory_key = (tenant_id, key, quality)
+    memory_hit = _DERIVATIVE_MEMORY.get(memory_key)
+    if memory_hit is not None:
+        ETSY_PERFORMANCE.cache(True, label="listing_memory_" + quality)
+        return memory_hit
+    ETSY_PERFORMANCE.cache(False, label="listing_memory_" + quality)
     if _cached(key) is False:
         ETSY_PERFORMANCE.cache(False, label="listing_r2_" + quality)
         return None
@@ -231,6 +244,8 @@ async def read_derivative(config: ExistingR2Config, *, tenant_id: str,
         _READ_SLOTS.release()
     _mark(key, value is not None)
     ETSY_PERFORMANCE.cache(value is not None, label="listing_r2_" + quality)
+    if value is not None:
+        _DERIVATIVE_MEMORY.put(memory_key, value)
     return value
 
 
