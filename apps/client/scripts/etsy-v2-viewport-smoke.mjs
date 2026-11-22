@@ -47,7 +47,28 @@ try {
       const inspector = document.querySelector(".etsy-v2-inspector-layer");
       const table = document.querySelector(".etsy-table-wrap");
       const results = document.querySelector(".etsy-v2-results-layout");
+      const style = (selector) => {
+        const node = document.querySelector(selector);
+        const computed = getComputedStyle(node);
+        return {
+          background:computed.backgroundColor,
+          radius:computed.borderTopLeftRadius,
+          shadow:computed.boxShadow,
+          borderTop:computed.borderTopWidth,
+          borderLeft:computed.borderLeftWidth,
+        };
+      };
       return {
+        surfaces:{
+          page:style(".etsy-spy-page"),
+          header:style(".etsy-spy-topbar"),
+          metric:style(".etsy-stats .etsy-stat"),
+          dateStrip:style(".etsy-facet-explorer"),
+          date:style(".etsy-observed-day"),
+          toolbar:style(".etsy-v2-results-toolbar"),
+          table:style(".etsy-v2-results-layout > .etsy-table-card"),
+          mobileRow:style(".etsy-product-row"),
+        },
         docWidth: document.documentElement.scrollWidth,
         viewport: window.innerWidth,
         rowDisplay: getComputedStyle(row).display,
@@ -61,6 +82,17 @@ try {
     assert.equal(metrics.rowDisplay, width <= 680 ? "grid" : "table-row");
     assert.equal(metrics.inspectorPosition, width <= 1180 ? "fixed" : "static");
     assert(metrics.layoutWidth > 0 && metrics.tableWidth > 0);
+    assert.equal(metrics.surfaces.page.background, "rgb(255, 255, 255)");
+    for (const region of ["header", "metric", "dateStrip", "date", "toolbar", "table"]) {
+      assert.equal(metrics.surfaces[region].radius, "0px", `${width}px: ${region} has card radius`);
+      assert.equal(metrics.surfaces[region].shadow, "none", `${width}px: ${region} has card shadow`);
+      assert.equal(metrics.surfaces[region].borderTop, "0px", `${width}px: ${region} has card border`);
+      assert.equal(metrics.surfaces[region].borderLeft, "0px", `${width}px: ${region} has card border`);
+    }
+    if (width <= 680) {
+      assert.equal(metrics.surfaces.mobileRow.radius, "0px");
+      assert.equal(metrics.surfaces.mobileRow.shadow, "none");
+    }
     console.log(`VIEWPORT PASS ${width}px ${JSON.stringify(metrics)}`);
     await page.close();
   }
