@@ -3,32 +3,66 @@ import { createPortal } from "react-dom";
 import type { Listing } from "./api";
 import "./VideoUGCCell.css";
 
-const LABELS: Record<string,string> = {
-  not_queued: "Chưa có", missing_source: "Thiếu nguồn",
-  qa_hold: "Chờ QA ảnh", queued: "Đang chờ",
-  rendering: "Đã nhận job", claimed_unverified: "Muse đã nhận",
-  stalled: "Job hết lease", submitted: "Chờ kiểm tra",
-  receipt_only: "Chờ lưu Drive", partial: "1/2 video",
-  saved: "Đã lưu Drive", completed: "Đã lưu Drive",
+type VideoState = {
+  label: string;
+  tone: "idle" | "waiting" | "processing" | "attention";
+  hint: string;
 };
+const VIDEO_STATES: Record<string, VideoState> = {
+  not_queued: {label: "Chưa tạo", tone: "idle",
+    hint: "Chưa có video được CAM xác minh và lưu trên Google Drive."},
+  missing_source: {label: "Thiếu nguồn", tone: "attention",
+    hint: "Chưa có nguồn hợp lệ để bắt đầu video UGC."},
+  qa_hold: {label: "Chờ QA ảnh", tone: "waiting",
+    hint: "Artwork cần vượt qua bước QA ảnh trước khi tạo video."},
+  queued: {label: "Đang chờ", tone: "waiting",
+    hint: "Job đã vào hàng đợi; chưa có video được CAM xác minh."},
+  rendering: {label: "Đã nhận job", tone: "processing",
+    hint: "Đã giao job cho Muse, chưa có bằng chứng MP4 được lưu."},
+  claimed_unverified: {label: "Muse đã nhận", tone: "processing",
+    hint: "Muse đã nhận job; chưa xác minh được tiến độ render hoặc MP4."},
+  stalled: {label: "Job gián đoạn", tone: "attention",
+    hint: "Lease job đã hết hạn; hệ thống cần nhận lại job."},
+  submitted: {label: "Chờ xác minh", tone: "waiting",
+    hint: "Đã gửi kết quả nhưng CAM chưa xác minh video lưu trên Drive."},
+  receipt_only: {label: "Chờ lưu Drive", tone: "waiting",
+    hint: "Đã có biên nhận, nhưng MP4 chưa được CAM xác minh và lưu."},
+  partial: {label: "Chờ đồng bộ", tone: "waiting",
+    hint: "Chưa có MP4 được xác minh trong danh sách video hiện tại."},
+  saved: {label: "Chờ đồng bộ", tone: "waiting",
+    hint: "Trạng thái báo đã lưu nhưng chưa có URL video được CAM xác minh."},
+  completed: {label: "Chờ đồng bộ", tone: "waiting",
+    hint: "Trạng thái báo hoàn tất nhưng chưa có URL video được CAM xác minh."},
+};
+export function getVideoUgcState(status: string): VideoState {
+  return VIDEO_STATES[status] || VIDEO_STATES.not_queued;
+}
 export function VideoUGCCell({ item }: { item: Listing }) {
   const [show, setShow] = useState(false);
   const view = item.videoUgc;
   const files = view?.videos ?? [];
   const saved = files.length;
   const status = view?.status ?? "not_queued";
-  const label = saved ? (saved + "/2 video") : LABELS[status] || "Chưa có";
-  return <td className="etsy-video-ugc-cell">
+  const state = getVideoUgcState(status);
+  const label = saved ? (saved + "/2 video") : state.label;
+  return <td className="etsy-video-ugc-cell" data-ugc-state={saved ? "saved" : status}>
     {saved ? <button type="button" className="etsy-video-ugc-badge"
-      onClick={()=>setShow(true)} title={"Xem video đã lưu vào Drive cho listing " + item.listingKey}>
-      <span aria-hidden="true">▶</span> {label}
-    </button> : <span className="etsy-video-ugc-placeholder" title={
-      status === "stalled" ? "Muse chưa gửi video; lease đã hết hạn. Job cần được nhận lại." :
-      status === "claimed_unverified" || status === "rendering" ? "Đã giao job; chưa có bằng chứng Muse đang render hoặc có MP4" :
-      status === "qa_hold" ? "Artwork cần QA trước khi tạo video" :
-      status === "receipt_only" ? "Có biên nhận nhưng video chưa được CAM xác minh và lưu Drive" :
-      "Chưa có video đã xác minh trong Drive"
-    }>{label}</span>}
+      onClick={()=>setShow(true)}
+      title={label + " đã lưu trên Drive · " +
+        (files.some(video => video.qaStatus === "pending_review")
+          ? "Chờ QA nội dung, không đồng nghĩa đã đạt QA."
+          : "Mở các video đã xác minh của listing " + item.listingKey)}
+      aria-label={"Xem " + label + " đã lưu trên Drive cho listing " + item.listingKey}>
+      <span className="etsy-video-ugc-status-icon" aria-hidden="true">▶</span>
+      <span>{label}</span>
+    </button> : <span className={"etsy-video-ugc-placeholder tone-" + state.tone}
+      title={state.hint} aria-label={state.label + ". " + state.hint}>
+      <span className="etsy-video-ugc-status-icon" aria-hidden="true">
+        {state.tone === "attention" ? "!" : state.tone === "waiting" ? "◷" :
+          state.tone === "processing" ? "◌" : "–"}
+      </span>
+      <span>{label}</span>
+    </span>}
     {show && saved > 0 && createPortal(
       <div className="etsy-video-ugc-backdrop" role="presentation" onClick={()=>setShow(false)}>
         <section role="dialog" aria-modal="true" aria-label={"Video UGC listing " + item.listingKey}

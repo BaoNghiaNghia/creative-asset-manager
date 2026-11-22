@@ -473,3 +473,82 @@ body:has(.etsy-spy-page) .etsy-spy-route-main { background:#fff!important; }
 @media(prefers-reduced-motion:reduce) {
   .etsy-spy-page .etsy-v2-inspect-trigger { transition: none; }
 }
+
+/* CAM MEDIA STATUS COMPACT
+   Content width is deliberately independent of the old positional nth-child
+   widths, which may shift when optional product columns are present. */
+.etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings
+  th[data-etsy-col="listingImage"],
+.etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings
+  td.etsy-listing-image-cell {
+  box-sizing:border-box;
+  min-width:176px;
+  width:176px;
+  max-width:190px;
+}
+.etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings
+  th[data-etsy-col="videoUgc"],
+.etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings
+  td.etsy-video-ugc-cell {
+  box-sizing:border-box;
+  min-width:140px;
+  width:140px;
+  max-width:154px;
+}
+.etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings
+  .etsy-product-row td.etsy-listing-image-cell,
+.etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings
+  .etsy-product-row td.etsy-video-ugc-cell {vertical-align:middle;}
+.etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings
+  td.etsy-listing-image-cell .etsy-listing-image-layout {max-width:100%;}
+@media(max-width:680px) {
+  /* Media and Video share one horizontal row inside each product record.
+     No new nested cards or duplicate status labels. */
+  .etsy-spy-page .etsy-v2-results-layout .etsy-data-table.is-products.is-picked-listings
+    .etsy-product-row td.etsy-listing-image-cell {
+    grid-column:1 / span 2!important;
+    min-width:0!important;
+    max-width:none;
+    width:auto!important;
+    padding:8px 4px 8px 0!important;
+    border-top:1px solid #edf1f7!important;
+    border-right:1px solid #edf1f7!important;
+  }
+  .etsy-spy-page .etsy-v2-results-layout .etsy-data-table.is-products.is-picked-listings
+    .etsy-product-row td.etsy-video-ugc-cell {
+    grid-column:3 / span 1!important;
+    min-width:0!important;
+    max-width:none;
+    width:auto!important;
+    padding:8px 0 8px 3px!important;
+    border-top:1px solid #edf1f7!important;
+  }
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings
+    .etsy-product-row td.etsy-listing-image-cell::before,
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings
+    .etsy-product-row td.etsy-video-ugc-cell::before {
+    display:block;
+    font-size:10px;
+    font-weight:650;
+    line-height:1.25;
+    color:#7d8da2;
+    margin:0 0 5px;
+  }
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings
+    .etsy-product-row td.etsy-listing-image-cell::before {content:"Ảnh";}
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings
+    .etsy-product-row td.etsy-video-ugc-cell::before {content:"Video";}
+  .etsy-spy-page .etsy-v2-results-layout .etsy-product-row
+    .etsy-video-ugc-badge, .etsy-spy-page .etsy-v2-results-layout .etsy-product-row
+    .etsy-video-ugc-placeholder {font-size:10.5px;gap:4px;}
+  .etsy-spy-page .etsy-v2-results-layout .etsy-product-row
+    .etsy-listing-image-layout {grid-template-columns:52px minmax(0,1fr);gap:7px;}
+  .etsy-spy-page .etsy-v2-results-layout .etsy-product-row
+    .etsy-listing-image-primary,
+  .etsy-spy-page .etsy-v2-results-layout .etsy-product-row
+    .etsy-listing-image-main {width:52px;}
+  .etsy-spy-page .etsy-v2-results-layout .etsy-product-row
+    .etsy-listing-image-main {height:52px;}
+  .etsy-spy-page .etsy-v2-results-layout .etsy-product-row
+    .etsy-listing-image-pending:not(.is-empty) {min-height:52px;}
+}

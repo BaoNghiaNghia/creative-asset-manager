@@ -306,6 +306,11 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
     badges.find(b => b.mainThumbnailUrl || b.previewThumbnailUrl);
   const primaryUrl = primaryBadge?.mainThumbnailUrl || primaryBadge?.previewThumbnailUrl;
   const isMain = Boolean(primaryBadge?.mainThumbnailUrl);
+  // Only the representative garment is shown in the dense table. Remaining
+  // garments and their exact counts are available in the existing gallery.
+  const leadingBadge = primaryBadge || badges[0];
+  const otherGarmentCount = Math.max(0, badges.length - (leadingBadge ? 1 : 0));
+  const allGarmentsTooltip = badges.map(b => b.count + " ảnh " + b.garmentCode).join(" · ");
   const galleryIdentity = item.listingKey + "|" + badges.map(b =>
     b.garmentCode + ":" + b.count + ":" + (b.reviewCount || 0) +
     ":" + (b.mainThumbnailUrl || "") + ":" +
@@ -455,7 +460,7 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
   const openGallery = () => { onPreviewStart?.(); setOpen(true); };
   return <>
     <td className="etsy-listing-image-cell">
-      <div className="etsy-listing-image-layout">
+      <div className={"etsy-listing-image-layout" + (!leadingBadge ? " is-empty" : "")}>
         <div className="etsy-listing-image-primary">
           {primaryUrl ? <button type="button"
             className="etsy-listing-image-main"
@@ -468,17 +473,36 @@ export const ListingImageCell = memo(function ListingImageCell({item, onPreviewS
               alt={isMain ? "Ảnh Main " + primaryBadge?.garmentCode
                 : "Ảnh ImageGen " + primaryBadge?.garmentCode} />
           </button> : <span className="etsy-listing-image-pending"
-            title="Chưa nhận được ảnh đã lưu từ ImageGen Extension">Chưa đồng bộ ảnh</span>}
+            title={badges.length
+              ? "Đã có ảnh được lưu nhưng chưa có thumbnail để xem trong bảng. " + allGarmentsTooltip
+              : "Chưa nhận được ảnh đã lưu từ ImageGen Extension"}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"
+              strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <circle cx="8.5" cy="9" r="1.5" />
+              <path d="m5 18 5.5-5.5 3.5 3 2.5-2.5 2.5 3" />
+            </svg>
+            <span className="etsy-listing-image-pending-label">
+              {badges.length ? "Chưa có preview" : "Chưa có ảnh"}
+            </span>
+          </span>}
         </div>
-        {badges.length > 0 && <div className="etsy-listing-image-badges"
+        {leadingBadge && <div className="etsy-listing-image-badges"
           aria-label="Số ảnh theo mã áo">
-          {badges.map(b => <button type="button"
-            className="etsy-listing-image-badge" key={b.garmentCode}
-            title={b.count + " ảnh " + b.garmentCode + " đã lưu từ CAM Image Extension"}
-            aria-label={"Xem " + b.count + " ảnh Listing Image mẫu " + b.garmentCode}
+          <button type="button" className="etsy-listing-image-badge"
+            title={allGarmentsTooltip + " · Mở thư viện ảnh"}
+            aria-label={"Xem " + leadingBadge.count + " ảnh Listing Image mẫu " +
+              leadingBadge.garmentCode + (otherGarmentCount
+                ? ", và " + otherGarmentCount + " mẫu áo khác" : "")}
             onClick={openGallery}>
-            <span>{b.count}</span> {b.garmentCode}
-          </button>)}
+            <span className="etsy-listing-image-count">{leadingBadge.count} ảnh</span>
+            <span className="etsy-listing-image-garment">{leadingBadge.garmentCode}</span>
+          </button>
+          {otherGarmentCount > 0 && <button type="button"
+            className="etsy-listing-image-more"
+            title={allGarmentsTooltip}
+            aria-label={"Xem " + otherGarmentCount + " mẫu áo khác. " + allGarmentsTooltip}
+            onClick={openGallery}>+{otherGarmentCount} mẫu</button>}
         </div>}
       </div>
     </td>

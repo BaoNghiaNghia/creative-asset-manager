@@ -1,7 +1,45 @@
-.etsy-video-ugc-cell{min-width:110px;max-width:140px;vertical-align:middle;}
-.etsy-video-ugc-badge{border:1px solid var(--border-color,#cbd5e1);background:var(--surface-primary,#fff);color:inherit;border-radius:9px;padding:7px 10px;white-space:nowrap;cursor:pointer;font-size:12px;font-weight:600;}
-.etsy-video-ugc-badge:hover{background:var(--surface-secondary,#f1f5f9);}
-.etsy-video-ugc-placeholder{font-size:12px;color:var(--text-secondary,#64748b);white-space:nowrap;}
+/* Media-status rail: compact actionable video count or one-line truthful status.
+   Green is reserved for confirmed QA; saved video is only blue, not QA passed. */
+.etsy-video-ugc-cell{min-width:132px;max-width:150px;vertical-align:middle}
+.etsy-video-ugc-badge,.etsy-video-ugc-placeholder{
+  box-sizing:border-box;display:inline-flex;max-width:100%;
+  align-items:center;justify-content:flex-start;gap:6px;
+  min-height:33px;min-width:0;white-space:nowrap;line-height:1.2;
+  font-size:11px;font-weight:650;text-align:left;overflow:hidden;
+}
+.etsy-video-ugc-badge > span:last-child,
+.etsy-video-ugc-placeholder > span:last-child{
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.etsy-video-ugc-badge{
+  padding:5px 7px;border:1px solid #d8e5f3;border-radius:7px;
+  color:#2d587e;background:#f4f8fc;cursor:pointer;
+}
+.etsy-video-ugc-badge:hover{background:#e7f1fc;border-color:#9ec3e9}
+.etsy-video-ugc-badge:focus-visible{outline:2px solid #327ec4;outline-offset:2px}
+.etsy-video-ugc-placeholder{padding:5px 0;color:#7e8fa4}
+.etsy-video-ugc-status-icon{
+  box-sizing:border-box;flex:0 0 19px;display:grid;place-items:center;
+  width:19px;height:19px;border-radius:50%;
+  background:#e4eef9;color:#366b9a;
+  font-size:11px;font-weight:800;line-height:1;
+}
+.etsy-video-ugc-placeholder.tone-idle{color:#92a0af}
+.etsy-video-ugc-placeholder.tone-idle .etsy-video-ugc-status-icon{
+  background:#f1f3f6;color:#9eaab7;
+}
+.etsy-video-ugc-placeholder.tone-waiting{color:#956827}
+.etsy-video-ugc-placeholder.tone-waiting .etsy-video-ugc-status-icon{
+  background:#fff2dd;color:#9d6b23;font-size:14px;
+}
+.etsy-video-ugc-placeholder.tone-processing{color:#477596}
+.etsy-video-ugc-placeholder.tone-processing .etsy-video-ugc-status-icon{
+  background:#edf4fc;color:#507b9c;
+}
+.etsy-video-ugc-placeholder.tone-attention{color:#b04a46}
+.etsy-video-ugc-placeholder.tone-attention .etsy-video-ugc-status-icon{
+  background:#ffeded;color:#ae4847;
+}
 .etsy-video-ugc-backdrop{position:fixed;inset:0;z-index:2000;display:grid;place-items:center;padding:20px;background:rgba(16,24,40,.55);}
 .etsy-video-ugc-modal{width:min(850px,95vw);max-height:90vh;overflow:auto;border-radius:15px;background:var(--surface-primary,#fff);color:var(--text-primary,#0f172a);box-shadow:0 20px 70px rgba(0,0,0,.3);}
 .etsy-video-ugc-modal-head{display:flex;justify-content:space-between;gap:15px;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border-color,#e2e8f0);}

@@ -64,10 +64,11 @@ describe("Listing Image saved output badges",()=>{
     expect(main?.querySelectorAll("span:not(.etsy-image-skeleton)")).toHaveLength(0);
     expect(main?.textContent?.trim()).toBe("");
     expect(main?.getAttribute("aria-label")).toContain("Main C1717");
-    const badges = Array.from(layout?.querySelectorAll(".etsy-listing-image-badge") || []);
-    expect(badges.map(button => button.textContent?.trim())).toEqual([
-      "10 C1717", "6 G180",
-    ]);
+    const badges = Array.from(layout?.querySelectorAll<HTMLButtonElement>(".etsy-listing-image-badge") || []);
+    expect(badges.map(button => button.querySelector(".etsy-listing-image-count")?.textContent)).toEqual(["10 ảnh"]);
+    expect(badges[0]?.querySelector(".etsy-listing-image-garment")?.textContent).toBe("C1717");
+    expect(badges[0]?.title).toContain("6 ảnh G180");
+    expect(layout?.querySelector(".etsy-listing-image-more")?.textContent).toBe("+1 mẫu");
     expect(badges.every(button => button.parentElement === layout?.lastElementChild)).toBe(true);
     // No empty UGC status row: the Media cell shows the saved image
     // thumbnail and garment badges without introducing an inactive control.
@@ -83,13 +84,25 @@ describe("Listing Image saved output badges",()=>{
     ]});
     const layout = container.querySelector(".etsy-listing-image-layout");
     expect(layout?.querySelector(".etsy-listing-image-primary .etsy-listing-image-pending")?.textContent)
-      .toBe("Chưa đồng bộ ảnh");
+      .toBe("Chưa có preview");
     expect(layout?.querySelector(".etsy-listing-image-main")).toBeNull();
-    const badges = Array.from(layout?.querySelectorAll(".etsy-listing-image-badges button") || []);
-    expect(badges.map(button => button.textContent?.trim())).toEqual([
-      "10 C1717", "6 G180", "2 G185", "3 G500",
-    ]);
+    const badges = Array.from(layout?.querySelectorAll<HTMLButtonElement>(".etsy-listing-image-badges button") || []);
+    expect(badges).toHaveLength(2);
+    expect(badges[0]?.querySelector(".etsy-listing-image-count")?.textContent).toBe("10 ảnh");
+    expect(badges[1]?.textContent).toBe("+3 mẫu");
+    expect(badges[1]?.title).toContain("2 ảnh G185");
+    expect(badges[1]?.title).toContain("3 ảnh G500");
     expect(layout?.querySelector(".etsy-listing-image-badges")?.parentElement).toBe(layout);
+  });
+  it("shows a small honest empty image indicator without an inactive gallery button",()=>{
+    mount({...item, listingImages:[]});
+    const layout=container.querySelector(".etsy-listing-image-layout");
+    expect(layout?.classList.contains("is-empty")).toBe(true);
+    expect(layout?.querySelector(".etsy-listing-image-pending-label")?.textContent)
+      .toBe("Chưa có ảnh");
+    expect(layout?.querySelector(".etsy-listing-image-main")).toBeNull();
+    expect(layout?.querySelector(".etsy-listing-image-badge")).toBeNull();
+    expect(spy).not.toHaveBeenCalled();
   });
   it("shows saved partial C1717 output even before Main exists",()=>{
     const partial={...item,listingImages:[{
@@ -104,7 +117,7 @@ describe("Listing Image saved output badges",()=>{
       .toBe("/saved-c1717-slot02.png");
     expect(main?.getAttribute("aria-label")).toContain("ImageGen đã lưu C1717");
     expect(main?.getAttribute("aria-label")).not.toContain("Main");
-    expect(container.textContent).not.toContain("Chưa đồng bộ ảnh");
+    expect(container.textContent).not.toContain("Chưa có preview");
     expect(spy).not.toHaveBeenCalled();
   });
   it("shows saved G500 Main if C1717 still has no published preview",()=>{
@@ -121,9 +134,10 @@ describe("Listing Image saved output badges",()=>{
   });
   it("displays counts by garment without polling all listings",()=>{
     mount();
-    expect(document.querySelectorAll(".etsy-listing-image-badge")).toHaveLength(2);
-    expect(document.body.textContent).toContain("10 C1717");
-    expect(document.body.textContent).toContain("4 G500");
+    expect(document.querySelectorAll(".etsy-listing-image-badge")).toHaveLength(1);
+    expect(document.querySelector(".etsy-listing-image-count")?.textContent).toBe("10 ảnh");
+    expect(document.querySelector(".etsy-listing-image-garment")?.textContent).toBe("C1717");
+    expect(document.querySelector<HTMLButtonElement>(".etsy-listing-image-more")?.title).toContain("4 ảnh G500");
     expect(spy).not.toHaveBeenCalled();
   });
   it("keeps 1254px preview selection working without rendering QA labels",async()=>{

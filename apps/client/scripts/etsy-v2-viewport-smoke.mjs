@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 const client = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sheets = ["styles/workspace-page-header.css", "EtsySpyPage.css", "EtsySpyEvo.css",
   "EtsySpyHeader.css", "EtsySpyDayCarousel.css", "EtsySpyWorkspaceV2.css",
-  "EtsySpyCommandBar.css"];
+  "EtsySpyCommandBar.css", "ListingImageCell.css", "VideoUGCCell.css"];
 const css = (await Promise.all(sheets.map(name =>
   readFile(resolve(client, name.startsWith("styles/") ? name : "app/etsy-spy/" + name), "utf8")))).join("\n");
 const columns = ["", "Product / Etsy", "Design", "TikTok SEO", "Media", "Video UGC",
@@ -19,7 +19,10 @@ const row = `<tr class="etsy-product-row">
 <td class="etsy-select-cell"><input type="checkbox"></td>
 <td class="etsy-title" data-etsy-col="pageTitle"><div class="etsy-product-identity"><span style="width:55px;height:55px;background:#d5dded;flex:0 0 55px;border-radius:6px"></span><div class="etsy-product-copy"><strong>Dinosaur Didn't Read Comfort Colors Shirt</strong><small>#123456789</small></div></div></td>
 <td class="etsy-design-cell">Design</td><td class="etsy-tiktok-listing-cell">dinosaur shirt</td>
-<td class="etsy-listing-image-cell">10 C1717</td><td class="etsy-video-ugc-cell">Video UGC</td>
+<td class="etsy-listing-image-cell"><div class="etsy-listing-image-layout">
+  <div class="etsy-listing-image-primary"><button class="etsy-listing-image-main"><span style="display:block;width:100%;height:100%;background:#cbd5e1"></span></button></div>
+  <div class="etsy-listing-image-badges"><button class="etsy-listing-image-badge"><span class="etsy-listing-image-count">13 ảnh</span><span class="etsy-listing-image-garment">C1717</span></button></div>
+</div></td><td class="etsy-video-ugc-cell" data-ugc-state="qa_hold"><span class="etsy-video-ugc-placeholder tone-waiting"><span class="etsy-video-ugc-status-icon">◷</span><span>Chờ QA ảnh</span></span></td>
 <td class="etsy-sms-cell" data-etsy-col="keywordSms">dinosaur shirt</td>
 <td data-etsy-col="badge">Bestseller</td><td class="etsy-num" data-etsy-col="bought24h">—</td><td class="etsy-num" data-etsy-col="views24h">35</td><td class="etsy-num" data-etsy-col="inCarts">20+</td><td class="etsy-time" data-etsy-col="observedAt">06:00</td>
 <td class="etsy-action-cell"><div class="etsy-row-actions"><button class="etsy-v2-inspect-trigger">Inspect</button><button class="etsy-pick-button">Picked</button></div></td></tr>`;
@@ -53,6 +56,10 @@ try {
       const inspector = document.querySelector(".etsy-v2-inspector-layer");
       const table = document.querySelector(".etsy-table-wrap");
       const results = document.querySelector(".etsy-v2-results-layout");
+      const media = document.querySelector(".etsy-listing-image-cell");
+      const video = document.querySelector(".etsy-video-ugc-cell");
+      const mediaBox = media.getBoundingClientRect();
+      const videoBox = video.getBoundingClientRect();
       const header = document.querySelector(".etsy-spy-topbar");
       const brand = header.querySelector(".workspace-page-header-copy");
       const counters = header.querySelector(".workspace-page-header-center");
@@ -78,6 +85,15 @@ try {
       };
       return {
         headerLayout,
+        mediaLayout:{
+          mediaWidth:Math.round(mediaBox.width),
+          videoWidth:Math.round(videoBox.width),
+          mediaTop:Math.round(mediaBox.top),
+          videoTop:Math.round(videoBox.top),
+          thumbSize:Math.round(document.querySelector(".etsy-listing-image-main").getBoundingClientRect().width),
+          mediaGrid:getComputedStyle(media).gridColumn,
+          videoGrid:getComputedStyle(video).gridColumn,
+        },
         surfaces:{
           page:style(".etsy-spy-page"),
           header:style(".etsy-spy-topbar"),
@@ -100,6 +116,16 @@ try {
     assert.equal(metrics.rowDisplay, width <= 680 ? "grid" : "table-row");
     assert.equal(metrics.inspectorPosition, width <= 1180 ? "fixed" : "static");
     assert(metrics.layoutWidth > 0 && metrics.tableWidth > 0);
+    if (width > 680) {
+      assert(metrics.mediaLayout.mediaWidth >= 168 && metrics.mediaLayout.mediaWidth <= 205,
+        `${width}px: Media column out of compact range ${JSON.stringify(metrics.mediaLayout)}`);
+      assert(metrics.mediaLayout.videoWidth >= 130 && metrics.mediaLayout.videoWidth <= 165,
+        `${width}px: Video UGC column out of compact range ${JSON.stringify(metrics.mediaLayout)}`);
+      assert.equal(metrics.mediaLayout.thumbSize, 56);
+    } else {
+      assert(Math.abs(metrics.mediaLayout.mediaTop - metrics.mediaLayout.videoTop) <= 2,
+        `${width}px: mobile media/video not sharing one row ${JSON.stringify(metrics.mediaLayout)}`);
+    }
     assert(metrics.headerLayout.kpisWithinHeader, "KPI not in the shared command header");
     assert.equal(await page.locator(".etsy-header-quick-actions, .etsy-connection, .etsy-refresh, .workspace-page-back-link").count(), 0);
     assert(metrics.headerLayout.headerOverflow <= 2, `${width}px: header overflow ${JSON.stringify(metrics.headerLayout)}`);
