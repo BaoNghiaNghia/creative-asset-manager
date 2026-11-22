@@ -196,14 +196,15 @@ def _put_if_absent(client, config: UgcCacheConfig, tenant: str, sha: str,
                    kind: str, payload: bytes) -> bool:
     key = object_key(tenant, sha, kind)
     try:
-        if _head(client, config, key, sha, kind):
-            _mark(key, True)
+        expiry_at = _head_expiry(client, config, key, sha, kind)
+        if expiry_at is not None:
+            _mark(key, True, expiry_at=expiry_at)
             return True
     except Exception as exc:
         if not _is_missing(exc):
             return False
-    # _head returns False for a missing file or an expired/mismatched file;
-    # never overwrite an existing key even if its metadata fails validation.
+    # Only a truly missing key can be created; an expired or mismatched
+    # existing object must never be overwritten.
     try:
         client.head_object(Bucket=config.bucket, Key=key)
         return False
@@ -225,17 +226,17 @@ def _put_if_absent(client, config: UgcCacheConfig, tenant: str, sha: str,
         if isinstance(exc, ClientError) and str(exc.response.get("Error", {}).get("Code")) in (
             "412", "PreconditionFailed",
         ):
-            already = _head(client, config, key, sha, kind)
-            if already:
-                _mark(key, True)
-            return already
+            expiry_at = _head_expiry(client, config, key, sha, kind)
+            if expiry_at is not None:
+                _mark(key, True, expiry_at=expiry_at)
+            return expiry_at is not None
         return False
     if result.get("ResponseMetadata", {}).get("HTTPStatusCode") != 200:
         return False
-    verified = _head(client, config, key, sha, kind)
-    if verified:
-        _mark(key, True)
-    return verified
+    expiry_at = _head_expiry(client, config, key, sha, kind)
+    if expiry_at is not None:
+        _mark(key, True, expiry_at=expiry_at)
+    return expiry_at is not None
 
 
 def _top_level_atoms(mp4: bytes):

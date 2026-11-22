@@ -96,6 +96,31 @@ class UGCPrivateR2Test(unittest.TestCase):
             clock["seconds"] += 6
             self.assertFalse(m._has_object(c, "boostgame", sha, "playback"))
 
+    def test_existing_r2_put_result_never_refreshes_expiring_status(self):
+        c = config()
+        sha = "a" * 64
+        now = 2_000_000_000
+        fake = FakeBucket()
+        for kind in ("playback", "poster320"):
+            key = m.object_key("boostgame", sha, kind)
+            fake.objects[key] = {
+                "Body": b"mp4" if kind == "playback" else b"RIFF",
+                "Metadata": {"cam-source-sha256": sha},
+                "ContentType": "video/mp4" if kind == "playback" else "image/webp",
+                "LastModified": datetime.fromtimestamp(now - 30 * 86400 + 5, timezone.utc),
+            }
+        clock = {"seconds": float(now)}
+        with patch.object(m, "_client", return_value=fake), \
+             patch.object(m.time, "time", side_effect=lambda: clock["seconds"]), \
+             patch.object(m.time, "monotonic", side_effect=lambda: clock["seconds"]):
+            for kind in ("playback", "poster320"):
+                self.assertTrue(m._put_if_absent(
+                    fake, c, "boostgame", sha, kind, b"never-overwrite"))
+            self.assertEqual(fake.put_calls, 0)
+            clock["seconds"] += 6
+            for kind in ("playback", "poster320"):
+                self.assertFalse(m._has_object(c, "boostgame", sha, kind))
+
     def test_existing_private_r2_canary_is_reused_only_for_boostgame(self):
         fake_module = ModuleType("app.core.config")
         class Secret:
