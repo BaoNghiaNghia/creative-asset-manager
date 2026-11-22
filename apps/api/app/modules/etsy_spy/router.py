@@ -680,6 +680,26 @@ def _listings_query(
                 ListingImage.tenant_id == tenant,
                 ListingImage.listing_key == root.listing_key,
             ).correlate(root).scalar_subquery())
+        elif sort == "videoUgc":
+            # Match video_ugc_view exactly: count only the two verified
+            # managed-Drive MP4 receipts, not submitted or unverified renders.
+            # CamMuseJob has a tenant/listing composite PK, so this correlated
+            # lookup remains one row per Picked listing across all pages.
+            uploads = CamMuseJob.output_receipts["drive_uploads"]
+            saved = []
+            for ratio in ("9:16", "16:9"):
+                receipt = uploads[ratio]
+                valid = and_(
+                    receipt["storageVerified"].as_boolean().is_(True),
+                    receipt["storage_provider"].as_string() == "google_drive_managed",
+                    func.coalesce(receipt["drive_file_id"].as_string(), "") != "",
+                    func.coalesce(receipt["drive_folder_id"].as_string(), "") != "",
+                )
+                saved.append(case((valid, 1), else_=0))
+            column = func.coalesce(select(saved[0] + saved[1]).where(
+                CamMuseJob.tenant_id == tenant,
+                CamMuseJob.listing_key == root.listing_key,
+            ).correlate(root).scalar_subquery(), 0)
         elif sort == "tiktokListing":
             # Use the *latest* job, exactly as the table's preview projection
             # does, so an old success never outranks a newer failed retry.

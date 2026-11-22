@@ -1520,6 +1520,7 @@ export function EtsySpyPage() {
                   <option value="design">Design · job hoàn tất</option>
                   <option value="tiktokListing">TikTok SEO · trạng thái</option>
                   <option value="listingImage">Media · số ảnh</option>
+                  <option value="videoUgc">Video UGC · số video đã lưu</option>
                 </>}
               </select>
               <button type="button" className="etsy-adaptive-sort-direction"
@@ -1700,19 +1701,19 @@ export function EtsySpyPage() {
             {columns.map(col => <th key={col.id} data-etsy-col={col.id}
               className={options.sort === col.id ? "etsy-header-sorted" : undefined}
               aria-sort={options.sort === col.id ? (options.dir === "asc" ? "ascending" : "descending") : undefined}>
-              {col.id === "videoUgc" ? <span className="etsy-column-sort-label">{col.text}</span> :
               <button type="button" className="etsy-column-sort" onClick={() => sortColumn(col.id)}
                 aria-label={"Sort by " + col.text}
                 title={col.id === "design" ? "Sắp xếp theo số job Design hoàn tất"
                   : col.id === "tiktokListing" ? "Sắp xếp theo trạng thái TikTok SEO mới nhất"
                   : col.id === "listingImage" ? "Media: sắp xếp theo số ảnh Listing Image đã lưu"
+                  : col.id === "videoUgc" ? "Video UGC: sắp xếp theo số video đã xác minh và lưu (0–2)"
                   : col.id === "keywordSms" ? "Sắp xếp theo keyword SMS đầu tiên (A–Z/Z–A)"
                   : "Bấm để sắp xếp tăng dần hoặc giảm dần"}>
                 <span className="etsy-column-sort-label">{col.text}</span>
                 <span className={"etsy-column-sort-icon" + (options.sort === col.id ? " active" : "")}
                   aria-hidden="true">{options.sort === col.id
                     ? (options.dir === "asc" ? "↑" : "↓") : "↕"}</span>
-              </button>}
+              </button>
             </th>)}
             {activeTab === "logs" && <th>Message / Stack</th>}
             {activeTab === "products" && <th className="etsy-action-header">Action</th>}

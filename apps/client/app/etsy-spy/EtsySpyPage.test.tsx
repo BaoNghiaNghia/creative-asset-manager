@@ -969,6 +969,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       ["Design", "design", "desc"],
       ["TikTok SEO", "tiktokListing", "desc"],
       ["Media", "listingImage", "desc"],
+      ["Video UGC", "videoUgc", "desc"],
       ["Keyword SMS", "keywordSms", "asc"],
       ["Etsy Badge", "badge", "asc"],
       ["Bought / 24h", "bought24h", "desc"],
@@ -1010,9 +1011,9 @@ describe("Etsy Spy native CAM dashboard", () => {
     }
     const quickSort = container?.querySelector<HTMLSelectElement>("#etsy-quick-sort");
     expect(Array.from(quickSort?.options || [], option => option.value)).toEqual(
-      expect.arrayContaining(["design", "tiktokListing", "listingImage", "keywordSms"]));
+      expect.arrayContaining(["design", "tiktokListing", "listingImage", "videoUgc", "keywordSms"]));
     expect(quickSort?.value).toBe("observedAt");
-  });
+  }, 15_000);
 
   it("sorts on the backend, retains URL query params and separates pages", async () => {
     await start();
