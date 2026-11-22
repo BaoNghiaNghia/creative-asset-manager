@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import unittest
 
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[1]
 ROUTER = ROOT / "app/modules/muse_bridge/router.py"
 
 
