@@ -19,7 +19,6 @@ vi.mock("../components/WorkspacePageHeader", () => ({
     {center && <div className="workspace-page-header-center">{center}</div>}
     <div className="workspace-page-header-actions">{actions}</div>
   </header>,
-  WorkspaceBackToAssets: () => <a className="workspace-page-back-link" href="/">Back</a>,
 }));
 vi.mock("../../features/access_management", () => ({
   fetchAccessIdentity: vi.fn(async () => ({ permissions: ["etsy_spy.read"] })),
@@ -754,10 +753,10 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(preview?.querySelector<HTMLImageElement>("img")?.style.maxHeight).toBe("206px");
   });
 
-  it("displays offline last known data and Etsy badges without trademark UI", async () => {
+  it("displays offline last known data and Etsy badges without an agent status pill", async () => {
     await start();
     const html = container?.innerHTML || "";
-    expect(html).toContain("Agent offline");
+    expect(html).not.toContain("Agent offline");
     expect(html).toContain("Rudolph Shirt");
     expect(html).toContain("Bestseller");
     expect(html).toContain("Keyword SMS");
@@ -1238,7 +1237,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(cards[1].getAttribute("title")).toContain("URL ảnh: 0 thiếu · 0 đủ");
     extractionPilotOn = true;
     await act(async () => {
-      container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+      window.dispatchEvent(new Event("cam:etsy-spy:refresh"));
       await new Promise(resolve => setTimeout(resolve, 65));
     });
     const pickedCard = container?.querySelector<HTMLButtonElement>(".etsy-stat-picked");
@@ -1379,9 +1378,10 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(header?.querySelectorAll("h1")).toHaveLength(1);
     expect(header?.querySelector("h1")?.textContent).toBe("Etsy Spy");
     expect(header?.querySelector(".etsy-spy-context")?.textContent).toBe("Product Intelligence");
-    expect(header?.querySelector(".etsy-connection")).toBeTruthy();
-    expect(header?.querySelector(".etsy-refresh")).toBeTruthy();
-    expect(header?.querySelector(".workspace-page-back-link")).toBeTruthy();
+    expect(header?.querySelector(".etsy-connection")).toBeNull();
+    expect(header?.querySelector(".etsy-refresh")).toBeNull();
+    expect(header?.querySelector(".workspace-page-back-link")).toBeNull();
+    expect(header?.querySelector(".etsy-header-quick-actions")).toBeNull();
     expect(header?.querySelector('input[aria-label="Add blacklist phrases"]')).toBeTruthy();
     expect(header?.querySelector('input[aria-label="Search Spy records"]')).toBeTruthy();
     expect(container?.querySelector(".etsy-stage-nav")).toBeNull();
@@ -1771,7 +1771,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       listing.keyword = "new synced keyword";
       listing.sessionId = "fresh scout session";
       await act(async () => {
-        container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+        window.dispatchEvent(new Event("cam:etsy-spy:refresh"));
         await new Promise(resolve => setTimeout(resolve, 20));
       });
       expect(container?.querySelector(".etsy-skeleton")).toBeNull();
@@ -1789,7 +1789,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       // the modal; the next refresh will retry without losing local state.
       failNextTableFetch = true;
       await act(async () => {
-        container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+        window.dispatchEvent(new Event("cam:etsy-spy:refresh"));
         await new Promise(resolve => setTimeout(resolve, 70));
       });
       expect(document.body.querySelector(".etsy-tiktok-dialog")).toBe(dialog);
@@ -1824,7 +1824,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     const gallery = document.body.querySelector(".etsy-design-gallery");
     expect(gallery).not.toBeNull();
     await act(async () => {
-      container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+      window.dispatchEvent(new Event("cam:etsy-spy:refresh"));
       await new Promise(resolve => setTimeout(resolve, 80));
     });
     expect(document.body.querySelector(".etsy-design-gallery")).toBe(gallery);
@@ -1961,7 +1961,7 @@ describe("Etsy Spy native CAM dashboard", () => {
 
     extractionProjection = {...extractionProjection, status: "needs_ai"};
     await act(async () => {
-      container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+      window.dispatchEvent(new Event("cam:etsy-spy:refresh"));
       await new Promise(resolve => setTimeout(resolve, 65));
     });
     expect(container?.querySelector(".etsy-extraction-status")).toBeNull();
@@ -1972,7 +1972,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       candidate_method: "colour_layer_preview_not_ai",
     };
     await act(async () => {
-      container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+      window.dispatchEvent(new Event("cam:etsy-spy:refresh"));
       await new Promise(resolve => setTimeout(resolve, 65));
     });
     expect(container?.querySelector(".etsy-extraction-status")).toBeNull();
@@ -1996,14 +1996,14 @@ describe("Etsy Spy native CAM dashboard", () => {
       .toContain("SMS chưa đồng bộ");
     smsProjection = { status: "pending" };
     await act(async () => {
-      container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+      window.dispatchEvent(new Event("cam:etsy-spy:refresh"));
       await new Promise(resolve => setTimeout(resolve, 70));
     });
     expect(container?.querySelector(".etsy-sms-push-status")?.textContent)
       .toContain("Chờ SMS");
     smsProjection = { status: "sent", code: "307", sentAt: "2026-11-10T00:05:48Z" };
     await act(async () => {
-      container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+      window.dispatchEvent(new Event("cam:etsy-spy:refresh"));
       await new Promise(resolve => setTimeout(resolve, 70));
     });
     const badge = container?.querySelector(".etsy-sms-push-status.status-sent");

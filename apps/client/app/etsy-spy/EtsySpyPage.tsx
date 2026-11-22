@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { WorkspacePageHeader, WorkspaceBackToAssets } from "../components/WorkspacePageHeader";
+import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { fetchAccessIdentity } from "../../features/access_management";
 import {
   spyFetch, readableTime,
@@ -693,6 +693,13 @@ export function EtsySpyPage() {
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
+  // Preserve an internal, non-visual refresh entry point for CAM operations and
+  // tests. Automatic Scout/day/Picked polling remains the default UI behavior.
+  useEffect(() => {
+    const refreshOnSignal = () => setRefresh(current => current + 1);
+    window.addEventListener("cam:etsy-spy:refresh", refreshOnSignal);
+    return () => window.removeEventListener("cam:etsy-spy:refresh", refreshOnSignal);
+  }, []);
   const [pairing, setPairing] = useState<{ agent_id: string; token: string } | null>(null);
   const [pairName, setPairName] = useState("DESKTOP-3FR0LF0");
   const [pairError, setPairError] = useState("");
@@ -1143,9 +1150,6 @@ export function EtsySpyPage() {
   }, [options.tab, options.pickState]);
   const inspectedListing = options.tab === "products" && rows?.items && inspectedKey
     ? (rows.items as Listing[]).find(item => item.listingKey === inspectedKey) ?? null : null;
-  const syncLabel = summary?.source_status === "online" ? "Agent online"
-    : summary?.source_status === "sync_delayed" ? "Sync delayed"
-    : summary?.source_status === "never_synced" ? "Never synced" : "Agent offline";
   // Keep pagination shape stable while the next page is being fetched. Controls
   // stay disabled until the current request returns, so stale counts cannot navigate.
   const totalPages = Math.max(1, rows?.pages ||
@@ -1289,12 +1293,6 @@ export function EtsySpyPage() {
         </section>
           }
           actions={<>
-            <div className="etsy-header-quick-actions">
-              <span className={"etsy-connection " + (summary?.source_status || "never_synced")}>{syncLabel}</span>
-              <button type="button" className="etsy-btn etsy-refresh"
-                onClick={() => setRefresh(n => n + 1)}><span aria-hidden="true">↻</span> Refresh</button>
-              <WorkspaceBackToAssets />
-            </div>
             <div className="etsy-stage-heading-actions">
             {activeTab === "products" && !isWinKeywordsView && <form className="etsy-blacklist-form"
               onSubmit={addBlacklist} aria-label="Blacklist product title phrases">

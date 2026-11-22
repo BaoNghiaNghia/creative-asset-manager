@@ -28,11 +28,7 @@ const html = `<!doctype html><html><head><meta name="viewport" content="width=de
 <header class="workspace-page-header etsy-spy-topbar">
 <div class="workspace-page-header-copy"><small class="workspace-page-header-eyebrow">ETSY MARKET INTELLIGENCE</small><div class="workspace-page-header-title-row"><h1>Etsy Spy</h1><h2 class="etsy-spy-context">Product Intelligence</h2></div></div>
 <div class="workspace-page-header-center"><section class="etsy-stats">${["Eligible", "Picked", "Later", "Blacklist", "Win Keyword"].map(x => `<button class="etsy-stat"><span class="etsy-stat-heading">${x}</span><strong>353</strong></button>`).join("")}</section></div>
-<div class="workspace-page-header-actions"><div class="etsy-header-quick-actions">
-<span class="etsy-connection online">Agent online</span>
-<button class="etsy-btn etsy-refresh" aria-label="Refresh">↻ Refresh</button>
-<a class="workspace-page-back-link" href="/"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>Back to assets</a>
-</div><div class="etsy-stage-heading-actions">
+<div class="workspace-page-header-actions"><div class="etsy-stage-heading-actions">
 <form class="etsy-blacklist-form"><span class="etsy-blacklist-icon">⊘</span><input type="text" placeholder="Blacklist keywords · Enter" /></form>
 <div class="etsy-search-box"><span class="etsy-search-svg">⌕</span><input type="search" placeholder="Search keyword, product or Listing ID"/></div>
 </div></div></header>
@@ -105,6 +101,7 @@ try {
     assert.equal(metrics.inspectorPosition, width <= 1180 ? "fixed" : "static");
     assert(metrics.layoutWidth > 0 && metrics.tableWidth > 0);
     assert(metrics.headerLayout.kpisWithinHeader, "KPI not in the shared command header");
+    assert.equal(await page.locator(".etsy-header-quick-actions, .etsy-connection, .etsy-refresh, .workspace-page-back-link").count(), 0);
     assert(metrics.headerLayout.headerOverflow <= 2, `${width}px: header overflow ${JSON.stringify(metrics.headerLayout)}`);
     if (metrics.headerLayout.stageWidth >= 1190) {
       assert(Math.abs(metrics.headerLayout.brandY - metrics.headerLayout.kpisY) <= 10, `${width}px: title and KPI split`);
