@@ -3288,3 +3288,47 @@ Stage 1 keyword-only no-input Skill, Stage 2 Codex preflight, Stage 4 job-ID sco
 - New default-deny marketplace policy templates ship in the deterministic worker ZIP. Worker 0.2.13 and Manager 0.1.45 version changes keep release tags immutable; no database migration, new dependency, token rotation or permission grant.
 - Verification on Windows Node v24.22.0: targeted CAM batch 10/10 and Browser pilot 17/17; full worker suite 96 passed, 0 failed, 1 symlink test skipped because Windows account lacks symlink capability. Both changed modules passed `node --check`; `git diff --check` passed. Local Python unavailable, so deterministic ZIP/package tests, Manager version check and native Windows CI remain release gates. Real marketplace pilot is NOT asserted.
 - Rollback: restore the previous worker release and use old exact-shop approvals, leaving profiles/reports/checkpoints/pairing unchanged. Restore prior verified Manager Portable if required; never delete prior records.
+
+## 2026-11-22 — CAM Muse Story-Driven UGC V3.3 (14 seconds)
+
+- **Scope:** versioned creative prompt system and opt-in Muse Bridge contract, no new renderer, model, database or production deployment. Source commits `9824ef7e4` (implementation) and `25b24d861` (test assertion correction). User asked for real-life narratives instead of 12s head-turn/sway footage; six prior samples showed weak human motion and four sweatshirt-vs-C1717 mismatches.
+- **Changes:** 13 theme categories, 26 source-grounded life stories, three camera perspectives; 0–3s context, 3–10s purposeful movement, 10–14s payoff. No raw listing text in generated prompts; SKU from CAM authority not inferred from title. C1717 is short-sleeve; G500/G180/G185 future profiles require authoritative metadata. Never fabricate props/actors/settings absent source frame; flat ink fixed 150mm below collar, exact approved artwork SHA.
+- **Safety:** `CAM_MUSE_STORY_V33_ENABLED` defaults off. Worker must explicitly request `storyVersion=CAM_STORY_REAL_LIFE_V3_3` when enabled; claim pins V3.3 in existing JSON receipts and refuses incompatible legacy worker on a fresh job. Direct MP4 upload requires matching version and native 13.5–14.5s duration, fails before Drive write. Existing saved/partially saved V3.1 jobs and failed V3.2 pilot not regenerated or upgraded; V4 tracking/compositing independent. Storage receipt is not independent garment/print/motion QA.
+- **Tests:** source Python syntax, targeted git diff, lightweight staging gate and pure prompt checks passed. GitHub CI on `9824ef7e4` discovered a brittle new test expecting the literal word `existing`; corrected its assertion to the actually enforced approved-scene wording in `25b24d861`. All additional V3.3 unit/claim tests checked so far passed; previous CI baseline continues failing historical SQLite ALTER COLUMN startup test and unrelated Listing Image thumbnail geometry browser QA. Full release health/acceptance pending. No additional dependencies, migrations, secret rotation, source-file deletion or production mutation.
+- **Rollback:** leave or reset feature flag to OFF for new job claims; previously pinned V3.3 jobs must finish with capable worker or follow existing lease/failure flow. Never downgrade an existing pin into V3.1, delete verified Drive artifacts, or regenerate finished video variants.
+
+### 2026-11-22 — V3.3 wardrobe/casting refinement
+
+- **User request:** real-life story models wear jeans or khaki/chino trousers and have a natural, proportionate average/medium-to-moderately-athletic appearance. Do not interpret this as permission to alter a real person's body.
+- **Implementation:** `CAM_STORY_WARDROBE_CASTING_V1` in `story_prompts.py`; all 13 themes include lower-body garment rules and QA rejects for wrong trousers, missing visible waistband/upper thigh, excessive bulk/proportion distortion, wardrobe/body retouch, and mismatches between 9:16 and 16:9. Only approved reference start frames that already support the look may be used; otherwise choose another or block. Legacy V3.1 and completed media untouched.
+- **Verification:** dependency-free story construction smoke and source compilation PASS; full API tests via CI required. Feature flag `CAM_MUSE_STORY_V33_ENABLED` remains OFF in production until native 14-second Muse capability and independent garment/motion/print QA are verified.
+
+## 2026-11-22 — User superseded V3.3 14s with final 12-second stories
+
+- **Explicit decision:** keep every completed output at **12 seconds**; upgrade the
+  narrative/wardrobe/QA to V3.3 without requiring an unavailable native 14s
+  renderer. The V3.3 prompt version name is preserved for the existing Muse
+  workflow, but the output contract is now 12s.
+- **Renderer constraint:** Muse reports up to 10s native per take. The worker
+  assembly proposal uses two genuinely moving source takes <=10s each,
+  retains six real-time moving seconds per take, and joins 6+6 with one motivated
+  cut. Single native 12s is permissible only when verified. No repeated,
+  reversed, held, frozen or slowed frames.
+- **Bridge:** Story V3.3 spec and claim pin target 12s, track max 10s source take,
+  keep CAM_MUSE_STORY_V33_ENABLED default OFF, check final MP4 length 11.5-12.5s
+  before Drive, and fail closed for any older 14s pinned contract. V3.1 saved
+  variants and ongoing jobs, V3.2 failed pilot, and V4 PoC are unchanged.
+- **Creative:** 0-3s setup, 3-9s motivated action, 9-12s payoff; C1717,
+  denim or khakis, approved Native Master SHA, flat-ink 150mm collar clearance.
+- **QA:** duration/codec verification does not equal real human movement,
+  matching source, or Print QA: review content independently before approval.
+- **Rollout:** source-only until CI, external Muse worker 12s capability and
+  proper production backend release gates. No bypass of CodeLocal permissions
+  or unrelated CI failures. See docs/operations/CAM_MUSE_STORY_V33_12S.md.
+## 2026-11-22 — CAM Muse 12s FACE-ON + independent native hero images
+
+- **Problem verified from user-provided Nativity videos:** both final MP4s show neck-down framing, very small human motions, and similar house/product setup. The files alone cannot prove a single source image was resized into two ratios. V3.3 previously shared a global story camera/prompt and did not request actual source JPEG/PNG proof before MP4 upload.
+- **Source fix:** new `CAM_STORY_DUAL_HERO_FACE_V1` contract in `story_prompts.py`, with distinct `aspectPlans` (9:16 portrait and 16:9 landscape) and deterministic independent request IDs/seeds/action/camera. Full adult face must remain visible >=8s of each 12s video, with readable approved C1717 front artwork and jeans/khakis, real human action and a genuine 6s cut. No neck-down fallback or ratio-to-ratio crop/reframe.
+- **Bridge:** new authenticated `POST /jobs/{listing}/hero/{vertical|horizontal}` accepts actual original JPEG/PNG bytes, validates native orientation, decoded-pixel hash, dHash, independent request ID/seed and private Google Drive receipt, and stores `hero_sources` in existing job JSON. V3.3 video upload requires matching source contract, recorded original hero hash and per-ratio request ID. Older workers cannot claim new V3.3 without source contract. V3.1 untouched, old saved assets immutable, no DB migration.
+- **QA boundary:** image difference checks cannot independently prove face visibility or truly independent AI generations. Keep `faceVisibilityQa` and `videoContentQa` pending independent review, reject unverified imagery and camera-only motion; do not overclaim automation.
+- **Deployment:** source changes only pending CI and reviewed privileged production release. Existing external `cam-auto-video` is NOT directly writable from this CodeLocal connection; provide exact task-update prompt, preserve 2-minute cadence and 2-listing canary.

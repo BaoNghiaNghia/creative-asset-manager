@@ -28,6 +28,7 @@ from app.modules.etsy_spy.model import (
 from app.modules.etsy_spy.router import router
 from app.modules.etsy_spy.service import create_agent
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.muse_bridge.model import CamMuseJob
 from app.domain.processing.types import JOB_TYPES
 
 
@@ -36,7 +37,7 @@ TABLES = (
     EtsySpyTrademark, EtsySpyLog, EtsySpyBatch, EtsySpyBlacklist, EtsySpyPicked,
     EtsySpyLaterSeed, EtsySpyLaterMatch,
     EtsySpyWinKeyword, EtsySpyParentKeyword, EtsySpySmsStatus, EtsySpyReviewReceipt,
-    EtsySpyListingImage, ProcessingJobModel,
+    EtsySpyListingImage, ProcessingJobModel, CamMuseJob,
 )
 
 
@@ -707,6 +708,36 @@ def test_picked_special_columns_sort_across_pages_without_cross_tenant_leak(scen
         idempotency_key="other-sort-design", status="completed",
         payload_json={},
     ))
+    # Sort by the number of *verified managed-Drive* UGC videos displayed in
+    # each row, not receipt count, job status or unverified render attempts.
+    def saved_video(aspect: str, *, verified: bool = True):
+        return {
+            "storageVerified": verified, "storage_provider": "google_drive_managed",
+            "drive_file_id": "file-" + aspect, "drive_folder_id": "folder-" + aspect,
+        }
+
+    for key, uploads in (
+        (keys[0], {"9:16": saved_video("9:16")}),
+        (keys[1], {"9:16": saved_video("9:16"),
+                   "16:9": saved_video("16:9")}),
+        (keys[2], {"9:16": saved_video("9:16", verified=False)}),
+    ):
+        db.add(CamMuseJob(
+            tenant_id="boostgame", listing_key=key,
+            picked_at=datetime.now(timezone.utc), title="UGC test " + key,
+            source_state="ready", status="saved",
+            output_receipts={"drive_uploads": uploads},
+        ))
+    # Same listing key in another tenant must never affect boostgame sorting.
+    db.add(EtsySpyPicked(tenant_id="other-tenant", listing_key=keys[2]))
+    db.add(CamMuseJob(
+        tenant_id="other-tenant", listing_key=keys[2],
+        picked_at=datetime.now(timezone.utc), title="Other tenant videos",
+        source_state="ready", status="saved",
+        output_receipts={"drive_uploads": {
+            "9:16": saved_video("9:16"), "16:9": saved_video("16:9"),
+        }},
+    ))
     db.commit()
 
     endpoint = "/api/v1/etsy-spy/listings"
@@ -714,6 +745,7 @@ def test_picked_special_columns_sort_across_pages_without_cross_tenant_leak(scen
         "design": (keys[0], keys[1], keys[2]),
         "tiktokListing": (keys[1], keys[0], keys[2]),
         "listingImage": (keys[1], keys[0], keys[2]),
+        "videoUgc": (keys[1], keys[0], keys[2]),
         "keywordSms": (keys[0], keys[2], keys[1]),
     }
     for column, descending in expected.items():
@@ -728,6 +760,9 @@ def test_picked_special_columns_sort_across_pages_without_cross_tenant_leak(scen
                 body = response.json()
                 assert body["total"] == 3
                 page_keys.append(body["items"][0]["listingKey"])
+                if column == "videoUgc":
+                    expected_counts = {keys[0]: 1, keys[1]: 2, keys[2]: 0}
+                    assert body["items"][0]["videoUgc"]["count"] == expected_counts[page_keys[-1]]
             if direction == "desc":
                 assert tuple(page_keys) == descending, (column, page_keys)
             elif column == "tiktokListing":

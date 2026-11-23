@@ -7,8 +7,8 @@ import { fetchAccessIdentity } from "../../features/access_management";
 import type { DesignAsset } from "./api";
 
 vi.mock("../components/WorkspacePageHeader", () => ({
-  WorkspacePageHeader: ({ actions, className, eyebrow, titleAddon, description }: {
-    actions?: React.ReactNode; className?: string; eyebrow?: React.ReactNode;
+  WorkspacePageHeader: ({ actions, center, className, eyebrow, titleAddon, description }: {
+    actions?: React.ReactNode; center?: React.ReactNode; className?: string; eyebrow?: React.ReactNode;
     titleAddon?: React.ReactNode; description?: React.ReactNode;
   }) => <header className={"workspace-page-header " + (className || "")}>
     <div className="workspace-page-header-copy">
@@ -16,9 +16,9 @@ vi.mock("../components/WorkspacePageHeader", () => ({
       <div className="workspace-page-header-title-row"><h1>Etsy Spy</h1>{titleAddon}</div>
       {description && <p className="workspace-page-header-description">{description}</p>}
     </div>
+    {center && <div className="workspace-page-header-center">{center}</div>}
     <div className="workspace-page-header-actions">{actions}</div>
   </header>,
-  WorkspaceBackToAssets: () => <a className="workspace-page-back-link" href="/">Back</a>,
 }));
 vi.mock("../../features/access_management", () => ({
   fetchAccessIdentity: vi.fn(async () => ({ permissions: ["etsy_spy.read"] })),
@@ -352,6 +352,10 @@ describe("Etsy Spy native CAM dashboard", () => {
       'details[data-review-verdict="skip"]');
     expect(audit).toBeTruthy();
     expect(audit?.querySelector("summary")?.textContent).toContain("Không nên lấy");
+    expect(audit?.querySelector("summary")?.getAttribute("aria-label")).toBe("CAM Review: Không nên lấy");
+    expect(audit?.querySelector("summary svg")).toBeTruthy();
+    expect(audit?.querySelector("summary")?.getAttribute("title")).toContain("Bấm để xem bằng chứng");
+    expect(audit?.querySelector(".etsy-review-proof-details")).toBeTruthy();
     await act(async () => {
       audit?.querySelector("summary")?.click();
     });
@@ -459,7 +463,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(scroll).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
   });
 
-  it("shows table column navigation only when the desktop table overflows", async () => {
+  it("keeps native horizontal scrolling without a separate column-navigation bar", async () => {
     await start({initialUrl: "/etsy-spy?tab=products&observed_day=all"});
     const viewport = container?.querySelector<HTMLDivElement>(".etsy-table-wrap");
     expect(viewport).toBeTruthy();
@@ -469,28 +473,13 @@ describe("Etsy Spy native CAM dashboard", () => {
       scrollLeft: {configurable: true, value: 0, writable: true},
     });
     await act(async () => { window.dispatchEvent(new Event("resize")); });
-    const controls = container?.querySelector(".etsy-table-scroll-nav");
-    expect(controls?.textContent).toContain("Còn cột bên phải");
-    const left = controls?.querySelector<HTMLButtonElement>('button[aria-label="Cuộn bảng sang trái"]');
-    const right = controls?.querySelector<HTMLButtonElement>('button[aria-label="Cuộn bảng sang phải"]');
-    expect(left?.disabled).toBe(true);
-    expect(right?.disabled).toBe(false);
-    await act(async () => { right?.click(); });
-    expect(viewport?.scrollLeft).toBeGreaterThan(0);
-    expect(left?.disabled).toBe(false);
-    await act(async () => {
-      viewport!.scrollLeft = 900;
-      viewport?.dispatchEvent(new Event("scroll", {bubbles: true}));
-    });
-    expect(right?.disabled).toBe(true);
-    expect(container?.querySelector(".etsy-table-scroll-nav")?.textContent).toContain("Đã đến cột cuối");
-    await act(async () => {
-      Object.defineProperty(viewport!, "scrollWidth", {configurable: true, value: 600});
-      viewport!.scrollLeft = 0;
-      window.dispatchEvent(new Event("resize"));
-    });
     expect(container?.querySelector(".etsy-table-scroll-nav")).toBeNull();
     expect(container?.querySelector(".etsy-product-row")).toBeTruthy();
+    await act(async () => {
+      viewport!.scrollLeft = 350;
+      viewport!.dispatchEvent(new Event("scroll", {bubbles: true}));
+    });
+    expect(viewport?.scrollLeft).toBe(350);
   });
 
   it("jumps directly to a valid page without dropping the active day and tab", async () => {
@@ -657,7 +646,8 @@ describe("Etsy Spy native CAM dashboard", () => {
     const anchor = first?.querySelector(".etsy-product-thumbnail-link") as HTMLAnchorElement;
     expect(anchor?.href).toBe("https://i.etsystatic.com/123/il_fullxfull.primary.jpg");
     expect(anchor?.rel).toContain("noopener");
-    expect(img?.getAttribute("loading")).toBe("lazy");
+    // The IntersectionObserver queue already gates network requests.
+    expect(img?.getAttribute("loading")).toBe("eager");
     const noImageRow = Array.from(container?.querySelectorAll(".etsy-product-row") || [])
       .find(row => row.textContent?.includes("Popular sample"));
     expect(noImageRow?.querySelector(".etsy-product-glyph")?.textContent).toBe("E");
@@ -768,10 +758,10 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(preview?.querySelector<HTMLImageElement>("img")?.style.maxHeight).toBe("206px");
   });
 
-  it("displays offline last known data and Etsy badges without trademark UI", async () => {
+  it("displays offline last known data and Etsy badges without an agent status pill", async () => {
     await start();
     const html = container?.innerHTML || "";
-    expect(html).toContain("Agent offline");
+    expect(html).not.toContain("Agent offline");
     expect(html).toContain("Rudolph Shirt");
     expect(html).toContain("Bestseller");
     expect(html).toContain("Keyword SMS");
@@ -816,7 +806,12 @@ describe("Etsy Spy native CAM dashboard", () => {
     const stacks = container?.querySelectorAll(".etsy-product-row .etsy-badge-stack");
     expect(stacks).toHaveLength(3);
     expect(stacks?.[0]?.querySelector(".etsy-demand.bestseller")?.textContent).toBe("Bestseller");
+    expect(stacks?.[0]?.querySelector(".etsy-demand.bestseller")?.getAttribute("data-etsy-badge-kind")).toBe("bestseller");
+    expect(stacks?.[0]?.querySelector(".etsy-demand.bestseller svg.etsy-demand-icon")).toBeTruthy();
+    expect(stacks?.[0]?.querySelector(".etsy-demand.bestseller")?.getAttribute("aria-label")).toBe("Etsy: Bestseller");
     expect(stacks?.[1]?.querySelector(".etsy-demand.popular")?.textContent).toBe("Popular now");
+    expect(stacks?.[1]?.querySelector(".etsy-demand.popular svg.etsy-demand-icon")).toBeTruthy();
+    expect(stacks?.[1]?.querySelector(".etsy-demand.popular")?.getAttribute("aria-label")).toBe("Etsy: Popular now");
     expect(container?.querySelectorAll(".etsy-tm-badge, .etsy-tm-disclaimer, .etsy-mark-items")).toHaveLength(0);
     expect(container?.textContent).not.toContain("TM DEAD");
     expect(container?.textContent).not.toContain("TM: No match");
@@ -844,11 +839,13 @@ describe("Etsy Spy native CAM dashboard", () => {
     const stageChildren = Array.from(container?.querySelector("#etsy-spy-workspace")?.children || []);
     const location = (selector: string) => stageChildren.findIndex(child => child.matches(selector));
     // Flat layout: no redundant filter or idle bulk-selection bars.
-    expect(location(".etsy-stats")).toBeGreaterThan(-1);
+    expect(container?.querySelector(".etsy-spy-topbar .workspace-page-header-center > .etsy-stats")).toBeTruthy();
+    expect(location(".etsy-stats")).toBe(-1);
     expect(location(".etsy-filter-context")).toBe(-1);
     expect(location(".etsy-bulk-bar")).toBe(-1);
-    expect(location(".etsy-facet-explorer")).toBeGreaterThan(location(".etsy-stats"));
-    expect(location(".etsy-table-card")).toBeGreaterThan(location(".etsy-facet-explorer"));
+    expect(location(".etsy-facet-explorer")).toBeGreaterThan(location(".etsy-spy-topbar"));
+    expect(location(".etsy-v2-results-layout")).toBeGreaterThan(location(".etsy-facet-explorer"));
+    expect(container?.querySelector(".etsy-v2-results-layout > .etsy-table-card")).toBeTruthy();
     expect(container?.querySelector(".etsy-table-wrap th button[aria-label='Sort by Carts']")).toBeTruthy();
     const cartsCells = container?.querySelectorAll(".etsy-product-row td:nth-child(7)");
     expect(cartsCells).toHaveLength(3);
@@ -858,6 +855,24 @@ describe("Etsy Spy native CAM dashboard", () => {
       url.includes("observed_day=" + today))).toBe(true);
     expect(container?.querySelector(".etsy-observed-day[aria-pressed='true']")?.getAttribute(
       "data-observed-day")).toBe(today);
+  });
+
+  it("removes duplicate table controls but keeps Quick Inspect and filters", async () => {
+    await start();
+    const originalLocation = window.location.search;
+    expect(container?.querySelector(".etsy-v2-results-toolbar")).toBeNull();
+    expect(container?.querySelector(".etsy-v2-column-menu")).toBeNull();
+    expect(container?.querySelector(".etsy-v2-density")).toBeNull();
+    expect(container?.querySelector(".etsy-data-table.etsy-v2-hide-views24h")).toBeNull();
+    const inspect = container?.querySelector<HTMLButtonElement>(".etsy-v2-inspect-trigger");
+    expect(inspect).toBeTruthy();
+    await act(async () => { inspect?.click(); });
+    expect(container?.querySelector(".etsy-v2-inspector-title")?.textContent).toContain("Rudolph Shirt");
+    expect(container?.querySelector(".etsy-v2-results-layout.has-inspector")).toBeTruthy();
+    const close = container?.querySelector<HTMLButtonElement>(".etsy-v2-inspector-header button");
+    await act(async () => { close?.click(); });
+    expect(container?.querySelector(".etsy-v2-inspector")).toBeNull();
+    expect(window.location.search).toBe(originalLocation);
   });
 
   it("shows exclusive daily topic badges and filters the selected day's listings", async () => {
@@ -954,6 +969,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       ["Design", "design", "desc"],
       ["TikTok SEO", "tiktokListing", "desc"],
       ["Media", "listingImage", "desc"],
+      ["Video UGC", "videoUgc", "desc"],
       ["Keyword SMS", "keywordSms", "asc"],
       ["Etsy Badge", "badge", "asc"],
       ["Bought / 24h", "bought24h", "desc"],
@@ -995,9 +1011,9 @@ describe("Etsy Spy native CAM dashboard", () => {
     }
     const quickSort = container?.querySelector<HTMLSelectElement>("#etsy-quick-sort");
     expect(Array.from(quickSort?.options || [], option => option.value)).toEqual(
-      expect.arrayContaining(["design", "tiktokListing", "listingImage", "keywordSms"]));
+      expect.arrayContaining(["design", "tiktokListing", "listingImage", "videoUgc", "keywordSms"]));
     expect(quickSort?.value).toBe("observedAt");
-  });
+  }, 15_000);
 
   it("sorts on the backend, retains URL query params and separates pages", async () => {
     await start();
@@ -1232,7 +1248,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(cards[1].getAttribute("title")).toContain("URL ảnh: 0 thiếu · 0 đủ");
     extractionPilotOn = true;
     await act(async () => {
-      container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+      window.dispatchEvent(new Event("cam:etsy-spy:refresh"));
       await new Promise(resolve => setTimeout(resolve, 65));
     });
     const pickedCard = container?.querySelector<HTMLButtonElement>(".etsy-stat-picked");
@@ -1373,9 +1389,10 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(header?.querySelectorAll("h1")).toHaveLength(1);
     expect(header?.querySelector("h1")?.textContent).toBe("Etsy Spy");
     expect(header?.querySelector(".etsy-spy-context")?.textContent).toBe("Product Intelligence");
-    expect(header?.querySelector(".etsy-connection")).toBeTruthy();
-    expect(header?.querySelector(".etsy-refresh")).toBeTruthy();
-    expect(header?.querySelector(".workspace-page-back-link")).toBeTruthy();
+    expect(header?.querySelector(".etsy-connection")).toBeNull();
+    expect(header?.querySelector(".etsy-refresh")).toBeNull();
+    expect(header?.querySelector(".workspace-page-back-link")).toBeNull();
+    expect(header?.querySelector(".etsy-header-quick-actions")).toBeNull();
     expect(header?.querySelector('input[aria-label="Add blacklist phrases"]')).toBeTruthy();
     expect(header?.querySelector('input[aria-label="Search Spy records"]')).toBeTruthy();
     expect(container?.querySelector(".etsy-stage-nav")).toBeNull();
@@ -1765,7 +1782,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       listing.keyword = "new synced keyword";
       listing.sessionId = "fresh scout session";
       await act(async () => {
-        container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+        window.dispatchEvent(new Event("cam:etsy-spy:refresh"));
         await new Promise(resolve => setTimeout(resolve, 20));
       });
       expect(container?.querySelector(".etsy-skeleton")).toBeNull();
@@ -1783,7 +1800,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       // the modal; the next refresh will retry without losing local state.
       failNextTableFetch = true;
       await act(async () => {
-        container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+        window.dispatchEvent(new Event("cam:etsy-spy:refresh"));
         await new Promise(resolve => setTimeout(resolve, 70));
       });
       expect(document.body.querySelector(".etsy-tiktok-dialog")).toBe(dialog);
@@ -1818,7 +1835,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     const gallery = document.body.querySelector(".etsy-design-gallery");
     expect(gallery).not.toBeNull();
     await act(async () => {
-      container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+      window.dispatchEvent(new Event("cam:etsy-spy:refresh"));
       await new Promise(resolve => setTimeout(resolve, 80));
     });
     expect(document.body.querySelector(".etsy-design-gallery")).toBe(gallery);
@@ -1955,7 +1972,7 @@ describe("Etsy Spy native CAM dashboard", () => {
 
     extractionProjection = {...extractionProjection, status: "needs_ai"};
     await act(async () => {
-      container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+      window.dispatchEvent(new Event("cam:etsy-spy:refresh"));
       await new Promise(resolve => setTimeout(resolve, 65));
     });
     expect(container?.querySelector(".etsy-extraction-status")).toBeNull();
@@ -1966,7 +1983,7 @@ describe("Etsy Spy native CAM dashboard", () => {
       candidate_method: "colour_layer_preview_not_ai",
     };
     await act(async () => {
-      container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+      window.dispatchEvent(new Event("cam:etsy-spy:refresh"));
       await new Promise(resolve => setTimeout(resolve, 65));
     });
     expect(container?.querySelector(".etsy-extraction-status")).toBeNull();
@@ -1990,14 +2007,14 @@ describe("Etsy Spy native CAM dashboard", () => {
       .toContain("SMS chưa đồng bộ");
     smsProjection = { status: "pending" };
     await act(async () => {
-      container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+      window.dispatchEvent(new Event("cam:etsy-spy:refresh"));
       await new Promise(resolve => setTimeout(resolve, 70));
     });
     expect(container?.querySelector(".etsy-sms-push-status")?.textContent)
       .toContain("Chờ SMS");
     smsProjection = { status: "sent", code: "307", sentAt: "2026-11-10T00:05:48Z" };
     await act(async () => {
-      container?.querySelector<HTMLButtonElement>(".etsy-refresh")?.click();
+      window.dispatchEvent(new Event("cam:etsy-spy:refresh"));
       await new Promise(resolve => setTimeout(resolve, 70));
     });
     const badge = container?.querySelector(".etsy-sms-push-status.status-sent");

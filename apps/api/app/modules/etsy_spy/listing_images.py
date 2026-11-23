@@ -16,6 +16,7 @@ from collections import defaultdict
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select, func, case, update, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -290,7 +291,47 @@ async def save_listing_output(
             native_width=width, native_height=height,
             source_job_id=source_job or None)
         db.add(row)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as error:
+        # Concurrent uploaders can both see an empty slot while uploading
+        # the very same SHA-bound PNG to Drive. The losing INSERT must not
+        # turn an already-visible image into an endless 500/retry loop.
+        # Never treat a different SHA, tenant or artwork as an ACK.
+        db.rollback()
+        diagnostic = getattr(getattr(error.orig, "diag", None),
+                             "constraint_name", None)
+        sqlite_unique = "UNIQUE constraint failed: etsy_spy_listing_images." in str(
+            error.orig)
+        if (replace_sha is not None or
+            (diagnostic != "etsy_spy_listing_images_pkey" and
+             not sqlite_unique)):
+            raise
+        committed = db.get(ListingImage, key)
+        if committed is None:
+            raise
+        if db.get(Picked, (agent.tenant_id, listing)) is None:
+            raise HTTPException(409, "Listing was unpicked during upload")
+        if db.get(DeletedListingImage, (*key, sha)) is not None:
+            raise HTTPException(409, "Deleted Listing Image cannot be re-synced")
+        if (committed.garment_code != garment or
+            committed.design_sha256 != design_sha or
+            committed.source_sha256 != source_sha or
+            committed.placement != placement or
+            committed.output_sha256 != sha):
+            raise HTTPException(409, "Immutable ImageGen output slot changed")
+        manifest = await _ensure_pack_manifest(
+            db, agent.tenant_id, listing, pack, garment,
+            design_sha, source_sha, placement,
+            expected_slots=expected_slots)
+        return {"ok": True, "already_saved": True,
+                "listing_id": listing, "garment_code": garment,
+                "pack_id": pack, "slot": slot,
+                "sha256": sha, "design_sha256": design_sha,
+                "placement": placement, "storage_root_folder_id": _DRIVE_ROOT,
+                "preview_only": listing_preview_requires_review(
+                    committed.native_width, committed.native_height),
+                "drive_manifest_id": manifest}
     manifest = await _ensure_pack_manifest(
         db, agent.tenant_id, listing, pack, garment,
         design_sha, source_sha, placement,

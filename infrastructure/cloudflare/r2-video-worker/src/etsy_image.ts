@@ -7,6 +7,7 @@
  */
 export interface ImageBucketObject {
   size: number;
+  uploaded?: Date;
   body?: ReadableStream<Uint8Array>;
   httpEtag?: string;
   httpMetadata?: { contentType?: string };
@@ -28,11 +29,12 @@ export interface ImageEnv {
 }
 
 const IMAGE_PATH =
-  /^\/etsy-images\/v1\/[0-9a-f]{24}\/sp-[0-9a-f]{40}\/(?:0[1-9]|10)\/(?:thumbnail\/[0-9a-f]{64}\.png|preview\/[0-9a-f]{64}-w720v1\.webp)$/;
+  /^\/etsy-images\/v1\/[0-9a-f]{24}\/sp-[0-9a-f]{40}\/(?:0[1-9]|1[0-3])\/(?:thumbnail\/[0-9a-f]{64}\.png|preview\/[0-9a-f]{64}-w720v1\.webp)$/;
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 const MAX_IMAGE_TICKET_SECONDS = 60;
 const INTERNAL_ORIGIN = "https://cam-r2-etsy-image-cache.internal";
-const INTERNAL_CACHE_CONTROL = "public, max-age=31536000, immutable";
+const IMAGE_RETENTION_SECONDS = 30 * 86400;
+const INTERNAL_EXPIRY_HEADER = "X-CAM-Image-Expires-At";
 const textEncoder = new TextEncoder();
 const SIG_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
@@ -105,10 +107,18 @@ async function authorized(request: Request, secret: string, now: number): Promis
     return null;
   }
 }
-function bytesOkay(object: ImageBucketObject | null, expectedMime: string): object is ImageBucketObject {
+function imageExpiresAt(object: ImageBucketObject | null): number | null {
+  if (!(object?.uploaded instanceof Date)) return null;
+  const uploaded = object.uploaded.getTime();
+  if (!Number.isFinite(uploaded)) return null;
+  return Math.floor(uploaded / 1000) + IMAGE_RETENTION_SECONDS;
+}
+function bytesOkay(object: ImageBucketObject | null, expectedMime: string, now: number): object is ImageBucketObject {
+  const expiry = imageExpiresAt(object);
   return object !== null && Number.isSafeInteger(object.size) &&
     object.size > 0 && object.size <= MAX_IMAGE_BYTES &&
-    object.httpMetadata?.contentType === expectedMime;
+    object.httpMetadata?.contentType === expectedMime &&
+    expiry !== null && expiry > now && expiry <= now + IMAGE_RETENTION_SECONDS;
 }
 function imageHeaders(object: ImageBucketObject, mime: string, status: "HIT" | "MISS" | "BYPASS"): Headers {
   const headers = protectedHeaders();
@@ -138,26 +148,35 @@ export async function handleEtsyImageRequest(
     if (request.method === "HEAD") {
       const metadata = await env.VIDEO_CACHE_BUCKET.head(key);
       if (!metadata) return fail(404);
-      if (!bytesOkay(metadata, mime)) return fail(503);
+      const headExpiry = imageExpiresAt(metadata);
+      if (headExpiry === null || headExpiry <= now || headExpiry > now + IMAGE_RETENTION_SECONDS) return fail(404);
+      if (!bytesOkay(metadata, mime, now)) return fail(503);
       return new Response(null, { status: 200, headers: imageHeaders(metadata, mime, "BYPASS") });
     }
     if (request.headers.has("Range")) return fail(416);
     const internal = toInternalRequest(path);
     const hit = cache ? await cache.match(internal) : undefined;
-    if (hit && hit.status === 200 && hit.headers.get("Content-Type") === mime) {
+    const cacheExpiry = Number(hit?.headers.get(INTERNAL_EXPIRY_HEADER));
+    if (hit && hit.status === 200 && hit.headers.get("Content-Type") === mime &&
+        Number.isSafeInteger(cacheExpiry) && cacheExpiry > now &&
+        cacheExpiry <= now + IMAGE_RETENTION_SECONDS) {
       const headers = new Headers(hit.headers);
       headers.set("Cache-Control", "private, no-store");
       headers.set("Referrer-Policy", "no-referrer");
       headers.set("X-Content-Type-Options", "nosniff");
       headers.set("X-CAM-Image-Cache", "HIT");
+      headers.delete(INTERNAL_EXPIRY_HEADER);
       return new Response(hit.body, { status: 200, headers });
     }
     const object = await env.VIDEO_CACHE_BUCKET.get(key);
     if (!object) return fail(404);
-    if (!bytesOkay(object, mime) || !object.body) return fail(503);
+    const expiry = imageExpiresAt(object);
+    if (expiry === null || expiry <= now || expiry > now + IMAGE_RETENTION_SECONDS) return fail(404);
+    if (!bytesOkay(object, mime, now) || !object.body) return fail(503);
     if (cache) {
       const cacheHeaders = imageHeaders(object, mime, "MISS");
-      cacheHeaders.set("Cache-Control", INTERNAL_CACHE_CONTROL);
+      cacheHeaders.set("Cache-Control", "public, max-age=" + String(expiry - now) + ", immutable");
+      cacheHeaders.set(INTERNAL_EXPIRY_HEADER, String(expiry));
       cacheHeaders.delete("X-CAM-Image-Cache");
       const cached = new Response(object.body, { status: 200, headers: cacheHeaders });
       const promise = cache.put(internal, cached.clone()).catch(() => undefined);

@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { WorkspacePageHeader, WorkspaceBackToAssets } from "../components/WorkspacePageHeader";
+import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { fetchAccessIdentity } from "../../features/access_management";
 import {
   spyFetch, readableTime,
@@ -15,11 +15,17 @@ import "./EtsySpyHeader.css";
 import { KeywordTreeView } from "./KeywordTreeView";
 import { DesignCell } from "./DesignCell";
 import { ListingImageCell } from "./ListingImageCell";
+import { VideoUGCCell } from "./VideoUGCCell";
+import { EtsySpyQuickInspect } from "./EtsySpyWorkspaceV2";
 import { EtsyDeferredImage } from "./EtsyDeferredImage";
 import "./EtsySpyImages.css";
 import "./EtsySpyDayCarousel.css";
 import "./EtsySpySort.css";
 import "./EtsySpyReviewAudit.css";
+import "./EtsySpyWorkspaceV2.css";
+import "./EtsySpyCommandBar.css";
+import "./EtsySpyEtsyBadges.css";
+import "./EtsySpyQuickInspect.css";
 import { pickedPollInterval, reconcilePickedPage } from "./pickedPageReconciliation";
 import { TikTokListingCell, canQueueTikTokDraft } from "./TikTokListingCell";
 
@@ -208,6 +214,32 @@ const ProductThumbnail = memo(function ProductThumbnail({ thumb, full, url, titl
   </a>;
 });
 
+export function EtsyDemandBadge({ label }: { label: string | null | undefined }) {
+  if (!label?.trim()) return <span className="etsy-muted">—</span>;
+  // Treat only real, source-provided labels as Etsy demand badges. Unknown
+  // labels stay neutral; CAM review verdicts are always a separate control.
+  const normalized = label.trim().toLowerCase();
+  const kind = normalized === "bestseller" ? "bestseller" :
+    normalized === "popular now" ? "popular" : "other";
+  return <span className={"etsy-pill etsy-demand " + kind}
+    data-etsy-badge-kind={kind} title={"Etsy: " + label.trim()}
+    aria-label={"Etsy: " + label.trim()}>
+    {kind === "bestseller" && <svg className="etsy-demand-icon" viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 2h4l2 5 2-5h4l-3 7M9 9 6 2" />
+      <circle cx="12" cy="15.5" r="6" />
+      <path d="m12 11.7 1.1 2.3 2.5.4-1.8 1.8.4 2.5-2.2-1.2-2.2 1.2.4-2.5-1.8-1.8 2.5-.4Z" />
+    </svg>}
+    {kind === "popular" && <svg className="etsy-demand-icon" viewBox="0 0 24 24"
+      fill="none" stroke="currentColor" strokeWidth="1.8"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12.5 2c1.3 3.3-.9 5.1-.9 7.4 0 1.5 1.1 2.6 2.5 3 1.3-2.1 2.2-3.3 2-5.2C19.5 10.7 21 13 21 16a9 9 0 0 1-18 0c0-3.2 1.4-6.3 4.5-8.5-.1 2.6.9 4 2.4 4.8C9.9 8.6 10.4 5.3 12.5 2Z"/>
+    </svg>}
+    <span>{label.trim()}</span>
+  </span>;
+}
+
 function ReviewAssessmentBadge({ audit, itemReviews, cartLowerBound, inCarts }: {
   audit: ReviewAssessment | null | undefined;
   itemReviews?: number | null; cartLowerBound?: boolean | null; inCarts: number | null;
@@ -215,18 +247,33 @@ function ReviewAssessmentBadge({ audit, itemReviews, cartLowerBound, inCarts }: 
   const eligibleToAudit = cartLowerBound === true && Number(inCarts) >= 20 &&
     Number.isInteger(itemReviews) && Number(itemReviews) > 3;
   if (!audit && !eligibleToAudit) return null;
-  if (!audit) return <small className="etsy-review-proof-waiting"
-    title="Có 20+ carts và hơn 3 review của chính listing; chưa có bằng chứng đã đọc modal">
-    Review · chưa phân tích
-  </small>;
+  if (!audit) return <span className="etsy-review-proof-waiting"
+    role="img" aria-label="CAM Review: Chưa phân tích"
+    title="CAM Review · Chưa phân tích: có 20+ carts và hơn 3 review của chính listing; chưa có bằng chứng đã đọc modal">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+    </svg>
+    <span className="etsy-review-visually-hidden">Review · chưa phân tích</span>
+  </span>;
   const label = audit.verdict === "take" ? "Nên lấy"
     : audit.verdict === "skip" ? "Không nên lấy" : "Cần xem xét";
   const themes = Array.isArray(audit.concerns) ? audit.concerns.slice(0, 5) : [];
   const evidence = Array.isArray(audit.evidence) ? audit.evidence.slice(0, 5) : [];
   return <details className={"etsy-review-proof verdict-" + audit.verdict}
     data-review-verdict={audit.verdict}>
-    <summary title={"Đã đọc " + audit.sampled + " review của chính sản phẩm"}>
-      Review · {label}
+    <summary aria-label={"CAM Review: " + label}
+      title={"CAM Review · " + label + " · Đã đọc " + audit.sampled + " review của chính sản phẩm. Bấm để xem bằng chứng."}>
+      {audit.verdict === "take"
+        ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>
+          </svg>
+        : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m12 3 9 16H3L12 3Z"/><path d="M12 9v4m0 3h.01"/>
+          </svg>}
+      <span className="etsy-review-visually-hidden">Review · {label}</span>
     </summary>
     <div className="etsy-review-proof-details">
       <strong>{label}</strong>
@@ -252,12 +299,13 @@ function ReviewAssessmentBadge({ audit, itemReviews, cartLowerBound, inCarts }: 
 }
 
 function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDisabled, selected,
-  onSelect, onListingQueued, optimizerEnabled }: {
+  onSelect, onListingQueued, optimizerEnabled, onInspect, isInspected }: {
   item: Listing; canPick: boolean; busy: boolean;
   onPick: (item: Listing) => void; onLater: (item: Listing) => void;
   selectable: boolean; selectDisabled: boolean; selected: boolean;
   onSelect: (listingKey: string, checked: boolean) => void;
   onListingQueued: () => void; optimizerEnabled: boolean;
+  onInspect: (item: Listing) => void; isInspected: boolean;
 }) {
   const [imagePreview, setImagePreview] = useState<{
     left: number; bottom: number; width: number; maxHeight: number; imageMaxHeight: number;
@@ -301,7 +349,8 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
     ? item.keywordSmsStatus || item.metadata?.keywordSmsStatus || "ready"
     : fallback ? "title_fallback" : item.keywordSmsStatus || item.metadata?.keywordSmsStatus || "not_checked";
   return <>
-    <tr className={"etsy-product-row" + (selected ? " is-selected" : "")}
+    <tr className={"etsy-product-row" + (selected ? " is-selected" : "") +
+      (isInspected ? " is-inspected" : "")}
       onPointerEnter={showImagePreview}
       onPointerLeave={() => setImagePreview(null)}
       onPointerCancel={() => setImagePreview(null)}>
@@ -312,7 +361,7 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
         title={selectDisabled ? "Sản phẩm đã chạy, đang xử lý hoặc worker chưa bật" : undefined}
         onChange={event => onSelect(item.listingKey, event.target.checked)} />
     </td>}
-    <td className="etsy-title">
+    <td className="etsy-title" data-etsy-col="pageTitle">
       <div className="etsy-product-identity">
         <ProductThumbnail thumb={previewThumb} full={previewFull}
           url={item.url} title={item.pageTitle} />
@@ -372,7 +421,8 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
       optimizerEnabled={optimizerEnabled} onQueued={onListingQueued} />}
     {item.picked && <ListingImageCell item={item} canDelete={canPick}
       onImageDeleted={onListingQueued} onPreviewStart={() => setImagePreview(null)} />}
-    <td className="etsy-sms-cell">
+    {item.picked && <VideoUGCCell item={item} />}
+    <td className="etsy-sms-cell" data-etsy-col="keywordSms">
       {smsText ? <div className="etsy-sms-preview"
         title={smsStatus === "title_fallback" ? "Keyword mặc định lấy từ title · " + smsText : smsText}>
         <span className="etsy-sms-list">{smsText}</span>
@@ -382,19 +432,26 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
         {smsStatus === "not_checked" ? "Chưa kiểm tra" : "None"}
       </span>}
     </td>
-    <td><div className="etsy-badge-stack">
-      {item.badge || item.searchBadge ? <span className={"etsy-pill etsy-demand " + (/popular/i.test(item.badge || item.searchBadge || "") ? "popular" : "bestseller")}>{item.badge || item.searchBadge}</span> : <span className="etsy-muted">—</span>}
+    <td data-etsy-col="badge"><div className="etsy-badge-stack">
+      <EtsyDemandBadge label={item.badge || item.searchBadge} />
       <ReviewAssessmentBadge audit={item.reviewAssessment ?? item.metadata?.reviewAssessment}
         itemReviews={item.itemReviews} cartLowerBound={item.cartLowerBound}
         inCarts={item.inCarts} />
     </div>
     </td>
-    <td className="etsy-num">{item.bought24h ?? "—"}</td>
-    <td className="etsy-num">{item.views24h ?? "—"}</td>
-    <td className="etsy-num">{item.inCarts === 20 ? "20+" : item.inCarts ?? "—"}</td>
-    <td className="etsy-time">{readableTime(item.observedAt)}</td>
-    <td className="etsy-action-cell">
+    <td className="etsy-num" data-etsy-col="bought24h">{item.bought24h ?? "—"}</td>
+    <td className="etsy-num" data-etsy-col="views24h">{item.views24h ?? "—"}</td>
+    <td className="etsy-num" data-etsy-col="inCarts">{item.inCarts === 20 ? "20+" : item.inCarts ?? "—"}</td>
+    <td className="etsy-time" data-etsy-col="observedAt">{readableTime(item.observedAt)}</td>
+    <td className="etsy-action-cell" data-etsy-col="action">
       <div className="etsy-row-actions">
+        <button type="button" className={"etsy-v2-inspect-trigger" + (isInspected ? " active" : "")}
+          aria-label={"Quick Inspect " + item.pageTitle}
+          aria-pressed={isInspected} title="Xem nhanh sản phẩm"
+          onClick={() => onInspect(item)}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+            aria-hidden="true"><path d="M2.5 12c2.2-3.7 5.4-5.5 9.5-5.5s7.3 1.8 9.5 5.5c-2.2 3.7-5.4 5.5-9.5 5.5S4.7 15.7 2.5 12Z" /><circle cx="12" cy="12" r="2.8" /></svg>
+        </button>
         <button type="button"
           className={"etsy-pick-button" + (item.picked ? " is-picked" : "")}
           aria-label={(item.picked ? "Unpick " : "Pick ") + item.pageTitle}
@@ -475,33 +532,6 @@ function EtsyTableViewport({ children, scope, fillViewport = false }: {
   children: ReactNode; scope: string; fillViewport?: boolean;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
-  const [edges, setEdges] = useState({ overflow: false, atStart: true, atEnd: true });
-  const sync = useCallback(() => {
-    const el = viewportRef.current;
-    if (!el) return;
-    const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
-    const next = {
-      overflow: maxScroll > 2,
-      atStart: el.scrollLeft <= 2,
-      atEnd: el.scrollLeft >= maxScroll - 2,
-    };
-    setEdges(prev => prev.overflow === next.overflow &&
-      prev.atStart === next.atStart && prev.atEnd === next.atEnd ? prev : next);
-  }, []);
-  useEffect(() => {
-    const el = viewportRef.current;
-    if (!el) return;
-    sync();
-    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(sync) : null;
-    observer?.observe(el);
-    const table = el.querySelector("table");
-    if (table) observer?.observe(table);
-    window.addEventListener("resize", sync);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener("resize", sync);
-    };
-  }, [scope, sync]);
   useEffect(() => {
     if (!fillViewport) return;
     const el = viewportRef.current;
@@ -544,33 +574,8 @@ function EtsyTableViewport({ children, scope, fillViewport = false }: {
       el.style.removeProperty("--etsy-picked-table-available-height");
     };
   }, [scope, fillViewport]);
-  const move = (direction: -1 | 1) => {
-    const el = viewportRef.current;
-    if (!el) return;
-    const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
-    el.scrollLeft = Math.max(0, Math.min(maxScroll,
-      el.scrollLeft + direction * Math.max(240, Math.round(el.clientWidth * .7))));
-    sync();
-  };
-  return <>
-    {edges.overflow && <div className="etsy-table-scroll-nav"
-      aria-label="Điều hướng các cột trong bảng">
-      <span>{edges.atStart ? "Còn cột bên phải" :
-        edges.atEnd ? "Đã đến cột cuối" : "Xem các cột khác"}</span>
-      <div className="etsy-table-scroll-buttons">
-        <button type="button" aria-label="Cuộn bảng sang trái"
-          disabled={edges.atStart} onClick={() => move(-1)}>
-          <span aria-hidden="true">←</span>
-        </button>
-        <button type="button" aria-label="Cuộn bảng sang phải"
-          disabled={edges.atEnd} onClick={() => move(1)}>
-          <span aria-hidden="true">→</span>
-        </button>
-      </div>
-    </div>}
-    <div className={"etsy-table-wrap" + (fillViewport ? " is-viewport-fit" : "")}
-      ref={viewportRef} onScroll={sync}>{children}</div>
-  </>;
+  return <div className={"etsy-table-wrap" + (fillViewport ? " is-viewport-fit" : "")}
+    ref={viewportRef}>{children}</div>;
 }
 
 type ObservedDayScrollEdges = {overflow: boolean; atStart: boolean; atEnd: boolean};
@@ -675,6 +680,15 @@ export function EtsySpyPage() {
   // Small screens start in an overview-first mode; the chosen expansion stays
   // mounted through Scout polls so open filters never disappear on refresh.
   const [facetsExpanded, setFacetsExpanded] = useState(false);
+  const [inspectedKey, setInspectedKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!inspectedKey) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setInspectedKey(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [inspectedKey]);
   const searchDebounceRef = useRef<number | null>(null);
   const [blacklistInput, setBlacklistInput] = useState("");
   const [blacklist, setBlacklist] = useState<string[]>([]);
@@ -722,6 +736,13 @@ export function EtsySpyPage() {
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
+  // Preserve an internal, non-visual refresh entry point for CAM operations and
+  // tests. Automatic Scout/day/Picked polling remains the default UI behavior.
+  useEffect(() => {
+    const refreshOnSignal = () => setRefresh(current => current + 1);
+    window.addEventListener("cam:etsy-spy:refresh", refreshOnSignal);
+    return () => window.removeEventListener("cam:etsy-spy:refresh", refreshOnSignal);
+  }, []);
   const [pairing, setPairing] = useState<{ agent_id: string; token: string } | null>(null);
   const [pairName, setPairName] = useState("DESKTOP-3FR0LF0");
   const [pairError, setPairError] = useState("");
@@ -737,6 +758,7 @@ export function EtsySpyPage() {
   // Preserve mounted rows and their modals during background refreshes.
   // Only a real tab/filter/page change invalidates the visible dataset.
   const rows = tableResult?.selectionScope === selectionScope ? tableResult.data : null;
+  useEffect(() => setInspectedKey(null), [selectionScope]);
   const loading = !rows && (fetching || tableResult?.selectionScope !== selectionScope);
   const isPickedSelection = options.tab === "products" && options.pickState === "picked" &&
     !options.blacklistView && !options.winKeywordsView;
@@ -1163,14 +1185,14 @@ export function EtsySpyPage() {
     if (options.tab === "products") return options.pickState === "picked"
       ? [SORTS.products[0], { id: "design", text: "Design" },
          { id: "tiktokListing", text: "TikTok SEO" },
-         { id: "listingImage", text: "Media" }, ...SORTS.products.slice(1)]
+         { id: "listingImage", text: "Media" },
+         { id: "videoUgc", text: "Video UGC" }, ...SORTS.products.slice(1)]
       : SORTS.products;
     if (options.tab === "keywords") return SORTS.keywords;
     return SORTS.logs;
   }, [options.tab, options.pickState]);
-  const syncLabel = summary?.source_status === "online" ? "Agent online"
-    : summary?.source_status === "sync_delayed" ? "Sync delayed"
-    : summary?.source_status === "never_synced" ? "Never synced" : "Agent offline";
+  const inspectedListing = options.tab === "products" && rows?.items && inspectedKey
+    ? (rows.items as Listing[]).find(item => item.listingKey === inspectedKey) ?? null : null;
   // Keep pagination shape stable while the next page is being fetched. Controls
   // stay disabled until the current request returns, so stale counts cannot navigate.
   const totalPages = Math.max(1, rows?.pages ||
@@ -1296,13 +1318,24 @@ export function EtsySpyPage() {
           titleAddon={<h2 className="etsy-spy-context">
             {activeTab === "products" ? "Product Intelligence" : TABS.find(tab => tab.id === activeTab)?.title}
           </h2>}
+          center={
+        <section className="etsy-stats" aria-label="Etsy Spy overview filters">
+          {overviewCards.map((card, index) => <button type="button"
+            className={`etsy-stat etsy-stat-${card.tone}${card.selected ? " active" : ""}`}
+            key={card.title} aria-pressed={card.selected}
+            title={card.title === "Picked"
+              ? `View picked records · ${pickedCardTooltip}`
+              : `View ${card.title.toLowerCase()} records`}
+            onClick={() => selectTab(card.tab, card.filters)}>
+            <span className="etsy-stat-heading">
+              <span className="etsy-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d={SUMMARY_ICONS[index] || SUMMARY_ICONS[0]} /></svg></span>
+              <span>{card.title}</span>
+            </span>
+            <strong>{typeof card.value === "number" ? card.value.toLocaleString() : card.value ?? "—"}</strong>
+          </button>)}
+        </section>
+          }
           actions={<>
-            <div className="etsy-header-quick-actions">
-              <span className={"etsy-connection " + (summary?.source_status || "never_synced")}>{syncLabel}</span>
-              <button type="button" className="etsy-btn etsy-refresh"
-                onClick={() => setRefresh(n => n + 1)}><span aria-hidden="true">↻</span> Refresh</button>
-              <WorkspaceBackToAssets />
-            </div>
             <div className="etsy-stage-heading-actions">
             {activeTab === "products" && !isWinKeywordsView && <form className="etsy-blacklist-form"
               onSubmit={addBlacklist} aria-label="Blacklist product title phrases">
@@ -1333,21 +1366,6 @@ export function EtsySpyPage() {
             </div>
           </>}
         />
-        <section className="etsy-stats" aria-label="Etsy Spy overview filters">
-          {overviewCards.map((card, index) => <button type="button"
-            className={`etsy-stat etsy-stat-${card.tone}${card.selected ? " active" : ""}`}
-            key={card.title} aria-pressed={card.selected}
-            title={card.title === "Picked"
-              ? `View picked records · ${pickedCardTooltip}`
-              : `View ${card.title.toLowerCase()} records`}
-            onClick={() => selectTab(card.tab, card.filters)}>
-            <span className="etsy-stat-heading">
-              <span className="etsy-stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d={SUMMARY_ICONS[index] || SUMMARY_ICONS[0]} /></svg></span>
-              <span>{card.title}</span>
-            </span>
-            <strong>{typeof card.value === "number" ? card.value.toLocaleString() : card.value ?? "—"}</strong>
-          </button>)}
-        </section>
         {activeTab === "products" && !showProductFacets && <div className="etsy-facet-context">
           {isBlacklistView
             ? "Blacklist · quản lý cụm từ bị chặn, không sử dụng phân nhóm sản phẩm theo ngày."
@@ -1502,6 +1520,7 @@ export function EtsySpyPage() {
                   <option value="design">Design · job hoàn tất</option>
                   <option value="tiktokListing">TikTok SEO · trạng thái</option>
                   <option value="listingImage">Media · số ảnh</option>
+                  <option value="videoUgc">Video UGC · số video đã lưu</option>
                 </>}
               </select>
               <button type="button" className="etsy-adaptive-sort-direction"
@@ -1615,7 +1634,8 @@ export function EtsySpyPage() {
       <KeywordTreeView sessionId={options.sessionId} search={options.q} status={options.status}
         sort={options.sort} direction={options.dir} refresh={refresh}
         canManage={canManage} onSort={sortColumn} />
-      : <div className="etsy-table-card" id="etsy-product-results">
+      : <div className={"etsy-v2-results-layout" + (inspectedListing ? " has-inspector" : "")}>
+        <div className="etsy-table-card etsy-v2-density-default" id="etsy-product-results">
       {loading ? <div role="status" className="etsy-skeleton">Loading synchronized records…</div>
         : !rows?.items.length ? <div className="etsy-empty etsy-empty-guided" aria-live="polite">
           {activeTab === "products" && !isBlacklistView && !isWinKeywordsView ? <>
@@ -1665,7 +1685,7 @@ export function EtsySpyPage() {
           </>}
         </div>
         : <EtsyTableViewport scope={selectionScope}
-            fillViewport={activeTab === "products" && options.pickState === "picked"}>
+            fillViewport={activeTab === "products"}>
           <table className={"etsy-data-table is-" + activeTab +
             (selectable ? " is-selectable" : "") +
             (isPickedSelection ? " is-picked-listings" : "")}><thead><tr>
@@ -1678,7 +1698,7 @@ export function EtsySpyPage() {
                 ref={node => { if (node) node.indeterminate = selectedOnPage.length > 0 && !allSelectedOnPage; }}
                 onChange={event => updatePageSelection(event.target.checked)} />
             </th>}
-            {columns.map(col => <th key={col.id}
+            {columns.map(col => <th key={col.id} data-etsy-col={col.id}
               className={options.sort === col.id ? "etsy-header-sorted" : undefined}
               aria-sort={options.sort === col.id ? (options.dir === "asc" ? "ascending" : "descending") : undefined}>
               <button type="button" className="etsy-column-sort" onClick={() => sortColumn(col.id)}
@@ -1686,6 +1706,7 @@ export function EtsySpyPage() {
                 title={col.id === "design" ? "Sắp xếp theo số job Design hoàn tất"
                   : col.id === "tiktokListing" ? "Sắp xếp theo trạng thái TikTok SEO mới nhất"
                   : col.id === "listingImage" ? "Media: sắp xếp theo số ảnh Listing Image đã lưu"
+                  : col.id === "videoUgc" ? "Video UGC: sắp xếp theo số video đã xác minh và lưu (0–2)"
                   : col.id === "keywordSms" ? "Sắp xếp theo keyword SMS đầu tiên (A–Z/Z–A)"
                   : "Bấm để sắp xếp tăng dần hoặc giảm dần"}>
                 <span className="etsy-column-sort-label">{col.text}</span>
@@ -1706,6 +1727,9 @@ export function EtsySpyPage() {
                   !canQueueTikTokDraft(item.tiktokListing?.status))}
                 selected={selectedListings.has(item.listingKey)}
                 onSelect={updateSelection}
+                onInspect={item => setInspectedKey(previous =>
+                  previous === item.listingKey ? null : item.listingKey)}
+                isInspected={inspectedKey === item.listingKey && !!inspectedListing}
                 onPick={togglePicked} onLater={toggleLater}
                 optimizerEnabled={Boolean(tiktokOverview?.enabled)}
                 onListingQueued={() => setRefresh(value => value + 1)} />)
@@ -1732,6 +1756,14 @@ export function EtsySpyPage() {
           </select>
         </label>
       </div>
+        </div>
+        {inspectedListing && <div className="etsy-v2-inspector-layer">
+          <button type="button" className="etsy-v2-inspector-scrim" aria-label="Đóng Quick Inspect"
+            onClick={() => setInspectedKey(null)} />
+          <EtsySpyQuickInspect listing={inspectedListing} canManage={canManage}
+            busy={pickBusyKey !== null || laterBusyKey !== null || bulkBusy}
+            onClose={() => setInspectedKey(null)} onPicked={togglePicked} onLater={toggleLater} />
+        </div>}
     </div>}
         </>}
     {SHOW_ETSY_OPERATIONS_PANELS && <details className="etsy-agents" aria-label="Windows synchronization agents">

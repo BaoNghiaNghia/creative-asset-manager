@@ -36,6 +36,8 @@ import "../styles/cam-evo-workflow-v19.css";
 import "../styles/cam-evo-operations-v20.css";
 // Phase 21: progressive data loading for AI Operations dashboard.
 import "../styles/cam-evo-operations-v21.css";
+// Shared responsive console navigation redesign.
+import "../styles/cam-navigation-v22.css";
 
 function AppBoot() {
   useEffect(() => {

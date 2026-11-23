@@ -397,6 +397,10 @@ async def store_listing_output_to_drive(
     small = await put("thumbnail", thumbnail, thumb_sha,
                       hierarchy["thumbnail_folder_id"],
                       filename.replace(".png", "-thumb.png"))
+    # The Drive-uploaded thumbnail bytes are already verified and available
+    # here. Warm only the existing bounded private memory cache, never the
+    # full PNG: the first UI view need not download this exact image again.
+    _THUMBNAIL_CACHE.put((tenant_id, small, thumb_sha), thumbnail)
     return {"drive_file_id": remote, "drive_thumbnail_id": small,
             "drive_folder_id": hierarchy["garment_folder_id"],
             "drive_thumbnail_folder_id": hierarchy["thumbnail_folder_id"],

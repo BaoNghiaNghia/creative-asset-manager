@@ -1,0 +1,716 @@
+/* Media-status rail: compact actionable video count or one-line truthful status.
+   Green is reserved for confirmed QA; saved video is only blue, not QA passed. */
+.etsy-video-ugc-cell{min-width:132px;max-width:150px;vertical-align:middle}
+.etsy-video-ugc-badge,.etsy-video-ugc-placeholder{
+  box-sizing:border-box;display:inline-flex;max-width:100%;
+  align-items:center;justify-content:flex-start;gap:6px;
+  min-height:33px;min-width:0;white-space:nowrap;line-height:1.2;
+  font-size:11px;font-weight:650;text-align:left;overflow:hidden;
+}
+.etsy-video-ugc-badge > span:last-child,
+.etsy-video-ugc-placeholder > span:last-child{
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.etsy-video-ugc-badge{
+  padding:5px 7px;border:1px solid #d8e5f3;border-radius:7px;
+  color:#2d587e;background:#f4f8fc;cursor:pointer;
+}
+.etsy-video-ugc-badge:hover{background:#e7f1fc;border-color:#9ec3e9}
+.etsy-video-ugc-badge:focus-visible{outline:2px solid #327ec4;outline-offset:2px}
+.etsy-video-ugc-placeholder{padding:5px 0;color:#7e8fa4}
+.etsy-video-ugc-status-icon{
+  box-sizing:border-box;flex:0 0 19px;display:grid;place-items:center;
+  width:19px;height:19px;border-radius:50%;
+  background:#e4eef9;color:#366b9a;
+  font-size:11px;font-weight:800;line-height:1;
+}
+.etsy-video-ugc-placeholder.tone-idle{color:#92a0af}
+.etsy-video-ugc-placeholder.tone-idle .etsy-video-ugc-status-icon{
+  background:#f1f3f6;color:#9eaab7;
+}
+.etsy-video-ugc-placeholder.tone-waiting{color:#956827}
+.etsy-video-ugc-placeholder.tone-waiting .etsy-video-ugc-status-icon{
+  background:#fff2dd;color:#9d6b23;font-size:14px;
+}
+.etsy-video-ugc-placeholder.tone-processing{color:#477596}
+.etsy-video-ugc-placeholder.tone-processing .etsy-video-ugc-status-icon{
+  background:#edf4fc;color:#507b9c;
+}
+.etsy-video-ugc-placeholder.tone-attention{color:#b04a46}
+.etsy-video-ugc-placeholder.tone-attention .etsy-video-ugc-status-icon{
+  background:#ffeded;color:#ae4847;
+}
+
+/* Video UGC Studio V3: one fetched MP4 at a time and two lightweight selectors.
+   Geometry follows active media ratio rather than forcing equal-height players. */
+.etsy-video-ugc-backdrop {
+  position:fixed;
+  inset:0;
+  z-index:2000;
+  display:grid;
+  place-items:center;
+  box-sizing:border-box;
+  padding:15px;
+  background:rgba(13,21,34,.66);
+  backdrop-filter:blur(3px);
+}
+.etsy-video-ugc-modal {
+  box-sizing:border-box;
+  display:flex;
+  flex-direction:column;
+  width:min(960px,calc(100vw - 30px));
+  max-height:calc(100dvh - 30px);
+  min-height:0;
+  overflow:hidden;
+  border:1px solid #e3e9f1;
+  border-radius:17px;
+  background:#fff;
+  box-shadow:0 25px 80px rgba(7,19,37,.28);
+  color:#1d2b40;
+  font-family:inherit;
+}
+/* A portrait video has its own compact studio. Landscape can use more
+   horizontal room, without turning the dialog into a fullscreen overlay. */
+.etsy-video-ugc-modal.is-vertical {width:min(680px,calc(100vw - 30px))}
+.etsy-video-ugc-modal.is-single.is-vertical {width:min(430px,calc(100vw - 30px))}
+.etsy-video-ugc-modal.is-single.is-horizontal {width:min(780px,calc(100vw - 30px))}
+.etsy-video-ugc-modal-head {
+  box-sizing:border-box;
+  display:flex;
+  flex:0 0 auto;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  min-height:73px;
+  padding:13px 18px;
+  border-bottom:1px solid #e9eef5;
+}
+.etsy-video-ugc-modal-identity {
+  display:flex;
+  min-width:0;
+  align-items:center;
+  gap:10px;
+}
+.etsy-video-ugc-modal-hero-icon {
+  box-sizing:border-box;
+  display:grid;
+  flex:0 0 37px;
+  place-items:center;
+  width:37px;
+  height:37px;
+  border-radius:11px;
+  background:#edf3fb;
+  color:#366da9;
+}
+.etsy-video-ugc-modal-hero-icon svg {width:20px;height:20px}
+.etsy-video-ugc-modal-titles {min-width:0;display:flex;flex-direction:column;gap:2px}
+.etsy-video-ugc-kicker {
+  font-size:9px;
+  font-weight:780;
+  letter-spacing:.09em;
+  line-height:1.15;
+  color:#8a99ac;
+}
+.etsy-video-ugc-modal-titles h2 {
+  margin:0;
+  color:#1d304b;
+  font-size:17px;
+  font-weight:790;
+  letter-spacing:-.02em;
+  line-height:1.24;
+}
+.etsy-video-ugc-modal-titles p {
+  margin:0;
+  color:#8090a5;
+  font-size:10.5px;
+  line-height:1.3;
+  overflow-wrap:anywhere;
+}
+.etsy-video-ugc-modal-head-actions {
+  display:flex;
+  flex:0 0 auto;
+  align-items:center;
+  gap:8px;
+}
+.etsy-video-ugc-modal-count {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:27px;
+  box-sizing:border-box;
+  padding:4px 8px;
+  border:1px solid #dae6f4;
+  border-radius:999px;
+  background:#f1f6fc;
+  color:#537393;
+  font-size:11px;
+  font-weight:750;
+  white-space:nowrap;
+  font-variant-numeric:tabular-nums;
+}
+.etsy-video-ugc-close {
+  display:grid;
+  flex:0 0 34px;
+  place-items:center;
+  width:34px;
+  height:34px;
+  padding:0;
+  border:1px solid #e3e9f1;
+  border-radius:10px;
+  background:#fff;
+  color:#66788d;
+  cursor:pointer;
+}
+.etsy-video-ugc-close svg {width:16px;height:16px}
+.etsy-video-ugc-close:hover {background:#f3f6fa;color:#1b2a41}
+.etsy-video-ugc-modal :is(button,a):focus-visible {
+  outline:2px solid #327ac0;
+  outline-offset:2px;
+}
+.etsy-video-ugc-modal-content {
+  box-sizing:border-box;
+  flex:1 1 auto;
+  min-height:0;
+  overflow:auto;
+  overscroll-behavior:contain;
+  scrollbar-width:thin;
+  padding:16px;
+}
+.etsy-video-ugc-studio {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(220px,252px);
+  align-items:start;
+  gap:18px;
+  min-width:0;
+}
+.etsy-video-ugc-studio.is-vertical {
+  grid-template-columns:minmax(0,1fr) minmax(208px,228px);
+  gap:14px;
+}
+.etsy-video-ugc-studio.is-single {
+  grid-template-columns:minmax(0,1fr);
+  max-width:590px;
+  margin:0 auto;
+}
+.etsy-video-ugc-primary {
+  display:flex;
+  flex-direction:column;
+  align-items:stretch;
+  min-width:0;
+  overflow:hidden;
+}
+/* Keep the title, 9:16 canvas and source action aligned as one portrait. */
+.etsy-video-ugc-primary.is-vertical {align-items:center}
+.etsy-video-ugc-primary.is-vertical .etsy-video-ugc-primary-head,
+.etsy-video-ugc-primary.is-vertical .etsy-video-ugc-primary-foot {
+  width:min(100%,330px,38dvh);
+}
+.etsy-video-ugc-primary-head {
+  display:flex;
+  min-height:32px;
+  align-items:center;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:7px;
+  padding:0 0 10px;
+}
+.etsy-video-ugc-player-identity {
+  display:inline-flex;
+  min-width:0;
+  align-items:center;
+  gap:7px;
+}
+.etsy-video-ugc-player-identity strong {
+  font-size:12px;
+  color:#293d58;
+  font-weight:770;
+  white-space:nowrap;
+}
+.etsy-video-ugc-ratio {
+  display:inline-flex;
+  padding:3px 6px;
+  border-radius:5px;
+  background:#eff3f8;
+  color:#6e8097;
+  font-size:10px;
+  font-weight:700;
+  font-variant-numeric:tabular-nums;
+}
+.etsy-video-ugc-qa {
+  box-sizing:border-box;
+  display:inline-flex;
+  align-items:center;
+  flex:0 0 auto;
+  gap:5px;
+  border:1px solid transparent;
+  border-radius:999px;
+  padding:4px 8px;
+  font-size:10px;
+  font-weight:680;
+  white-space:nowrap;
+  line-height:1.25;
+}
+.etsy-video-ugc-qa.is-pending {
+  border-color:#f0e2c5;
+  background:#fff7e7;
+  color:#996c29;
+}
+.etsy-video-ugc-qa.is-saved {
+  border-color:#dce7f4;
+  background:#eff5fb;
+  color:#4a6e94;
+}
+.etsy-video-ugc-qa-dot {
+  display:inline-block;
+  width:6px;
+  height:6px;
+  flex:0 0 6px;
+  border-radius:50%;
+  background:currentColor;
+}
+.etsy-video-ugc-player-stage {
+  box-sizing:border-box;
+  position:relative;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:100%;
+  min-width:0;
+  overflow:hidden;
+  border:1px solid #e5ebf3;
+  border-radius:12px;
+  background:#f1f5fa;
+  isolation:isolate;
+}
+.etsy-video-ugc-player-stage.is-vertical {
+  width:min(100%,330px,38dvh);
+  height:auto;
+  min-height:0;
+  padding:0;
+  aspect-ratio:9/16;
+  background:#101a2a;
+}
+.etsy-video-ugc-player-stage.is-horizontal {
+  aspect-ratio:16/9;
+  height:auto;
+  min-height:0;
+  padding:0;
+  background:#101a2a;
+}
+.etsy-video-ugc-player-stage video {
+  box-sizing:border-box;
+  display:block;
+  max-width:100%;
+  max-height:100%;
+  object-fit:contain;
+  border-radius:7px;
+  background:#121b2a;
+}
+.etsy-video-ugc-player-stage.is-vertical video {
+  height:100%;
+  width:100%;
+  aspect-ratio:9/16;
+}
+.etsy-video-ugc-player-stage.is-horizontal video {
+  width:100%;
+  height:100%;
+  aspect-ratio:16/9;
+  border-radius:0;
+}
+.etsy-video-ugc-load-status {
+  box-sizing:border-box;
+  position:absolute;
+  z-index:2;
+  left:50%;
+  top:12px;
+  transform:translateX(-50%);
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  max-width:calc(100% - 28px);
+  padding:7px 11px;
+  border:1px solid rgba(214,223,237,.45);
+  border-radius:999px;
+  background:rgba(17,30,48,.87);
+  color:#edf3fc;
+  font-size:10px;
+  font-weight:650;
+  white-space:nowrap;
+  pointer-events:none;
+}
+.etsy-video-ugc-spinner {
+  width:12px;
+  height:12px;
+  flex:0 0 12px;
+  border:2px solid rgba(255,255,255,.32);
+  border-top-color:#fff;
+  border-radius:50%;
+  animation:etsy-ugc-spin .8s linear infinite;
+}
+@keyframes etsy-ugc-spin {to{transform:rotate(360deg)}}
+.etsy-video-ugc-error {
+  box-sizing:border-box;
+  position:absolute;
+  z-index:3;
+  inset:0;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  padding:18px;
+  text-align:center;
+  background:rgba(22,32,49,.96);
+  color:#fff;
+}
+.etsy-video-ugc-error svg {width:26px;height:26px;color:#f6d084}
+.etsy-video-ugc-error strong {font-size:13px;font-weight:760}
+.etsy-video-ugc-error span {max-width:300px;font-size:11px;color:#c3d0df;line-height:1.45}
+.etsy-video-ugc-error button {
+  margin-top:5px;
+  padding:8px 16px;
+  border:1px solid #94aed3;
+  border-radius:8px;
+  color:#fff;
+  background:#315d90;
+  font-weight:720;
+  font-size:11px;
+  cursor:pointer;
+}
+.etsy-video-ugc-error button:hover {background:#3d6fa4}
+.etsy-video-ugc-primary-foot {
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  min-height:37px;
+  padding:8px 0;
+}
+.etsy-video-ugc-primary-foot a {
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  color:#2e6aa6;
+  font-size:11px;
+  font-weight:720;
+  text-decoration:none;
+}
+.etsy-video-ugc-primary-foot a:hover {text-decoration:underline}
+.etsy-video-ugc-primary-foot a svg {width:15px;height:15px}
+.etsy-video-ugc-selector {
+  box-sizing:border-box;
+  display:flex;
+  flex-direction:column;
+  gap:14px;
+  padding:3px 0 0;
+  min-width:0;
+}
+.etsy-video-ugc-version-group {
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.etsy-video-ugc-version {
+  box-sizing:border-box;
+  display:flex;
+  align-items:center;
+  justify-content:flex-start;
+  min-width:0;
+  gap:9px;
+  min-height:74px;
+  padding:8px 10px;
+  border:1px solid #e2e8f0;
+  border-radius:11px;
+  background:#fff;
+  color:#51667f;
+  text-align:left;
+  cursor:pointer;
+}
+.etsy-video-ugc-version:hover {border-color:#a6c5e5;background:#f7fafc}
+.etsy-video-ugc-version.is-active {
+  border-color:#91b9e5;
+  background:#f0f6fe;
+  box-shadow:inset 0 0 0 1px #bed4ef;
+}
+.etsy-video-ugc-version-preview {
+  box-sizing:border-box;
+  display:grid;
+  flex:0 0 54px;
+  place-items:center;
+  width:54px;
+  height:54px;
+  padding:4px;
+  border-radius:7px;
+  background:#e9eef5;
+  overflow:hidden;
+}
+.etsy-video-ugc-version-preview img {
+  display:block;
+  max-width:100%;
+  max-height:100%;
+  width:auto;
+  height:auto;
+  object-fit:contain;
+  border-radius:4px;
+}
+.etsy-video-ugc-version-preview svg {width:26px;height:26px;color:#7b8da5}
+.etsy-video-ugc-version-copy {
+  display:flex;
+  flex:1 1 auto;
+  flex-direction:column;
+  align-items:flex-start;
+  min-width:0;
+  gap:4px;
+}
+.etsy-video-ugc-version-copy strong {
+  font-size:12px;
+  font-weight:770;
+  color:#263e5b;
+  white-space:nowrap;
+}
+.etsy-video-ugc-version-copy small {
+  color:#7e8da1;
+  font-size:10px;
+  font-variant-numeric:tabular-nums;
+}
+.etsy-video-ugc-version-chevron {
+  font-size:22px;
+  font-weight:400;
+  color:#9eacbd;
+}
+.etsy-video-ugc-version.is-active .etsy-video-ugc-version-chevron {color:#3573b5}
+.etsy-video-ugc-selected-info {
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  padding:11px 0 0;
+  border-top:1px solid #e9edf4;
+}
+.etsy-video-ugc-selected-info h3 {
+  margin:0;
+  font-size:12px;
+  font-weight:770;
+  color:#314a69;
+}
+.etsy-video-ugc-selected-info p {
+  margin:0;
+  color:#8191a6;
+  font-size:11px;
+  line-height:1.5;
+}
+.etsy-video-ugc-storage-note {
+  display:flex;
+  align-items:flex-start;
+  gap:7px;
+  padding:10px;
+  border:1px solid #e3eaf4;
+  border-radius:9px;
+  background:#f6f9fd;
+  color:#718398;
+  font-size:10px;
+  line-height:1.45;
+}
+.etsy-video-ugc-storage-note svg {
+  flex:0 0 15px;
+  width:15px;
+  height:15px;
+  color:#4c80b0;
+}
+.etsy-video-ugc-studio.is-single .etsy-video-ugc-selector {display:none}
+@media (max-width:740px) {
+  .etsy-video-ugc-backdrop {padding:12px}
+  .etsy-video-ugc-modal,
+  .etsy-video-ugc-modal.is-vertical,
+  .etsy-video-ugc-modal.is-horizontal,
+  .etsy-video-ugc-modal.is-single.is-vertical,
+  .etsy-video-ugc-modal.is-single.is-horizontal {
+    width:min(560px,calc(100vw - 24px));
+    max-height:calc(100dvh - 24px);
+    border-radius:15px;
+  }
+  .etsy-video-ugc-modal-head {padding:11px 13px;min-height:67px}
+  .etsy-video-ugc-modal-hero-icon {flex-basis:34px;width:34px;height:34px;border-radius:9px}
+  .etsy-video-ugc-modal-titles h2 {font-size:16px}
+  .etsy-video-ugc-modal-count {font-size:10px}
+  .etsy-video-ugc-modal-content {padding:12px}
+  .etsy-video-ugc-studio,
+  .etsy-video-ugc-studio.is-vertical,
+  .etsy-video-ugc-studio.is-single {
+    grid-template-columns:minmax(0,1fr);
+    gap:10px;
+  }
+  .etsy-video-ugc-selector {order:-1;padding:0;gap:0}
+  .etsy-video-ugc-version-group {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+  .etsy-video-ugc-version {min-height:56px;padding:7px}
+  .etsy-video-ugc-version-preview {flex:0 0 34px;width:34px;height:34px}
+  .etsy-video-ugc-version-preview svg {width:21px;height:21px}
+  .etsy-video-ugc-version-copy strong {font-size:11px}
+  .etsy-video-ugc-version-chevron {display:none}
+  .etsy-video-ugc-selected-info,
+  .etsy-video-ugc-storage-note {display:none}
+  .etsy-video-ugc-primary-head {padding-bottom:8px}
+}
+@media (max-width:390px) {
+  .etsy-video-ugc-modal-hero-icon {display:none}
+  .etsy-video-ugc-modal-count {display:none}
+  .etsy-video-ugc-version-preview {display:none}
+  .etsy-video-ugc-modal-head {padding:10px 12px}
+  .etsy-video-ugc-modal-content {padding:10px}
+}
+@media (max-height:530px) {
+  .etsy-video-ugc-modal-head {min-height:54px;padding:7px 12px}
+  .etsy-video-ugc-modal-content {padding:8px}
+  .etsy-video-ugc-primary-head {min-height:26px;padding-bottom:4px}
+  .etsy-video-ugc-primary-foot {min-height:28px;padding:4px 0}
+  .etsy-video-ugc-player-stage.is-vertical,
+  .etsy-video-ugc-primary.is-vertical .etsy-video-ugc-primary-head,
+  .etsy-video-ugc-primary.is-vertical .etsy-video-ugc-primary-foot {
+    width:min(100%,220px,32dvh);
+  }
+  .etsy-video-ugc-primary.is-horizontal {align-items:center}
+  .etsy-video-ugc-player-stage.is-horizontal {width:min(100%,105dvh)}
+}
+@media (prefers-reduced-motion:reduce) {
+  .etsy-video-ugc-spinner {animation:none}
+}
+/* Deferred video: visible, lightweight poster before any MP4 request. */
+.etsy-video-ugc-poster-action {
+  box-sizing: border-box;
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 16px;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 12px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 11px;
+  background: linear-gradient(155deg,#304158,#121e30);
+  color: #eef4fc;
+  cursor: pointer;
+}
+.etsy-video-ugc-poster-action img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #131d2e;
+}
+.etsy-video-ugc-poster-play {
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border: 1px solid rgba(255,255,255,.75);
+  border-radius: 50%;
+  background: rgba(22,41,67,.84);
+  color: #fff;
+  box-shadow: 0 6px 24px rgba(14,26,46,.25);
+  transition: transform .15s ease, background .15s ease;
+}
+.etsy-video-ugc-poster-play svg {
+  display: block;
+  width: 25px;
+  height: 25px;
+  margin-left: 3px;
+}
+.etsy-video-ugc-poster-action:hover .etsy-video-ugc-poster-play,
+.etsy-video-ugc-poster-action:focus-visible .etsy-video-ugc-poster-play {
+  background: #245c9b;
+  transform: scale(1.05);
+}
+.etsy-video-ugc-poster-label {
+  z-index: 1;
+  padding: 6px 10px;
+  border: 1px solid rgba(255,255,255,.5);
+  border-radius: 999px;
+  background: rgba(22,41,67,.82);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 710;
+  white-space: nowrap;
+}
+.etsy-video-ugc-version-group {gap:10px}
+.etsy-video-ugc-version {
+  min-height:112px;
+  padding:10px;
+  gap:10px;
+  background:#fdfefe;
+}
+.etsy-video-ugc-version-preview {
+  position:relative;
+  flex:0 0 88px;
+  width:88px;
+  height:90px;
+  border-radius:8px;
+  background:#e8eef5;
+  overflow:hidden;
+}
+/* A thumbnail uses the same true ratio as its video, including while the
+   WebP derivative is not yet cached. No square-cropped landscape preview. */
+.etsy-video-ugc-version-preview::before {
+  content:"";
+  position:absolute;
+  left:50%;
+  top:50%;
+  transform:translate(-50%,-50%);
+  border:1px solid #b9c8da;
+  border-radius:4px;
+  background:#d7e2f0;
+}
+.etsy-video-ugc-version-preview.is-vertical::before {width:46px;aspect-ratio:9/16}
+.etsy-video-ugc-version-preview.is-horizontal::before {width:82px;aspect-ratio:16/9}
+.etsy-video-ugc-version-preview img {
+  position:absolute;
+  z-index:2;
+  left:50%;
+  top:50%;
+  transform:translate(-50%,-50%);
+  width:auto;
+  height:auto;
+  max-width:100%;
+  max-height:100%;
+  background:#263247;
+  object-fit:contain;
+  border-radius:4px;
+}
+.etsy-video-ugc-version-preview.is-vertical img {
+  height:100%;
+  aspect-ratio:9/16;
+}
+.etsy-video-ugc-version-preview.is-horizontal img {
+  width:100%;
+  aspect-ratio:16/9;
+}
+.etsy-video-ugc-version-preview img[hidden] {display:none}
+.etsy-video-ugc-version-preview svg {position:relative;z-index:1}
+.etsy-video-ugc-version-copy {gap: 6px;}
+.etsy-video-ugc-version-copy strong {font-size: 13px;}
+.etsy-video-ugc-version-copy small {font-size: 11px;}
+.etsy-video-ugc-studio .etsy-video-ugc-selector {gap: 0;}
+@media (max-width: 740px) {
+  .etsy-video-ugc-version-group {gap:7px;}
+  .etsy-video-ugc-version {min-height:59px;padding:7px;}
+  .etsy-video-ugc-version-preview {
+    flex-basis:42px;
+    width:42px;
+    height:48px;
+  }
+  .etsy-video-ugc-version-preview.is-vertical::before {width:24px}
+  .etsy-video-ugc-version-preview.is-horizontal::before {width:38px}
+  .etsy-video-ugc-version-copy strong {font-size:11px;}
+  .etsy-video-ugc-version-copy small {font-size:10px;}
+  .etsy-video-ugc-poster-play {width:52px;height:52px;}
+}
+@media (max-width: 390px) {
+  .etsy-video-ugc-version-preview {display:none;}
+}
+@media (prefers-reduced-motion: reduce) {
+  .etsy-video-ugc-poster-play {transition:none;}
+}

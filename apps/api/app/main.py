@@ -59,6 +59,8 @@ from app.modules.public_review.public_router import router as public_review_publ
 from app.modules.explorer.router import router as explorer_router
 from app.modules.external_ingestion.router import router as external_ingestion_router
 from app.modules.etsy_spy.router import router as etsy_spy_router
+from app.modules.muse_bridge.router import router as muse_bridge_router
+from app.modules.muse_bridge import model as muse_bridge_model
 from app.modules.etsy_spy.service import prune_system_logs
 from app.modules.etsy_spy.request_metrics import ETSY_PERFORMANCE, route_label
 from app.modules.metadata.router import router as metadata_router
@@ -316,6 +318,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(tag_router, prefix="/api")
     api.include_router(external_ingestion_router)
     api.include_router(etsy_spy_router)
+    api.include_router(muse_bridge_router)
     api.include_router(metadata_router, prefix="/api")
     api.include_router(processing_policy_router)
     api.include_router(asset_details_router)

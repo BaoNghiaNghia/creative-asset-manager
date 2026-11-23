@@ -1,0 +1,217 @@
+# CAM Muse — Story-Driven UGC V3.3, 12-second final video
+
+**Current requirement (2026-11-22): 12-second final MP4, NOT 14 seconds.**
+This supersedes the original 14-second V3.3 proposal. The existing Muse
+renderer has a reported maximum of 10 native seconds *per take*. Never
+pretend the tool can create a native 12-second take without proving it.
+
+## Status and boundaries
+
+- Story V3.3 source and CAM Muse Bridge contract are implemented. The current
+  production version and external Muse scheduled task must be verified
+  separately before making claims of deployment or active use.
+- `CAM_MUSE_STORY_V33_ENABLED` remains **default OFF**. Enable ONLY after the
+  existing external `cam-auto-video` worker can read the V3.3 bridge fields,
+  create real 12-second stories within its source-render limit, and pass an
+  independent canary. The flag is not a substitute for renderer capability.
+- Preserve V3.1 for existing unclaimed/in-flight jobs until an approved
+  cutover; never change completed or partially uploaded video receipts.
+  V3.2 failed pilot remains frozen. V4 print-tracking PoC is independent.
+- No DB migration, extra DB, extra browser worker/profile, new AI API, or
+  changes to approved Native Master artwork are required for the prompt spec.
+
+## Twelve-second three-act structure
+
+- **0-3s context:** a meaningful real-life situation, body already moving.
+- **3-9s action:** real steps, rising from an approved chair, leaving through a
+  real door, or following a real bend — not head swivels or camera motion.
+- **9-12s payoff:** complete the activity with unforced, physically coherent
+  movement. Never freeze a frame to extend a shot.
+
+There are 13 theme families with two script options each (26 stories):
+outdoors, ride, holiday, gaming, sports, birthday, pets/wildlife artwork,
+coffee, family, romance, retro, humor, everyday. Title cues identify a safe
+theme only: title text is NEVER new printed artwork or the garment SKU.
+Only the approved garment SKU, shirt color and exact Native Master artwork
+must match across 9:16 and 16:9. Their hero images, generation request IDs,
+seeds, compositions, actions and even models/scenes are generated separately.
+Within each individual video, keep the SAME person, pants and scene across
+both real takes. No camera pan can replace meaningful movement.
+
+### Genuine 12-second assembly using a <=10s native renderer
+
+**Preferred method:** render two genuine moving source takes, each at most
+10 seconds. Retain six usable real-time seconds from each and join 6+6 to a
+12-second final MP4, with **one motivated cut** at the 6-second mark.
+The action begins before the cut and continues meaningfully after it.
+The two shots must have coherent person, approved shirt/print, pants, light
+and location. If a genuine single native 12-second take is eventually proven
+available, it may replace the two-take method without changing the target.
+Do **not** use reversed footage, looping, frame duplication, frozen holds,
+slow-motion padding, a camera-only transition, or a static portrait.
+If two matching active source shots are not available, report BLOCKED.
+
+The exported MP4 is accepted by the Bridge only if `ffprobe` reports
+11.5-12.5 seconds, valid aspect ratio and H.264. Duration checking does not
+verify meaningful motion or source integrity; a *separate visual QA* is required.
+For final assembly, use an actual encoded MP4, never a mock receipt.
+
+### FACE-ON + TWO ORIGINAL HERO IMAGES (2026-11-22)
+
+User-reviewed Nativity samples (both 12s) showed the head cropped out;
+the vertical and horizontal videos shared very similar settings/motion.
+Whether the renderer literally cropped one input into the other was not
+proven from video alone. V3.3 must now prevent this workflow by contract.
+
+**One listing, two INDEPENDENT image generations:**
+- `9:16`: generate ONE new original portrait image with an adult's FULL
+  natural face, printed C1717 front and jeans/chinos in frame; choose a
+  portrait-native action and camera plan.
+- `16:9`: generate a SECOND original landscape image via a SEPARATE
+  generation request and seed, with a different composition, theme-consistent
+  scene and action plan. DO NOT crop, resize, outpaint, stretch, reuse or
+  re-encode the vertical hero into this second source.
+- Source prompts live in `storySpecV33.aspectPlans["9:16"].prompt`
+  and `storySpecV33.aspectPlans["16:9"].prompt`. Each has separate
+  `heroRequestId`, `heroSeed`, `storyId`, and `cameraDirection`.
+  The same exact approved Native Master artwork is mandatory in both.
+- Each video still has two genuine moving 6s takes of its OWN source,
+  keeping its own actor, clothes, print and environment coherent through
+  its single edit at second 6. The two videos need NOT show the same actor
+  or identical event; they are separate shoots advertising the same product.
+- The FULL FACE must be visible for at least **8 of 12 seconds** in
+  each final MP4, with authentic expression, not a neck-down mockup.
+  Do not use the V3.1 neck-down fallback. Face and entire shirt print must
+  be visible together for the main action; waist/upper thighs visible
+  for at least 2s for jeans/khaki QA.
+
+**New V3.3 source proof API, no new DB:** After claiming with all three
+contract fields, upload each actual independently generated original hero
+JPEG or PNG to private CAM Drive with the same Muse lease:
+
+- `POST /api/v1/muse-bridge/jobs/{listingId}/hero/vertical`
+- `POST /api/v1/muse-bridge/jobs/{listingId}/hero/horizontal`
+- Content-Type: `image/jpeg` or `image/png`.
+- Headers: `X-Muse-Lease`, `X-CAM-Story-Source-Contract:
+  CAM_STORY_DUAL_HERO_FACE_V1`, `X-CAM-Hero-Request-Id`,
+  and `X-CAM-Hero-Seed`, taken verbatim from the respective aspect plan.
+- Image dimension/ratio, decoded bytes, SHA-256, a small pixel digest,
+  dHash similarity, distinct seeds/IDs and private Drive provenance are
+  verified. If either source is missing, same/near-identical, or wrong
+  native ratio, reject (409/422) before accepting its MP4.
+- MP4 uploads then supply `X-CAM-Hero-Sha256` and
+  `X-CAM-Hero-Request-Id` matching the actual uploaded hero receipt.
+  Existing saved per-aspect variants are NEVER regenerated or overwritten.
+  `videoSpec.savedHeroAspectRatios` allows safe retries.
+
+**QA limitation:** Source pixel evidence proves two different uploaded
+images with different aspect plans; it does not cryptographically prove
+a generator used two independent requests, nor detect every crop/outpaint,
+nor prove facial visibility. Both source images and final MP4s remain
+`faceVisibilityQa=pending_review` until independent visual QA inspects
+full face >=8s, different scene/composition and real human motion.
+Never change `pending_review` to PASS merely because Drive stored files.
+
+### Approved person, garment and wardrobe
+
+Current CAM Muse jobs use the authoritative **Comfort Colors C1717**:
+short-sleeve garment-dyed heavyweight cotton crewneck with relaxed/boxy fit.
+Do not change it into a long-sleeve sweatshirt or hoodie even if the listing
+title contains those words. Additional G500/G180/G185 future profiles require
+trusted CAM SKU metadata, not guessing from the title.
+
+For new V3.3 work use an approved source adult model with a natural,
+proportionate average/medium or moderately athletic build. Select a reference
+with **denim jeans** or cotton-twill **khaki/chino trousers** already visible.
+Do not accept shorts, joggers, leggings, sweatpants, skirts, wardrobe swaps,
+or inconsistent model/pants between aspect ratios. Never digitally slim,
+reshape or retouch an actual person to meet a casting preference.
+For QA, show the waist and upper thigh enough to identify trousers for two
+continuous seconds in each ratio while keeping front artwork visible.
+
+The exact approved Native Master SHA, original text and colors are mandatory.
+Flat-ink print only; first print pixel is **150mm below the lower collar rib**
+along fabric. No regenerated artwork, text, embroidery, perspective warping,
+hand occlusion or inconsistent print position. Scene/action may use only objects
+already present in an approved start frame, otherwise choose another or BLOCK.
+
+### Bridge and external worker handoff
+
+Use existing authenticated CAM Muse Bridge; do not create a duplicate task.
+`GET /api/v1/muse-bridge/video-work` advertises the story spec and capabilities
+even when the workflow is disabled. The bridge v1.3.5 /health returns:
+`storyV33SpecAvailable=true`, `storyV33TargetDurationSeconds=12`,
+`storyV33MaxNativeTakeSeconds=10`,
+`storyV33OutputContract=CAM_STORY_12S_TWO_TAKE_V1`,
+`storyV33SourceContract=CAM_STORY_DUAL_HERO_FACE_V1`,
+`storyV33RequiresTwoOriginalHeroImages=true`,
+`storyV33RequiresFaceVisibleMinSeconds=8`,
+`storyV33NativeRendererVerified=false` and
+`storyV33TwoTakeAssemblyVerified=false` (until independently verified).
+
+### Two-stage pilot without opening the whole queue
+
+Phase 1 (2 new listings only): leave `CAM_MUSE_STORY_V33_ENABLED=false`
+and supply the reviewed environment variable
+`CAM_MUSE_STORY_V33_PILOT_LISTING_IDS=<listing_id_1>,<listing_id_2>`
+with exactly one or two **eligible, previously unrendered numeric listing IDs**.
+The Bridge validates the list is unique and contains no more than 2 IDs;
+malformed or oversized configuration fails closed. For listed jobs only,
+`storyEnabled=true` and an explicit V3.3/12s output-contract claim is allowed.
+A legacy worker cannot claim these selected new pilot jobs. All other
+listings continue their V3.1 claim, video generation and uploads unchanged.
+Health and video-work disclose only the **count** of configured pilot IDs,
+never the IDs themselves in unauthenticated health.
+
+Phase 2: after **all four pilot videos** (two listings, both aspect ratios)
+pass independent Garment, Print, Story/Motion and cut-continuity QA,
+the operator may enable global `CAM_MUSE_STORY_V33_ENABLED=true`.
+There is **no automatic expansion** based solely on four Drive receipts:
+human/independent QA evidence and a reviewed rollout are required.
+
+Do not set the pilot IDs based on the user's listing title; choose only
+from CAM verified, unclaimed new listings with no stored 9:16/16:9 video.
+The external Muse job must first use Bridge capability fields to detect
+support. It cannot treat fields alone as proof the pilot allowlist is set.
+
+The worker must read `storySpecV33`, `storyEnabled`, `missingAspectRatios`,
+and `savedAspectRatios` for each eligible command. Only when the deployed
+bridge advertises V3.3, the worker has proven the two-take assembly contract,
+and the operator has reviewed the flag cutover, claim a NEW eligible listing:
+
+```json
+{"worker":"muse","storyVersion":"CAM_STORY_REAL_LIFE_V3_3","storyOutputContract":"CAM_STORY_12S_TWO_TAKE_V1","storySourceContract":"CAM_STORY_DUAL_HERO_FACE_V1"}
+```
+
+This pins a **12-second** V3.3 contract in existing `output_receipts` and
+cannot silently change an older 14-second pin or a partially saved V3.1 job.
+Upload each missing MP4 ONLY AFTER the separate original hero image is
+uploaded and verified for that ratio. Use `X-Muse-Lease`,
+`X-CAM-Motion-Version: CAM_STORY_REAL_LIFE_V3_3`,
+`X-CAM-Story-Output-Contract: CAM_STORY_12S_TWO_TAKE_V1`,
+`X-CAM-Story-Source-Contract: CAM_STORY_DUAL_HERO_FACE_V1`,
+`X-CAM-Hero-Sha256: <verified-sha256>`, and
+`X-CAM-Hero-Request-Id: <aspect-plan-hero-request-id>`.
+An older Muse worker that knows only the previous 14s V3.3 prompt is
+rejected at claim time (409), before rendering. Reject 10s or 14s final
+uploads (422), mismatched version and invalid lease before Drive storage.
+Never upload a different MP4 over an already verified ratio. Completing
+storage still leaves independent garment/print/motion QA pending.
+
+### Canary, release and rollback
+
+- 2 new listings x 2 aspect ratios = **4 final 12-second videos**, no
+  previously completed or V3.2 failed listings.
+- Inspect sampled frames and shot transition for purposeful story action,
+  matching approved model/jeans or khakis/C1717, accurate Native Master,
+  150mm print anchor, and matching two aspect ratios. Reject the entire
+  video when the only motion is gaze, sway or camera movement.
+- Test fresh V3.3 claim with explicit output-contract acknowledgment,
+  old 14s worker refusal, V3.1 legacy claim protection, old 14s pin refusal,
+  one-ratio saved retry, 10s final rejection, correct 12s final acceptance,
+  lease expiry and no overwritten verified Drive uploads.
+- Run CI and reviewed backend release health gates. Do not bypass historical
+  SQLite migration failures, UI fixture failures, privilege controls or dirty
+  checkout guards to force production release.
+- If canary fails, leave or reset the feature flag OFF for new claims.
+  Already pinned 12s V3.3 work must not be silently converted back to V3.1.

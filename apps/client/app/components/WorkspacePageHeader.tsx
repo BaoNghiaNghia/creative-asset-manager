@@ -76,6 +76,7 @@ type WorkspacePageHeaderProps = {
   eyebrow?: ReactNode;
   description?: ReactNode;
   titleAddon?: ReactNode;
+  center?: ReactNode;
   meta?: ReactNode;
   actions?: ReactNode;
   actionsClassName?: string;
@@ -88,6 +89,7 @@ export function WorkspacePageHeader({
   eyebrow,
   description,
   titleAddon,
+  center,
   meta,
   actions,
   actionsClassName,
@@ -104,6 +106,7 @@ export function WorkspacePageHeader({
       {(description ?? definition.description) && <p className="workspace-page-header-description">{description ?? definition.description}</p>}
       {meta && <div className="workspace-page-header-meta">{meta}</div>}
     </div>
+    {center && <div className="workspace-page-header-center">{center}</div>}
     {actions && <div className={["workspace-page-header-actions", actionsClassName || ""].filter(Boolean).join(" ")}>{actions}</div>}
   </header>;
 }

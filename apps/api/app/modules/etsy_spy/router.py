@@ -14,14 +14,17 @@ from zoneinfo import ZoneInfo
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+import httpx
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, RedirectResponse
 from sqlalchemy import and_, asc, case, desc, func, or_, select, not_, literal
 from sqlalchemy.orm import Session, aliased
 
 from app.core.database import get_db
 from app.core.config import get_settings
 from app.modules.processing.model import ProcessingJobModel
+from app.modules.muse_bridge.model import CamMuseJob
+from app.modules.muse_bridge.ui import video_ugc_view
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from .model import (
     EtsySpyAgent as Agent, EtsySpyBlacklist as Blacklist, EtsySpyPicked as Picked,
@@ -60,6 +63,7 @@ from .tiktok_skill import (
 from .ytrends_mcp import (research_etsy_keyword_set, merge_keyword_evidence,
                            verified_keyword_count, source_backed_keyword_count)
 from .review_intents import apply_review_intent, get_review_receipt
+from .request_metrics import ETSY_PERFORMANCE
 from .listing_images import listing_image_router, listing_badges
 from .service import (
     MAX_BATCH_BYTES, MAX_INVENTORY_BYTES, authenticate_agent, create_agent,
@@ -676,6 +680,26 @@ def _listings_query(
                 ListingImage.tenant_id == tenant,
                 ListingImage.listing_key == root.listing_key,
             ).correlate(root).scalar_subquery())
+        elif sort == "videoUgc":
+            # Match video_ugc_view exactly: count only the two verified
+            # managed-Drive MP4 receipts, not submitted or unverified renders.
+            # CamMuseJob has a tenant/listing composite PK, so this correlated
+            # lookup remains one row per Picked listing across all pages.
+            uploads = CamMuseJob.output_receipts["drive_uploads"]
+            saved = []
+            for ratio in ("9:16", "16:9"):
+                receipt = uploads[ratio]
+                valid = and_(
+                    receipt["storageVerified"].as_boolean().is_(True),
+                    receipt["storage_provider"].as_string() == "google_drive_managed",
+                    func.coalesce(receipt["drive_file_id"].as_string(), "") != "",
+                    func.coalesce(receipt["drive_folder_id"].as_string(), "") != "",
+                )
+                saved.append(case((valid, 1), else_=0))
+            column = func.coalesce(select(saved[0] + saved[1]).where(
+                CamMuseJob.tenant_id == tenant,
+                CamMuseJob.listing_key == root.listing_key,
+            ).correlate(root).scalar_subquery(), 0)
         elif sort == "tiktokListing":
             # Use the *latest* job, exactly as the table's preview projection
             # does, so an old success never outranks a newer failed retry.
@@ -1057,6 +1081,16 @@ def listings(
     listing_image_badges = listing_badges(
         db, tenant, {listing.listing_key for listing, _ in rows}
     ) if pick_state == "picked" and rows else {}
+    video_ugc_by_key = {}
+    if pick_state == "picked" and rows:
+        ids = {listing.listing_key for listing, _ in rows}
+        video_ugc_by_key = {
+            job.listing_key: video_ugc_view(job)
+            for job in db.scalars(select(CamMuseJob).where(
+                CamMuseJob.tenant_id == tenant,
+                CamMuseJob.listing_key.in_(ids),
+            )).all()
+        }
     # Single tenant-scoped query across the current Picked page; never N+1.
     tiktok_by_key: dict[str, dict] = {}
     if pick_state == "picked" and rows:
@@ -1077,6 +1111,8 @@ def listings(
              "smsPush": sms_by_key.get(listing.listing_key),
              "designs": designs_by_key.get(listing.listing_key, []),
              "listingImages": listing_image_badges.get(listing.listing_key, []),
+             "videoUgc": video_ugc_by_key.get(listing.listing_key,
+                 {"status": "not_queued", "count": 0, "videos": []}),
              "extraction": extraction_by_key.get(listing.listing_key,
               {"status": "source_missing" if extraction_enabled() else "disabled", "manual_qa_required": True})}
             if pick_state == "picked" else {})}
@@ -2456,3 +2492,189 @@ async def ingest_agent(
 from .image_agent import image_router
 router.include_router(image_router)
 router.include_router(listing_image_router)
+
+@router.get("/video-ugc/{listing_id}/{aspect}")
+async def read_muse_ugc_video(
+    listing_id: str, aspect: str, request: Request,
+    principal: CurrentPrincipal = Depends(READ), db: Session = Depends(get_db),
+):
+    """Private CAM-authenticated playback; never expose Muse/Drive credentials.
+
+    Only CAM-verified MP4s under the right listing/design Drive folder can play.
+    Range requests are passed to Google Drive for normal browser seeking.
+    """
+    from app.modules.etsy_spy.imagegen_drive import provider_and_folder
+    from app.modules.etsy_spy.listing_drive_folders import (
+        ROOT_FOLDER_ID, verify_listing_file_provenance,
+    )
+    if not re.fullmatch(r"[0-9]{5,20}", listing_id) or aspect not in ("vertical", "horizontal"):
+        raise HTTPException(404, "Video not found")
+    tenant = principal.active_tenant_id
+    if not db.get(Picked, (tenant, listing_id)):
+        raise HTTPException(404, "Listing no longer Picked")
+    job = db.get(CamMuseJob, (tenant, listing_id))
+    receipt = job.output_receipts if job and isinstance(job.output_receipts, dict) else {}
+    uploads = receipt.get("drive_uploads") or {}
+    ratio = "9:16" if aspect == "vertical" else "16:9"
+    video = uploads.get(ratio) if isinstance(uploads, dict) else None
+    if (not isinstance(video, dict) or video.get("storageVerified") is not True
+            or video.get("storage_provider") != "google_drive_managed"
+            or not job or not job.artwork_sha256):
+        raise HTTPException(404, "CAM-verified MP4 unavailable")
+    remote_id = str(video.get("drive_file_id") or "")
+    folder_id = str(video.get("drive_folder_id") or "")
+    sha = str(video.get("sha256") or "")
+    expected_asset_id = f"muse-ugc:{listing_id}:{job.artwork_sha256}:{aspect}"
+    if (not re.fullmatch(r"[A-Za-z0-9_-]{10,128}", remote_id)
+            or not re.fullmatch(r"[A-Za-z0-9_-]{10,128}", folder_id)
+            or not re.fullmatch(r"[a-f0-9]{64}", sha)):
+        raise HTTPException(404, "Video metadata invalid")
+    requested_range = request.headers.get("range", "")
+    if requested_range and not re.fullmatch(r"bytes=\d*-\d*", requested_range):
+        raise HTTPException(416, "Invalid media range")
+    # Authorize every request using Picked, tenant and verified job receipts
+    # before touching any shared cache or issuing a short-lived Worker ticket.
+    # An R2 hit skips the expensive Google Drive metadata proof; the cache was
+    # staged only AFTER the authoritative Drive receipt had been verified.
+    from app.modules.muse_bridge.ugc_media_cache import (
+        config_for_tenant, available, object_key, signed_url,
+        worker_ready, proxy_video,
+    )
+    config = config_for_tenant(tenant)
+    db.rollback()  # Never hold a SELECT transaction across external I/O.
+    is_cached = bool(config and await available(config, tenant=tenant, sha=sha, kind="playback"))
+    if config:
+        ETSY_PERFORMANCE.cache(is_cached, label="ugc_r2_playback")
+    if is_cached:
+        if await worker_ready(config, tenant=tenant, kind="playback"):
+            url = signed_url(config, object_key(tenant, sha, "playback"))
+            if url:
+                return RedirectResponse(url, status_code=302, headers={
+                    "Cache-Control": "private, no-store",
+                    "Vary": "Cookie, Authorization",
+                    "Referrer-Policy": "no-referrer",
+                    "X-CAM-UGC-Delivery": "r2-edge",
+                })
+        proxied = await proxy_video(config, tenant=tenant, sha=sha,
+                                    requested_range=requested_range)
+        if proxied is not None:
+            status, headers, stream = proxied
+            return StreamingResponse(stream, status_code=status,
+                                     media_type="video/mp4", headers=headers)
+    provider, root = provider_and_folder()
+    if root != ROOT_FOLDER_ID:
+        raise HTTPException(503, "Video storage misconfigured")
+    await verify_listing_file_provenance(
+        provider=provider, remote_file_id=remote_id,
+        folder_id=folder_id, tenant_id=tenant,
+        asset_id=expected_asset_id, sha256=sha,
+    )
+    token = await provider.get_access_token()
+    client = httpx.AsyncClient(
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=httpx.Timeout(90, connect=10, read=90),
+    )
+    try:
+        upstream = await client.send(client.build_request(
+            "GET", f"https://www.googleapis.com/drive/v3/files/{remote_id}",
+            params={"alt": "media", "supportsAllDrives": "true"},
+            headers={"Range": requested_range} if requested_range else {},
+        ), stream=True)
+        if upstream.status_code not in (200, 206):
+            await upstream.aclose()
+            await client.aclose()
+            raise HTTPException(503, "Private Drive MP4 playback unavailable")
+    except (httpx.RequestError, httpx.TimeoutException) as exc:
+        await client.aclose()
+        raise HTTPException(503, "Private Drive stream unavailable") from exc
+
+    async def stream():
+        try:
+            async for chunk in upstream.aiter_bytes():
+                yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    headers = {
+        "Cache-Control": "private, no-cache, must-revalidate",
+        "Vary": "Cookie, Authorization",
+        "X-CAM-UGC-Delivery": "drive",
+        "X-Accel-Buffering": "no",
+        "X-Content-Type-Options": "nosniff",
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f'inline; filename="ugc-{aspect}.mp4"',
+    }
+    for key in ("content-range", "content-length"):
+        if upstream.headers.get(key):
+            headers[key.title()] = upstream.headers[key]
+    return StreamingResponse(stream(), status_code=upstream.status_code,
+                             media_type="video/mp4", headers=headers)
+
+@router.get("/video-ugc/{listing_id}/{aspect}/poster/{size}")
+async def read_muse_ugc_poster(
+    listing_id: str, aspect: str, size: int, request: Request,
+    principal: CurrentPrincipal = Depends(READ), db: Session = Depends(get_db),
+):
+    """Private cached WebP from a Drive-verified MP4; never expose originals.
+
+    Every request checks the live Picked/tenant ACL before an edge ticket.
+    No poster is generated by GET (which would renew the fixed 30-day TTL).
+    """
+    if (not re.fullmatch(r"[0-9]{5,20}", listing_id) or
+            aspect not in ("vertical", "horizontal") or size not in (320, 640)):
+        raise HTTPException(404, "Video poster unavailable")
+    tenant = principal.active_tenant_id
+    if not db.get(Picked, (tenant, listing_id)):
+        raise HTTPException(404, "Video poster unavailable")
+    job = db.get(CamMuseJob, (tenant, listing_id))
+    uploads = (job.output_receipts or {}).get("drive_uploads") if job else {}
+    ratio = "9:16" if aspect == "vertical" else "16:9"
+    video = uploads.get(ratio) if isinstance(uploads, dict) else None
+    if (not isinstance(video, dict) or video.get("storageVerified") is not True
+            or video.get("storage_provider") != "google_drive_managed"
+            or not job or not job.artwork_sha256):
+        raise HTTPException(404, "Video poster unavailable")
+    sha = str(video.get("sha256") or "")
+    remote_id = str(video.get("drive_file_id") or "")
+    folder_id = str(video.get("drive_folder_id") or "")
+    if (not re.fullmatch(r"[a-f0-9]{64}", sha) or
+            not re.fullmatch(r"[A-Za-z0-9_-]{10,128}", remote_id) or
+            not re.fullmatch(r"[A-Za-z0-9_-]{10,128}", folder_id)):
+        raise HTTPException(404, "Video poster unavailable")
+
+    from app.modules.muse_bridge.ugc_media_cache import (
+        config_for_tenant, available, object_key, signed_url,
+        worker_ready, read_poster,
+    )
+    config = config_for_tenant(tenant)
+    db.rollback()
+    kind = f"poster{size}"
+    poster_cached = bool(config and await available(config, tenant=tenant, sha=sha, kind=kind))
+    if config:
+        ETSY_PERFORMANCE.cache(poster_cached, label="ugc_r2_poster")
+    if not poster_cached:
+        raise HTTPException(404, "Video poster not cached")
+    if await worker_ready(config, tenant=tenant, kind=kind):
+        url = signed_url(config, object_key(tenant, sha, kind))
+        if url:
+            return RedirectResponse(url, status_code=302, headers={
+                "Cache-Control": "private, no-store",
+                "Vary": "Cookie, Authorization",
+                "Referrer-Policy": "no-referrer",
+                "X-CAM-UGC-Delivery": "r2-edge",
+            })
+    etag = '"' + hashlib.sha256(f"{sha}:poster-{size}".encode()).hexdigest() + '"'
+    headers = {
+        "Cache-Control": "private, no-cache, must-revalidate",
+        "Vary": "Cookie, Authorization",
+        "ETag": etag,
+        "X-Content-Type-Options": "nosniff",
+        "X-CAM-UGC-Delivery": "r2-proxy",
+    }
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    payload = await read_poster(config, tenant=tenant, sha=sha, size=size)
+    if payload is None:
+        raise HTTPException(404, "Video poster unavailable")
+    return Response(payload, media_type="image/webp", headers=headers)

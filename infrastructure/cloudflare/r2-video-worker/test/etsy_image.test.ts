@@ -22,14 +22,17 @@ class Bucket {
   found = true;
   mime = "image/png";
   size = DATA.byteLength;
+  uploaded: Date | undefined = new Date((NOW-100)*1000);
   get = async (key: string) => {
     this.reads++;this.key=key;
-    return this.found ? { size:this.size, body:new Blob([DATA]).stream() as ReadableStream<Uint8Array>,
+    return this.found ? { size:this.size, uploaded:this.uploaded,
+      body:new Blob([DATA]).stream() as ReadableStream<Uint8Array>,
       httpMetadata:{ contentType:this.mime }, httpEtag:'"etag-image"' } : null;
   };
   head = async (key: string) => {
     this.heads++;this.key=key;
-    return this.found ? {size:this.size,httpMetadata:{contentType:this.mime},httpEtag:'"etag-image"'} : null;
+    return this.found ? {size:this.size,uploaded:this.uploaded,
+      httpMetadata:{contentType:this.mime},httpEtag:'"etag-image"'} : null;
   };
   put = async () => {this.writes++;throw new Error("image CDN must be read-only");};
 }
@@ -79,6 +82,23 @@ test("preview WebP route uses same read-only bucket, HEAD metadata only",async()
   assert.deepEqual([bucket.heads,bucket.reads,bucket.writes],[1,0,0]);
   assert.equal((await send(read,env)).status,200);
 });
+test("all thirteen listing slots have independent signed private PNG and WebP routes",async()=>{
+  const {bucket,env}=fixture();
+  for (const slot of [10,11,12,13]) {
+    for (const format of ["thumbnail", "preview"] as const) {
+      const path="/etsy-images/v1/"+TENANT+"/"+PACK+"/"+String(slot).padStart(2,"0")+
+        "/"+format+"/"+SHA+(format==="thumbnail"?".png":"-w720v1.webp");
+      bucket.mime=format==="thumbnail"?"image/png":"image/webp";
+      const signed=await url(path);
+      const response=await send(signed,env);
+      assert.equal(response.status,200);
+      assert.equal(response.headers.get("Content-Type"),bucket.mime);
+      assert.equal(bucket.key,path.slice(1));
+      assert.equal((await send(signed.replace("/"+String(slot).padStart(2,"0")+"/","/14/"),env)).status,403);
+    }
+  }
+  assert.equal(bucket.writes,0);
+});
 test("missing object gives 404 only for valid signature",async()=>{
   const {bucket,env}=fixture();bucket.found=false;
   assert.equal((await send(await url(),env)).status,404);
@@ -96,7 +116,8 @@ test("reject unsigned, wrong tenant, expired, overlong, original, malformed, vid
   assert.equal((await send((await url())+"&extra=1",env)).status,403);
   assert.equal((await send("https://media.example.test"+PNG_PATH.replace("/thumbnail/","/original/"),
     env)).status,403);
-  assert.equal((await send((await url()).replace("/01/","/11/"),env)).status,403);
+  assert.equal((await send((await url()).replace("/01/","/14/"),env)).status,403);
+  assert.equal((await send((await url()).replace("/01/","/00/"),env)).status,403);
   const badSig=createHmac("sha256",SECRET)
     .update("v1\nread\n"+PNG_PATH+"\n"+String(NOW+45))
     .digest("base64url");
@@ -122,6 +143,37 @@ test("immutable image bytes are cached only after signed verification",async()=>
   assert.equal(cache.values.size,1);
   assert.equal((await send(t,env,NOW+46,"GET",cache)).status,403);
   assert.equal(bucket.reads,1);
+});
+test("cache expiry stays anchored to immutable upload time, not viewer access",async()=>{
+  const {bucket,env}=fixture();
+  const cache=new Cache();
+  bucket.uploaded=new Date((NOW-30*86400+5)*1000);
+  const signed=await url(PNG_PATH,NOW+45);
+  const first=await send(signed,env,NOW,"GET",cache);
+  assert.equal(first.status,200);
+  await first.arrayBuffer();
+  await new Promise(resolve=>setTimeout(resolve,0));
+  const internal=Array.from(cache.values.values())[0];
+  assert.equal(internal.headers.get("Cache-Control"),"public, max-age=5, immutable");
+  assert.equal(internal.headers.get("X-CAM-Image-Expires-At"),String(NOW+5));
+  const nearExpiry=await send(signed,env,NOW+4,"GET",cache);
+  assert.equal(nearExpiry.status,200);
+  assert.equal(nearExpiry.headers.get("X-CAM-Image-Cache"),"HIT");
+  assert.equal(nearExpiry.headers.get("X-CAM-Image-Expires-At"),null);
+  const expired=await send(signed,env,NOW+5,"GET",cache);
+  assert.equal(expired.status,404);
+  assert.equal(bucket.reads,2);
+});
+test("missing or expired upload timestamp fails closed even for HEAD",async()=>{
+  const {bucket,env}=fixture();
+  bucket.uploaded=undefined;
+  const signed=await url();
+  assert.equal((await send(signed,env)).status,404);
+  assert.equal((await send(signed,env,NOW,"HEAD")).status,404);
+  bucket.uploaded=new Date((NOW-30*86400)*1000);
+  assert.equal((await send(signed,env)).status,404);
+  bucket.uploaded=new Date((NOW+60)*1000);
+  assert.equal((await send(signed,env)).status,404);
 });
 test("oversize, wrong MIME and range fail closed, video unaffected",async()=>{
   const {bucket,env}=fixture();

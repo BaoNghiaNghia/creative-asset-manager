@@ -26,14 +26,14 @@ class FakeBucket {
     const bytes = options?.range ? BYTES.slice(options.range.offset, options.range.offset + options.range.length) : BYTES;
     return { size: bytes.byteLength, body: new Blob([bytes]).stream() as ReadableStream<Uint8Array>,
       httpEtag: '"etag-original"', uploaded: this.uploaded,
-      httpMetadata: { contentType: "video/mp4" } };
+      httpMetadata: { contentType: key.endsWith(".webp") ? "image/webp" : "video/mp4" } };
   }
   async head(key: string): Promise<R2ReadObject | null> {
     this.headCalls++;
     this.lastKey = key;
     if (this.missing) return null;
     return { size: BYTES.byteLength, httpEtag: '"etag-original"',
-      uploaded: this.uploaded, httpMetadata: { contentType: "video/mp4" } };
+      uploaded: this.uploaded, httpMetadata: { contentType: key.endsWith(".webp") ? "image/webp" : "video/mp4" } };
   }
   list(): never { this.listCalls++; throw new Error("listing forbidden"); }
 }
@@ -86,6 +86,24 @@ test("signed playback derivative uses the exact immutable playback key", async (
   assert.equal(response.status, 200);
   assert.deepEqual(new Uint8Array(await response.arrayBuffer()), BYTES);
   assert.equal(bucket.lastKey, pathname.slice(1));
+});
+
+test("signed WebP posters are immutable, private and expire with the 30-day video-cache lifecycle", async () => {
+  const { bucket, env } = fixture();
+  for (const size of [320, 640]) {
+    const pathname = vector.pathname.replace(/\/original$/, `/poster-${size}.webp`);
+    const signature = await signReadPath(vector.secret, pathname, vector.expires_at);
+    const url = `https://media.example.test${pathname}?v=1&exp=${vector.expires_at}&sig=${signature}`;
+    const response = await send(url, env);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("Content-Type"), "image/webp");
+    assert.equal(response.headers.get("Cache-Control"), "private, no-store");
+    assert.equal(bucket.lastKey, pathname.slice(1));
+    assert.equal((await send(url, env, "HEAD")).headers.get("Content-Type"), "image/webp");
+    bucket.uploaded = new Date((NOW - 31 * 86400) * 1000);
+    assert.equal((await send(url, env)).status, 404);
+    bucket.uploaded = new Date((NOW - 3600) * 1000);
+  }
 });
 
 test("same read ticket authorizes HEAD but returns metadata only", async () => {
