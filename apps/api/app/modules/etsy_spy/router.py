@@ -2648,14 +2648,13 @@ async def read_muse_ugc_poster(
         worker_ready, read_poster,
     )
     config = config_for_tenant(tenant)
+    artwork_sha = job.artwork_sha256
     db.rollback()
     kind = f"poster{size}"
     poster_cached = bool(config and await available(config, tenant=tenant, sha=sha, kind=kind))
     if config:
         ETSY_PERFORMANCE.cache(poster_cached, label="ugc_r2_poster")
-    if not poster_cached:
-        raise HTTPException(404, "Video poster not cached")
-    if await worker_ready(config, tenant=tenant, kind=kind):
+    if poster_cached and await worker_ready(config, tenant=tenant, kind=kind):
         url = signed_url(config, object_key(tenant, sha, kind))
         if url:
             return RedirectResponse(url, status_code=302, headers={
@@ -2672,9 +2671,19 @@ async def read_muse_ugc_poster(
         "X-Content-Type-Options": "nosniff",
         "X-CAM-UGC-Delivery": "r2-proxy",
     }
-    if request.headers.get("if-none-match") == etag:
+    if poster_cached and request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)
-    payload = await read_poster(config, tenant=tenant, sha=sha, size=size)
+    payload = await read_poster(config, tenant=tenant, sha=sha, size=size) if poster_cached else None
     if payload is None:
-        raise HTTPException(404, "Video poster unavailable")
+        from app.modules.muse_bridge.ugc_drive_poster import read_drive_poster
+        payload = await read_drive_poster(
+            tenant=tenant, listing_id=listing_id, artwork_sha=artwork_sha,
+            sha=sha, aspect=aspect, remote_id=remote_id, folder_id=folder_id, size=size,
+        )
+        if payload is None:
+            raise HTTPException(404, "Video poster unavailable")
+        headers["X-CAM-UGC-Delivery"] = "drive-poster"
+        headers["ETag"] = '"' + hashlib.sha256(payload).hexdigest() + '"'
+        if request.headers.get("if-none-match") == headers["ETag"]:
+            return Response(status_code=304, headers=headers)
     return Response(payload, media_type="image/webp", headers=headers)

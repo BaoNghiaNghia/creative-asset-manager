@@ -27,7 +27,7 @@ import time
 from threading import Lock
 from urllib.parse import urlsplit
 
-from PIL import Image
+from PIL import Image, ImageStat
 
 
 _LOG = logging.getLogger("app.muse_ugc_cache")
@@ -266,9 +266,52 @@ def has_faststart(mp4: bytes) -> bool:
     return bool(found) and found[0] == b"moov"
 
 
+def _extract_posters(source: Path) -> dict[str, bytes]:
+    """Select a real, nonblank video frame with bounded CPU and read time."""
+    for at in ("0.8", "2.0", "0.1"):
+        try:
+            frame = subprocess.run(
+                ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+                 "-threads", "1", "-ss", at, "-i", str(source), "-frames:v", "1",
+                 "-vf", "scale=640:640:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos",
+                 "-threads", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-"],
+                capture_output=True, timeout=5, check=False,
+            )
+            if frame.returncode or not 0 < len(frame.stdout) < 5 * 1024 * 1024:
+                continue
+            with Image.open(io.BytesIO(frame.stdout)) as image:
+                image.load()
+                stats = ImageStat.Stat(image.convert("L"))
+                if not 12 < stats.mean[0] < 245 or stats.stddev[0] < 5:
+                    continue
+                posters: dict[str, bytes] = {}
+                for size in (320, 640):
+                    resized = image.convert("RGB")
+                    resized.thumbnail((size, size), Image.Resampling.LANCZOS)
+                    output = io.BytesIO()
+                    resized.save(output, format="WEBP", quality=78, method=4)
+                    data = output.getvalue()
+                    if 0 < len(data) < _MAX_POSTER:
+                        posters[f"poster{size}"] = data
+                if len(posters) == 2:
+                    return posters
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            continue
+    return {}
+
+
+def prepare_posters(mp4: bytes) -> dict[str, bytes]:
+    """Explicit backfill path: never remux or write playback."""
+    if not 2048 <= len(mp4) <= _MAX_MP4:
+        return {}
+    with tempfile.TemporaryDirectory(prefix="cam-ugc-poster-") as directory:
+        source = Path(directory) / "input.mp4"
+        source.write_bytes(mp4)
+        return _extract_posters(source)
+
+
 def _prepare_derivatives(mp4: bytes) -> tuple[bytes, dict[str, bytes]]:
     playback = mp4
-    posters: dict[str, bytes] = {}
     # Temporary files are removed after each invocation. There is no local
     # persistent cache: on failure, Drive playback remains available.
     with tempfile.TemporaryDirectory(prefix="cam-ugc-", dir=tempfile.gettempdir()) as directory:
@@ -293,27 +336,7 @@ def _prepare_derivatives(mp4: bytes) -> tuple[bytes, dict[str, bytes]]:
                         playback_path = candidate
             except (OSError, ValueError, subprocess.TimeoutExpired):
                 pass
-        try:
-            frame = subprocess.run(
-                ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
-                 "-ss", "0.8", "-i", str(playback_path), "-frames:v", "1",
-                 "-vf", "scale=640:-2:flags=lanczos",
-                 "-f", "image2pipe", "-vcodec", "mjpeg", "-"],
-                capture_output=True, timeout=13, check=False,
-            )
-            if frame.returncode == 0 and frame.stdout and len(frame.stdout) < 5 * 1024 * 1024:
-                with Image.open(io.BytesIO(frame.stdout)) as image:
-                    image.load()
-                    for size in (320, 640):
-                        resized = image.copy()
-                        resized.thumbnail((size, size), Image.Resampling.LANCZOS)
-                        output = io.BytesIO()
-                        resized.save(output, format="WEBP", quality=78, method=4)
-                        data = output.getvalue()
-                        if 0 < len(data) < _MAX_POSTER:
-                            posters[f"poster{size}"] = data
-        except (OSError, ValueError, subprocess.TimeoutExpired):
-            pass
+        posters = _extract_posters(playback_path)
     return playback, posters
 
 
@@ -340,6 +363,29 @@ async def stage_uploaded(config: UgcCacheConfig | None, *, tenant: str, sha: str
     if config is None:
         return {}
     return await asyncio.to_thread(_stage, config, tenant, sha, mp4)
+
+
+def _stage_posters(config: UgcCacheConfig, tenant: str, sha: str, mp4: bytes) -> dict[str, bool]:
+    if not 2048 <= len(mp4) <= _MAX_MP4 or sha256(mp4).hexdigest() != sha:
+        return {}
+    try:
+        posters = prepare_posters(mp4)
+        client = _client(config)
+        result = {kind: _put_if_absent(client, config, tenant, sha, kind, data)
+                  for kind, data in posters.items()}
+        _LOG.info("muse_ugc_poster_backfill poster320=%s poster640=%s",
+                  result.get("poster320", False), result.get("poster640", False))
+        return result
+    except Exception:
+        _LOG.warning("muse_ugc_poster_backfill_failed")
+        return {}
+
+
+async def stage_posters(config: UgcCacheConfig | None, *, tenant: str, sha: str,
+                        mp4: bytes) -> dict[str, bool]:
+    if config is None:
+        return {}
+    return await asyncio.to_thread(_stage_posters, config, tenant, sha, mp4)
 
 
 def signed_url(config: UgcCacheConfig, key: str, *, now: int | None = None) -> str | None:
