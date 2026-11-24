@@ -187,6 +187,8 @@ def contract():
         "version": POLICY, "enabled": enabled(),
         "eventsPath": "/api/v1/muse-bridge/automation/events",
         "diagnosticsPath": "/api/v1/muse-bridge/automation/diagnostics",
+        "runnerIntegrationPath": "/api/v1/muse-bridge/automation/runner-integration",
+        "runnerIntegrationRequiresAuthorizedOwnerInstall": True,
         "workerHeartbeatSeconds": HEARTBEAT_SECONDS,
         "workerStaleSeconds": STALE_SECONDS,
         "retentionDays": RETENTION_DAYS, "maxBatchEvents": 20,
@@ -355,7 +357,7 @@ def _view(row):
 
 
 def timeline(db, tenant, now, limit=100, command_id=None, worker=None):
-    filters = []
+    filters = [ApplicationLogModel.event_type != "CAM_WATCHDOG_STATE"]
     if command_id:
         filters.append(ApplicationLogModel.trace_id == command_id)
     if worker:
@@ -383,10 +385,20 @@ def diagnostics(db, tenant, *, recovery_enabled, worker_ids, now=None):
                          order_by=ApplicationLogModel.occurred_at.desc())
         observed = _last(db,tenant,now,f,ApplicationLogModel.event_type=="CAM_API_RESULT",
                          ApplicationLogModel.payload_json["httpStatus"].as_integer()<400)
+        operational = _last(db,tenant,now,f,ApplicationLogModel.event_type=="CAM_API_RESULT",
+                            ApplicationLogModel.payload_json["httpStatus"].as_integer()<400,
+                            ApplicationLogModel.payload_json["route"].as_string()!="worker_config")
+        config_signal = _last(db,tenant,now,f,ApplicationLogModel.event_type=="CAM_API_RESULT",
+                              ApplicationLogModel.payload_json["httpStatus"].as_integer()<400,
+                              ApplicationLogModel.payload_json["route"].as_string()=="worker_config")
         error = _last(db,tenant,now,f,ApplicationLogModel.level.in_(("warning","error")))
         # Late replay cannot fake an online worker. Require actual event time.
         age = _age(reported,now,"occurred_at")
         api_age = _age(observed,now)
+        operational_age = _age(operational,now)
+        config_age = _age(config_signal,now)
+        signal_kind = ("operational" if operational_age is not None and operational_age<=STALE_SECONDS else
+                       "config_only" if config_age is not None and config_age<=STALE_SECONDS else "none")
         if age is not None and age <= STALE_SECONDS:
             status = "HEARTBEAT_RECENT"
         elif api_age is not None and api_age <= STALE_SECONDS:
@@ -397,6 +409,9 @@ def diagnostics(db, tenant, *, recovery_enabled, worker_ids, now=None):
             status = "NOT_OBSERVED"
         workers.append({"workerId":worker,"status":status,
                         "heartbeatAgeSeconds":age,"apiActivityAgeSeconds":api_age,
+                        "apiSignalKind":signal_kind,"operationalApiActivityAgeSeconds":operational_age,
+                        "configActivityAgeSeconds":config_age,
+                        "lastOperationalApiActivity":_view(operational) if operational else None,
                         "lastHeartbeat":_view(reported) if reported else None,
                         "lastApiActivity":_view(observed) if observed else None,
                         "lastError":_view(error) if error else None})
@@ -413,9 +428,14 @@ def diagnostics(db, tenant, *, recovery_enabled, worker_ids, now=None):
         def count(*conditions):
             return int(db.scalar(select(func.count()).select_from(model).where(
                 model.tenant_id==tenant,*conditions)) or 0)
-        return {"byStatus":dict(rows),
+        result={"byStatus":dict(rows),
                 "expiredClaims":count(model.status=="claimed",model.lease_expires_at<=now),
                 "missingLeaseExpiry":count(model.status=="claimed",model.lease_expires_at.is_(None))}
+        if model is CamMuseCommand:
+            expired=(model.status=="claimed",model.lease_expires_at<=now)
+            result["genericExpiredClaims"]=count(*expired,model.action=="execute_task")
+            result["garmentExpiredClaims"]=count(*expired,model.action!="execute_task")
+        return result
     return {"ok":True,"policy":POLICY,"asOfUtc":now.isoformat(),
             "workers":workers,"queueRecovery":{"enabled":recovery_enabled,
                 "status":recovery_status,"lastSweepAgeSeconds":sweep_age,

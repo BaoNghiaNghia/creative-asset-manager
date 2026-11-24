@@ -75,7 +75,7 @@ class MuseObservedRoute(APIRoute):
 
 
 router = APIRouter(prefix="/api/v1/muse-bridge", tags=["muse-bridge"], route_class=MuseObservedRoute)
-BRIDGE_VERSION = "1.4.14"
+BRIDGE_VERSION = "1.4.15"
 HEX64 = re.compile(r"^[a-f0-9]{64}$")
 LISTING_ID = re.compile(r"^[0-9]{5,20}$")
 ARTWORK_PATH = re.compile(
@@ -5023,6 +5023,20 @@ def read_muse_events(
     return {"ok": True, "policy": obs.POLICY,
             "items": obs.timeline(db, tenant, _utc(), limit,
                                   str(commandId) if commandId else None, workerId)}
+
+
+@router.get("/automation/runner-integration")
+def muse_runner_integration(response: Response, tenant: str = Depends(_muse)):
+    """Fixed, authenticated integration artifact, not an executable CAM command."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parent
+    source = (root / "runner_outbox.py").read_bytes()
+    guide = (root / "runner_integration.md").read_text(encoding="utf-8")
+    response.headers["Cache-Control"] = "private, no-store"
+    return {"ok":True,"policy":obs.POLICY,"bridgeVersion":BRIDGE_VERSION,
+            "requiresAuthorizedOwnerInstall":True,"automaticExecution":False,
+            "filename":"muse_observability_outbox.py","sha256":hashlib.sha256(source).hexdigest(),
+            "pythonSource":source.decode("utf-8"),"integrationGuide":guide}
 
 
 @router.get("/automation/diagnostics")

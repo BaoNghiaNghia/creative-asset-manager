@@ -2493,6 +2493,16 @@ from .image_agent import image_router
 router.include_router(image_router)
 router.include_router(listing_image_router)
 
+@router.get("/muse-monitor")
+def read_muse_monitor(
+    response: Response, principal: CurrentPrincipal = Depends(READ),
+    db: Session = Depends(get_db),
+):
+    """CAM session and Etsy Spy permission; no Muse bearer in the browser."""
+    from app.modules.muse_bridge.monitor import monitor_report
+    return monitor_report(response, principal, db)
+
+
 @router.get("/video-ugc/{listing_id}/{aspect}")
 async def read_muse_ugc_video(
     listing_id: str, aspect: str, request: Request,

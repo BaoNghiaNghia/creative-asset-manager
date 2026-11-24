@@ -147,6 +147,21 @@ async def _periodic_muse_queue_recovery():
         await asyncio.sleep(SWEEP_INTERVAL)
 
 
+async def _periodic_muse_watchdog():
+    from app.modules.muse_bridge.alerting import run_configured_watchdog, INTERVAL
+    logger = logging.getLogger("uvicorn.error")
+    logger.info("Muse incident watchdog started interval_seconds=%s", INTERVAL)
+    while True:
+        try:
+            report = await asyncio.to_thread(run_configured_watchdog)
+            if report and not report.get("skipped"):
+                logger.info("Muse incident watchdog active=%s opened=%s resolved=%s telegram_configured=%s",
+                            report["active"],len(report["opened"]),len(report["resolved"]),report["telegramConfigured"])
+        except Exception:
+            logger.error("Muse incident watchdog sweep failed")
+        await asyncio.sleep(INTERVAL)
+
+
 async def _periodic_etsy_system_logs():
     while True:
         try:
@@ -166,6 +181,7 @@ async def lifespan(_app: FastAPI):
     shadow_started = False
     etsy_logs_task = None
     muse_recovery_task = None
+    muse_watchdog_task = None
     try:
         init_database(settings)
         SHADOW_SEARCH.start()
@@ -174,8 +190,17 @@ async def lifespan(_app: FastAPI):
         from app.modules.muse_bridge.queue_recovery import recovery_enabled
         if recovery_enabled():
             muse_recovery_task = asyncio.create_task(_periodic_muse_queue_recovery())
+        from app.modules.muse_bridge.alerting import enabled as watchdog_enabled
+        if watchdog_enabled():
+            muse_watchdog_task = asyncio.create_task(_periodic_muse_watchdog())
         yield
     finally:
+        if muse_watchdog_task is not None:
+            muse_watchdog_task.cancel()
+            try:
+                await muse_watchdog_task
+            except asyncio.CancelledError:
+                pass
         if muse_recovery_task is not None:
             muse_recovery_task.cancel()
             try:
