@@ -70,16 +70,17 @@ def reconcile_command(command, job, now, verified_ratios):
         terminal_command(command, "receipt_submitted", "both_videos_already_verified", now,
                          linked=bool((job.output_receipts or {}).get("camLinked")))
         return "both_videos_already_verified"
-    if (command.phase == "create_video"
-            and (command.details or {}).get("requiredVideoAspectRatios") == ["9:16"]
-            and "9:16" in verified_ratios(job)):
-        terminal_command(command, "receipt_submitted", "required_vertical_already_verified", now,
+    required = (command.details or {}).get("requiredVideoAspectRatios")
+    if (command.phase == "create_video" and required in (["9:16"], ["16:9"])
+            and required[0] in verified_ratios(job)):
+        reason = "required_vertical_already_verified" if required == ["9:16"] else "required_horizontal_already_verified"
+        terminal_command(command, "receipt_submitted", reason, now,
                          linked=bool((job.output_receipts or {}).get("camLinked")))
         command.details = {**(command.details or {}),
-                           "completedVideoAspectRatios": ["9:16"],
+                           "completedVideoAspectRatios": required,
                            "allVideoAspectsComplete": verified_ratios(job) == {"9:16", "16:9"},
-                           "deferredVideoAspectRatios": ["16:9"] if "16:9" not in verified_ratios(job) else []}
-        return "required_vertical_already_verified"
+                           "deferredVideoAspectRatios": [r for r in ("9:16", "16:9") if r not in verified_ratios(job)]}
+        return reason
     qa = (job.output_receipts or {}).get("visual_qa")
     if command.phase == "review_artwork" and isinstance(qa, dict) and qa.get("artwork_sha256") == job.artwork_sha256:
         if command.action == "review_artwork" and qa.get("verdict") == "pass":
@@ -184,8 +185,8 @@ def reconcile_queue(db, tenant, now=None, *, cap=QUEUE_CAP):
                     or job.artwork_sha256 != candidate.artwork_sha256
                     or (candidate.phase == "create_video"
                         and (job.attempts >= 5 or (
-                            (candidate.details or {}).get("requiredVideoAspectRatios") == ["9:16"]
-                            and "9:16" in muse._verified_video_ratios(job))))))):
+                            (candidate.details or {}).get("requiredVideoAspectRatios") in (["9:16"], ["16:9"])
+                            and set((candidate.details or {})["requiredVideoAspectRatios"]) <= muse._verified_video_ratios(job))))))):
             continue
         cmd = db.scalar(select(CamMuseCommand).where(
             CamMuseCommand.tenant_id == tenant,

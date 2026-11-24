@@ -28,6 +28,7 @@ def video_ugc_view(job) -> dict:
             qa = review["verdict"]
         videos.append({
             "aspectRatio": ratio,
+            "sha256": item.get("sha256"),
             "url": f"/api/v1/etsy-spy/video-ugc/{job.listing_key}/{slug}",
             "posterUrl": f"/api/v1/etsy-spy/video-ugc/{job.listing_key}/{slug}/poster/640",
             "thumbnailUrl": f"/api/v1/etsy-spy/video-ugc/{job.listing_key}/{slug}/poster/320",
@@ -62,4 +63,6 @@ def video_ugc_view(job) -> dict:
         "missingAspectRatios": [ratio for ratio in ("9:16", "16:9")
                                 if ratio not in {v["aspectRatio"] for v in videos}],
         "artworkSha256": job.artwork_sha256,
+        "regeneratingAspectRatios": [ratio for ratio in (r.get("videoRegeneration") or {}).get("requiredVideoAspectRatios", [])
+                                     if ratio not in {v["aspectRatio"] for v in videos}],
     }

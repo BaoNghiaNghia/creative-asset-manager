@@ -519,6 +519,14 @@ def _pinned_story_v33(job) -> dict | None:
     return None
 
 
+def _build_job_story_spec(job):
+    from .regeneration import regeneration_revisions
+    revisions = regeneration_revisions(job)
+    return build_story_spec(title=job.title, listing_key=job.listing_key,
+                            artwork_sha256=job.artwork_sha256, garment_code="C1717",
+                            **({"generation_revisions": revisions} if revisions else {}))
+
+
 def _story_candidate_v33(job) -> dict | None:
     """Do not change an already-rendered or in-flight legacy video job."""
     if not job.artwork_sha256 or job.source_state != "ready_for_muse":
@@ -542,12 +550,7 @@ def _story_candidate_v33(job) -> dict | None:
     try:
         # CAM Muse video jobs currently have a fixed, validated C1717 contract.
         # Never infer C1717/G180/G185 from a marketplace listing title.
-        base = build_story_spec(
-            title=job.title,
-            listing_key=job.listing_key,
-            artwork_sha256=job.artwork_sha256,
-            garment_code="C1717",
-        )
+        base = _build_job_story_spec(job)
         return lite_story_spec(base) if _story_lite_for_job(job) else base
     except ValueError:
         return None
@@ -621,8 +624,8 @@ def _phase_required_aspects():
 
 def _pinned_work_aspects(details):
     # Existing pre-cutover leases retain the two-aspect completion contract.
-    if isinstance(details, dict) and details.get("requiredVideoAspectRatios") == ["9:16"]:
-        return ["9:16"]
+    if isinstance(details, dict) and details.get("requiredVideoAspectRatios") in (["9:16"], ["16:9"]):
+        return list(details["requiredVideoAspectRatios"])
     return list(VIDEO_ASPECTS)
 
 
@@ -630,7 +633,8 @@ def _job_required_aspects(job):
     if (job.status == "claimed" and _aware(job.lease_expires_at) is not None
             and _aware(job.lease_expires_at) > _utc()):
         return _pinned_work_aspects((job.output_receipts or {}).get("videoWorkScope"))
-    return _phase_required_aspects()
+    from .regeneration import requested_aspects
+    return requested_aspects(job) or _phase_required_aspects()
 
 
 def _aspect_work_view(job, required=None):
@@ -745,6 +749,8 @@ def _video_job_claim_contract(job, *, required_aspects=None) -> dict:
         "regenerateSavedRatios": False,
         "resumeByAspect": resume,
         "reuseLocallyBankedTakeOnlyAfterSourceAndStoryQa": True,
+        "forceFreshVideoAspectRatios": (receipts.get("videoRegeneration") or {}).get("requiredVideoAspectRatios", []),
+        "videoGenerationRevisionByAspect": (receipts.get("videoGenerationRevisionByAspect") or {}),
     }
 
 
@@ -2040,7 +2046,7 @@ def pending_jobs(limit: int = Query(default=10, ge=1, le=50),
             ((CamMuseJob.status == "claimed") & (CamMuseJob.lease_expires_at < _utc())))
     ).order_by(CamMuseJob.picked_at.asc())
     rows = db.scalars(query).all()
-    rows = [row for row in rows if set(_phase_required_aspects()) - _verified_video_ratios(row)]
+    rows = [row for row in rows if set(_job_required_aspects(row)) - _verified_video_ratios(row)]
     return {"items": [_row_view(x) for x in rows[:limit]]}
 
 @router.get("/queue")
@@ -2192,7 +2198,7 @@ def missing_video_work(
                 or (review_only and phase != "review_artwork")):
             continue
         seen.add(job.listing_key)
-        scope = _aspect_work_view(job, _phase_required_aspects())
+        scope = _aspect_work_view(job)
         missing = scope["missingVideoAspectRatios"]
         story_candidate = _story_candidate_v33(job) if phase == "create_video" else None
         story_enabled = bool(
@@ -2681,6 +2687,9 @@ def claim(listing_id: str, payload: ClaimRequest, request: Request,
     # The atomic UPDATE intentionally disables ORM synchronization. Reload
     # even if this session already inspected the pending listing.
     row = db.get(CamMuseJob, (tenant, listing_id), populate_existing=True)
+    if existing is None:
+        from .regeneration import requested_aspects
+        required = requested_aspects(row) or required
     if not (set(required) - _verified_video_ratios(row)):
         db.rollback()
         raise HTTPException(409, "Required video aspects already verified; do not regenerate")
@@ -2724,10 +2733,7 @@ def claim(listing_id: str, payload: ClaimRequest, request: Request,
                     raise HTTPException(409, "Lite is only for new or unrendered V3.3 work")
                 if pinned:
                     receipts["previousStrictStoryContractV33"] = pinned
-                base = build_story_spec(
-                    title=row.title, listing_key=row.listing_key,
-                    artwork_sha256=row.artwork_sha256, garment_code="C1717",
-                )
+                base = _build_job_story_spec(row)
                 plans = (pinned or {}).get("heroGenerationPlans") or {
                     ratio: {field: plan[field] for field in (
                         "heroRequestId", "heroSeed", "storyId",
@@ -2765,11 +2771,7 @@ def claim(listing_id: str, payload: ClaimRequest, request: Request,
                         "heroSeed": plan["heroSeed"],
                         "storyId": plan["storyId"],
                     }
-                    for ratio, plan in build_story_spec(
-                        title=row.title, listing_key=row.listing_key,
-                        artwork_sha256=row.artwork_sha256,
-                        garment_code="C1717",
-                    )["aspectPlans"].items()
+                    for ratio, plan in _build_job_story_spec(row)["aspectPlans"].items()
                 },
             }
             row.output_receipts = receipts
@@ -3963,6 +3965,9 @@ async def upload_ugc_video(
         raise HTTPException(422, "Missing MP4")
     digest = hashlib.sha256(parts).hexdigest()
     existing_receipts = row.output_receipts if isinstance(row.output_receipts, dict) else {}
+    removed = (existing_receipts.get("videoRegeneration") or {}).get("removedSha256ByAspect") or {}
+    if removed.get(ratio) == digest:
+        raise HTTPException(409, "Deleted MP4 cannot be re-uploaded; generate fresh video")
     previous = (existing_receipts.get("drive_uploads") or {}).get(ratio)
     if isinstance(previous, dict):
         if previous.get("sha256") != digest:
@@ -4602,7 +4607,7 @@ def _eligible_phase(db: Session, tenant: str,
         return ("review_artwork" if _stored_native_asset(
             db, tenant, job.listing_key, cmd.artwork_sha256
         ) and job.product_image_url else None)
-    if not (set(_phase_required_aspects()) - _verified_video_ratios(job)):
+    if not (set(_job_required_aspects(job)) - _verified_video_ratios(job)):
         return None
     # V3.3 is enabled for the two canaries, not for the whole queue until
     # a real renderer + independent story/print QA pass is verified.
@@ -5375,8 +5380,8 @@ def claim_muse_command(command_id: str, request: Request,
     cmd.phase = phase
     if phase == "create_video":
         cmd.details = {**(cmd.details or {}),
-                       "requiredVideoAspectRatios": _phase_required_aspects(),
-                       "videoAspectPhase": _video_aspect_phase()}
+                       "requiredVideoAspectRatios": _job_required_aspects(job),
+                       "videoAspectPhase": "vertical_first" if _job_required_aspects(job) == ["9:16"] else "both"}
     if _muse_dual_enabled():
         # Persist owner on the same transaction as the row-locked claim.
         # A second account gets 409, and cannot heartbeat or complete the
@@ -5661,11 +5666,11 @@ def complete_muse_command(command_id: str, payload: CommandAck,
     else:
         receipts = job.output_receipts if job and isinstance(job.output_receipts, dict) else {}
         required = _pinned_work_aspects(cmd.details)
-        if required == ["9:16"]:
+        if len(required) == 1:
             if (not job or job.artwork_sha256 != cmd.artwork_sha256
-                    or "9:16" not in _verified_video_ratios(job)
+                    or required[0] not in _verified_video_ratios(job)
                     or job.status not in ("claimed", "pending", "submitted", "completed")):
-                raise HTTPException(409, "Required vertical video receipt not yet verified")
+                raise HTTPException(409, "Required video receipt not yet verified")
             if job.status == "claimed":
                 _assert_muse_video_owner(request, job)
                 scope = receipts.get("videoWorkScope") or {}

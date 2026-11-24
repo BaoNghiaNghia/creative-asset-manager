@@ -263,6 +263,7 @@ def build_story_spec(
     listing_key: str,
     artwork_sha256: str,
     garment_code: str = "C1717",
+    generation_revisions: dict[str, str] | None = None,
 ) -> dict:
     """Deterministic independent 9:16 and 16:9 story and hero plans.
 
@@ -376,6 +377,9 @@ def build_story_spec(
          "complete chest print and waist visible; native wide composition"),
     ):
         versioned = f"{listing_key}:{artwork_sha256}:{STORY_SOURCE_CONTRACT}:{ratio}"
+        revision = (generation_revisions or {}).get(ratio)
+        if revision:
+            versioned += ":" + revision
         generated = hashlib.sha256(versioned.encode()).digest()
         variant = choices[(selection + selection_offset) % len(choices)]
         variant_id, variant_title, variant_scene, variant_hook, variant_action, variant_end = variant
@@ -386,6 +390,10 @@ def build_story_spec(
         # Same design base seed plus a nonzero ratio offset; cannot collide.
         hero_seed = (int.from_bytes(seed[4:8], "big") +
                      selection_offset * 0x9E3779B9) % (2 ** 32)
+        if revision:
+            hero_seed = int.from_bytes(generated[16:20], "big")
+        if any(p["heroSeed"] == hero_seed for p in aspect_plans.values()):
+            hero_seed = (hero_seed + 1) % (2 ** 32)
         aspect_prompt = (
             f"INDEPENDENT {ratio} ORIGINAL image-to-video shoot for the SAME "
             f"approved {garment_name} product. Generate a UNIQUE PLAIN "

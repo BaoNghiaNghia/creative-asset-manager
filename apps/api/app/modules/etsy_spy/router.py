@@ -2503,6 +2503,19 @@ def read_muse_monitor(
     return monitor_report(response, principal, db)
 
 
+@router.post("/video-ugc/{listing_id}/regenerate", status_code=202)
+async def regenerate_muse_ugc_video(
+    listing_id: str, expected: dict[str, str],
+    principal: CurrentPrincipal = Depends(MANAGE), db: Session = Depends(get_db),
+):
+    """Delete selected verified outputs and queue new Muse work (manage only)."""
+    from app.modules.muse_bridge.regeneration import regenerate
+    tenant = principal.active_tenant_id
+    if not db.get(Picked, (tenant, listing_id)):
+        raise HTTPException(404, "Picked listing not found")
+    return await regenerate(db, tenant, listing_id, expected)
+
+
 @router.get("/video-ugc/{listing_id}/{aspect}")
 async def read_muse_ugc_video(
     listing_id: str, aspect: str, request: Request,
