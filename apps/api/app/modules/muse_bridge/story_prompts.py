@@ -335,8 +335,12 @@ def build_story_spec(
         "All story objects and other people must already be present in the "
         "approved reference frame: do NOT generate new cars, pets, gifts, drinks, "
         "furniture, signs, doors or companions. Never add extra artwork or text. "
-        "Preserve the exact approved Native Master print pixels/colors/wording, "
-        "scale and placement, entirely visible on the shirt across each frame. "
+        "Before video rendering, generate a PLAIN/UNPRINTED native-ratio C1717 "
+        "hero and ask CAM to composite exact approved Native Master raster "
+        "pixels at its measured 150mm physical anchor. Never ask an AI image "
+        "model to generate, spell, resize or reposition printed text. "
+        "Preserve the final approved composited Native Master print pixels, "
+        "colors, wording, scale and placement throughout moving footage. "
         "The FIRST flat-ink pixel is 150 mm below the lower collar rib measured "
         "along garment fabric, same print box as the approved product image; "
         "NO embroidery, drift, warping, stretching or occluding hands. "
@@ -384,7 +388,9 @@ def build_story_spec(
                      selection_offset * 0x9E3779B9) % (2 ** 32)
         aspect_prompt = (
             f"INDEPENDENT {ratio} ORIGINAL image-to-video shoot for the SAME "
-            f"approved {garment_name} printed product. Generate a UNIQUE hero "
+            f"approved {garment_name} product. Generate a UNIQUE PLAIN "
+            f"UNPRINTED on-body C1717 hero (no generated lettering), then use "
+            f"CAM Native Master compositing before video rendering. Generate a hero "
             f"source image from a FRESH image generation request ID "
             f"{hero_request_id} and separate seed {hero_seed}. "
             f"This is NOT a resized, cropped, reframed, outpainted or "
@@ -404,8 +410,10 @@ def build_story_spec(
             "Wear only denim jeans or khaki chinos, adult with natural "
             "medium/average or moderately athletic proportions; never "
             "alter a real person's body. Keep the T-shirt exactly the "
-            "CAM-approved color, relaxed short-sleeve fit and Native Master "
-            "flat ink, first ink exactly 150mm below the lower collar rib. "
+            "CAM-approved color and relaxed short-sleeve fit. After "
+            "generating the BLANK shirt source, use a measured fabric-plane "
+            "reference and CAM deterministic Native Master composite so "
+            "first ink is 150mm below the lower collar rib. "
             "Maintain face, print and natural cotton drape throughout. "
             "Never reuse any source image, generated take, frame, "
             "video bytes, seed or hero generation request from the other "
@@ -418,7 +426,9 @@ def build_story_spec(
             "heroSeed": hero_seed,
             "heroGeneration": "new_independent_image_request",
             "heroImageMustBeOriginalForRatio": True,
-            "heroImageSource": "muse_generated_distinct_and_cam_drive_verified",
+            "heroImageSource": "muse_generated_plain_native_shirt_then_cam_master_composite",
+            "heroMustBeBlankBeforeComposite": True,
+            "heroPrintMethod": "CAM_C1717_PLAIN_HERO_NATIVE_MASTER_COMPOSITE_V1",
             "sceneRequiresApprovedStartFrame": variant_scene,
             "storyId": variant_id,
             "storyTitle": variant_title,
@@ -477,7 +487,10 @@ def build_story_spec(
             "requireDifferentImageContent": True,
             "requireIndependentGenerationIdsAndSeeds": True,
             "rejectCrossAspectVideoConversion": True,
-            "manualFaceAndVisualDifferenceQaPending": True},
+            "manualFaceAndVisualDifferenceQaPending": True,
+            "plainShirtRequiredBeforeCompositing": True,
+            "calibratedNativeMasterCompositeRequired": True,
+            "noDiffusionGeneratedInkOrText": True},
         "qaPolicy": {
             "requireMeaningfulActionSeconds": [3, 9],
             "reject": [

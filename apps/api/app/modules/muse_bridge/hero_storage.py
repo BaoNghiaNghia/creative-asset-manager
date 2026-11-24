@@ -113,9 +113,17 @@ async def store_muse_hero(
         )
         # Content-address each hero: concurrent different proposals must
         # never overwrite the approved image on Drive before the DB row lock.
+        # Drive appProperties impose a 124-byte combined key/value limit.
+        # The previous raw listing+two full SHA string exceeded that limit,
+        # producing HTTP 502 before a V3.3 hero could be stored. A stable
+        # hash binds all four identities while keeping cam_asset_id short;
+        # cam_content_hash still stores the complete image SHA-256.
+        identity = (
+            f"{listing_id}:{artwork_sha256}:{aspect}:{metadata['sha256']}"
+        )
         asset_id = (
-            f"muse-hero:{listing_id}:{artwork_sha256}:{aspect}:"
-            f"{metadata['sha256']}"
+            f"muse-hero:{listing_id}:{aspect}:"
+            f"{hashlib.sha256(identity.encode('ascii')).hexdigest()[:40]}"
         )
         filename = f"ugc-hero-{aspect}-{metadata['sha256'][:12]}{ext}"
 

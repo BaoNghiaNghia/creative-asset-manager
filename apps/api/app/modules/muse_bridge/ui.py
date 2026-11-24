@@ -10,6 +10,8 @@ def video_ugc_view(job) -> dict:
     uploads = r.get("drive_uploads")
     checked = (uploads if isinstance(uploads, dict) else {})
     videos = []
+    review = r.get("independentVideoReviewV33")
+    review = review if isinstance(review, dict) else {}
     for ratio, slug in (("9:16", "vertical"), ("16:9", "horizontal")):
         item = checked.get(ratio)
         if (not isinstance(item, dict)
@@ -18,6 +20,12 @@ def video_ugc_view(job) -> dict:
                 or not item.get("drive_file_id")
                 or not item.get("drive_folder_id")):
             continue
+        qa = "pending_review"
+        if (review.get("artworkSha256") == job.artwork_sha256
+                and isinstance(item.get("sha256"), str)
+                and (review.get("reviewedVideoSha256ByAspect") or {}).get(ratio) == item["sha256"]
+                and review.get("verdict") in ("pass", "hold")):
+            qa = review["verdict"]
         videos.append({
             "aspectRatio": ratio,
             "url": f"/api/v1/etsy-spy/video-ugc/{job.listing_key}/{slug}",
@@ -26,7 +34,9 @@ def video_ugc_view(job) -> dict:
             "width": item.get("width"),
             "height": item.get("height"),
             "durationSeconds": item.get("durationSeconds"),
-            "qaStatus": "pending_review",
+            "qaStatus": qa,
+            "storageVerified": True,
+            "creativePolicy": item.get("creativePolicy"),
         })
     if videos:
         state = "saved" if len(videos) == 2 else "partial"
@@ -44,6 +54,12 @@ def video_ugc_view(job) -> dict:
         state = job.status
     return {
         "status": state, "count": len(videos),
-        "videos": videos, "contentQa": "pending_review" if videos else None,
+        "videos": videos,
+        "contentQa": (("hold" if any(v["qaStatus"] == "hold" for v in videos)
+                       else "pass" if all(v["qaStatus"] == "pass" for v in videos)
+                       else "pending_review") if videos else None),
+        "camLinked": bool(len(videos) == 2 and r.get("camLinked")),
+        "missingAspectRatios": [ratio for ratio in ("9:16", "16:9")
+                                if ratio not in {v["aspectRatio"] for v in videos}],
         "artworkSha256": job.artwork_sha256,
     }

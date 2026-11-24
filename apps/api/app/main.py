@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
 import asyncio
 import logging
+import os
+from uuid import uuid4
 from pathlib import Path
 import re
 from time import perf_counter
@@ -61,6 +63,7 @@ from app.modules.external_ingestion.router import router as external_ingestion_r
 from app.modules.etsy_spy.router import router as etsy_spy_router
 from app.modules.muse_bridge.router import router as muse_bridge_router
 from app.modules.muse_bridge import model as muse_bridge_model
+from app.modules.muse_bridge import observability as muse_observability
 from app.modules.etsy_spy.service import prune_system_logs
 from app.modules.etsy_spy.request_metrics import ETSY_PERFORMANCE, route_label
 from app.modules.metadata.router import router as metadata_router
@@ -124,6 +127,26 @@ def _prune_etsy_system_logs_once():
         return prune_system_logs(session)
 
 
+async def _periodic_muse_queue_recovery():
+    from app.modules.muse_bridge.queue_recovery import run_configured_recovery, SWEEP_INTERVAL
+    logger = logging.getLogger("uvicorn.error")
+    logger.info("Muse queue recovery loop started interval_seconds=%s", SWEEP_INTERVAL)
+    while True:
+        try:
+            report = await asyncio.to_thread(run_configured_recovery)
+            if report is not None:
+                await asyncio.to_thread(muse_observability.observe_recovery,
+                                        os.getenv("CAM_MUSE_TENANT_ID", ""), report)
+                logger.info("Muse queue recovery sweep eligible=%s new_video=%s new_review=%s skipped=%s",
+                            report.get("eligibleInflightAfter"), report.get("newVideoCommands"),
+                            report.get("newReviewCommands"), report.get("skipped"))
+        except Exception:
+            logger.error("Muse queue recovery sweep failed")
+            await asyncio.to_thread(muse_observability.observe_recovery,
+                                    os.getenv("CAM_MUSE_TENANT_ID", ""), failed=True)
+        await asyncio.sleep(SWEEP_INTERVAL)
+
+
 async def _periodic_etsy_system_logs():
     while True:
         try:
@@ -142,13 +165,23 @@ async def lifespan(_app: FastAPI):
     _app.state.onedrive_stream_client = onedrive_stream_client
     shadow_started = False
     etsy_logs_task = None
+    muse_recovery_task = None
     try:
         init_database(settings)
         SHADOW_SEARCH.start()
         shadow_started = True
         etsy_logs_task = asyncio.create_task(_periodic_etsy_system_logs())
+        from app.modules.muse_bridge.queue_recovery import recovery_enabled
+        if recovery_enabled():
+            muse_recovery_task = asyncio.create_task(_periodic_muse_queue_recovery())
         yield
     finally:
+        if muse_recovery_task is not None:
+            muse_recovery_task.cancel()
+            try:
+                await muse_recovery_task
+            except asyncio.CancelledError:
+                pass
         if etsy_logs_task is not None:
             etsy_logs_task.cancel()
             try:
@@ -217,6 +250,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 headers={"Retry-After": "2", "Cache-Control": "no-store"},
             )
         return await call_next(request)
+
+    @api.middleware("http")
+    async def muse_observation(request: Request, call_next):
+        info = muse_observability.route_info(request.url.path)
+        if info is None or not muse_observability.enabled():
+            return await call_next(request)
+        correlation = str(uuid4())
+        started = perf_counter()
+        status = 500
+        try:
+            response = await call_next(request)
+            status = response.status_code
+            response.headers["X-CAM-Correlation-Id"] = correlation
+            return response
+        finally:
+            tenant = getattr(request.state, "muse_tenant_id", None)
+            worker = getattr(request.state, "muse_worker_id", None)
+            if tenant and worker:
+                try:
+                    await asyncio.wait_for(asyncio.to_thread(
+                        muse_observability.observe_api, tenant, worker, info,
+                        request.method, status, (perf_counter()-started)*1000,
+                        correlation, getattr(request.state, "muse_error_detail", None),
+                        getattr(request.state, "muse_business_result", None),
+                    ), timeout=0.5)
+                except asyncio.TimeoutError:
+                    logging.getLogger("uvicorn.error").warning(
+                        "Muse telemetry timeout route=%s status=%s", info["route"], status)
 
     @api.middleware("http")
     async def operations_timing(request: Request, call_next):
