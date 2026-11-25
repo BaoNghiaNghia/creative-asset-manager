@@ -60,6 +60,7 @@ from .story_action_policy import (
 )
 
 from . import observability as obs
+from . import native_placement_review as placement_review
 
 
 class MuseObservedRoute(APIRoute):
@@ -75,7 +76,7 @@ class MuseObservedRoute(APIRoute):
 
 
 router = APIRouter(prefix="/api/v1/muse-bridge", tags=["muse-bridge"], route_class=MuseObservedRoute)
-BRIDGE_VERSION = "1.4.15"
+BRIDGE_VERSION = "1.4.16"
 HEX64 = re.compile(r"^[a-f0-9]{64}$")
 LISTING_ID = re.compile(r"^[0-9]{5,20}$")
 ARTWORK_PATH = re.compile(
@@ -380,12 +381,14 @@ class VisualReviewVerdict(BaseModel):
     notes: str = Field(min_length=40, max_length=1200)
     reviewer: Literal["muse"] = "muse"
     confidence: float = Field(ge=0.0, le=1.0)
+    observedPlacement: Literal["front_center", "back", "left_chest", "sleeve", "hem", "other", "unknown"] | None = None
+    placementReviewId: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
-def _stored_native_asset(db: Session, tenant: str, listing_id: str, digest: str):
-    """Match the exact Windows-approved SHA to an immutable CAM-stored Native Master."""
-    if not HEX64.fullmatch(digest):
-        return None
+def _native_asset_matches(db: Session, tenant: str, listing_id: str, digest: str):
+    """Only completed, tenant-owned, SHA-matched Native Master records."""
+    if not isinstance(digest, str) or not HEX64.fullmatch(digest):
+        return None, None
     jobs = db.scalars(select(ProcessingJobModel).where(
         ProcessingJobModel.tenant_id == tenant,
         ProcessingJobModel.entity_type == "etsy_listing",
@@ -394,22 +397,32 @@ def _stored_native_asset(db: Session, tenant: str, listing_id: str, digest: str)
         ProcessingJobModel.cancellation_requested.is_(False),
         ProcessingJobModel.status == "completed",
     ).order_by(ProcessingJobModel.created_at.desc()).limit(16)).all()
-    for job in jobs:
-        payload = job.payload_json if isinstance(job.payload_json, dict) else {}
-        designs = payload.get("design_assets")
-        if not isinstance(designs, list):
-            continue
-        for asset in designs:
-            if (not isinstance(asset, dict)
-                or asset.get("output_sha256") != digest
-                or asset.get("artwork_kind") != "native_master_v2"
-                or asset.get("position") != "front"
-                or asset.get("method") != "imagegen"):
-                continue
-            aid = asset.get("id")
-            if isinstance(aid, str) and re.fullmatch(r"[a-f0-9]{24}", aid):
-                return (job.id, aid)
+    return placement_review.choose_matches(jobs, digest)
+
+
+def _review_native_asset(db: Session, tenant: str, job: CamMuseJob):
+    """Unknown is eligible for review only; never a render-ready master."""
+    front, unknown = _native_asset_matches(db, tenant, job.listing_key, job.artwork_sha256)
+    return front or (unknown if job.product_image_url else None)
+
+
+def _stored_native_asset(db: Session, tenant: str, listing_id: str, digest: str):
+    """Keep the original front path; unknown needs bound, accepted visual QA."""
+    front, unknown = _native_asset_matches(db, tenant, listing_id, digest)
+    if front:
+        return front.locator
+    if unknown:
+        job = db.get(CamMuseJob, (tenant, listing_id))
+        if (job is not None and job.artwork_sha256 == digest
+                and placement_review.approved_unknown(
+                    unknown, digest, job.product_image_url, _qa_record(job))):
+            return unknown.locator
     return None
+
+
+def _review_placement_view(db: Session, tenant: str, job: CamMuseJob):
+    match = _review_native_asset(db, tenant, job)
+    return placement_review.review_contract(match, job.artwork_sha256, job.product_image_url)
 
 
 def _qa_record(row: CamMuseJob):
@@ -907,7 +920,7 @@ def _compact_discovery_item(item: dict) -> dict:
         "artworkPath", "uploadPaths", "claimCommandPath", "completeCommandPath",
         "heartbeatCommandPath", "claimVideoJobPath", "videoJobClaim", "task",
         "heroUploadRequired", "targetDurationSeconds", "savedHeroAspectRatios",
-        "camLinked", "videoGenerationEnabled", "videoExecutor",
+        "camLinked", "videoGenerationEnabled", "videoExecutor", "placementReview",
         "videoAspectPhase", "requiredVideoAspectRatios", "allMissingVideoAspectRatios",
         "deferredVideoAspectRatios", "verticalReady", "allVideoAspectsComplete",
     )
@@ -1847,6 +1860,20 @@ def muse_worker_shared_config(
             "Only use for listings whose exact live videoJobClaim.body requires legacy proof"
         )
     config["bridgeVersion"] = BRIDGE_VERSION
+    config["nativePlacementReviewPolicy"] = {
+        "version": placement_review.POLICY,
+        "unknownPlacementReviewOnly": True,
+        "passRequiresObservedFrontCenter": True,
+        "instructions": "For review_artwork read GET /reviews?listing_id=... and its placementReview contract. Compare the actual source image and exact SHA-matched PNG. Echo placementReviewId and observedPlacement for unknown placement. Only pass a genuinely visible matching centered front design; retain existing QA checks. Never generate from unapproved, uncertain, or provider-refused material.",
+    }
+    config["runnerDispatchInstructions"] = (
+        "canGenerateVideo=false and serverCanRenderVideo=false describe CAM, not Muse permission. "
+        "Use executionStatus, claimAllowed and videoClaimAllowed for this worker, "
+        "the actual provider availability, and the current per-command contract. "
+        "Review artwork when offered; report real cooldown or other blocking reason. "
+        "Do not retry a provider refusal or bypass attempt limits. "
+        "A historical workflow failure is not proof that a currently eligible command is impossible."
+    )
     config["observability"] = obs.contract()
     config["videoAspectPolicy"] = {
         "phase": _video_aspect_phase(),
@@ -2231,6 +2258,7 @@ def missing_video_work(
                 "measurement": "along garment fabric, not frame pixels",
             },
             "nextStep": phase,
+            "placementReview": _review_placement_view(db, tenant, job) if phase == "review_artwork" else None,
             "missingAspectRatios": missing,
             "savedAspectRatios": [x for x in ("9:16", "16:9") if x in saved],
             "storySpecV33": story_candidate,
@@ -2512,8 +2540,7 @@ def visual_review_queue(
             break
         if _qa_record(row):
             continue
-        asset = _stored_native_asset(db, tenant, row.listing_key,
-                                      row.artwork_sha256 or "")
+        asset = _review_native_asset(db, tenant, row)
         if asset is None:
             continue
         items.append({
@@ -2523,6 +2550,8 @@ def visual_review_queue(
             "artworkUrl": f"/api/v1/muse-bridge/reviews/{row.listing_key}/artwork",
             "videoGenerationEnabled": False,
             "requiresComparativeVisualQA": True,
+            "placementReview": placement_review.review_contract(
+                asset, row.artwork_sha256, row.product_image_url),
             "rightsVerified": False,
             "printReady": False,
         })
@@ -2540,10 +2569,10 @@ async def review_artwork(
     row = db.get(CamMuseJob, (tenant, listing_id))
     if not row or row.status != "qa_hold" or not row.artwork_sha256:
         raise HTTPException(404, "Artwork not in QA queue")
-    found = _stored_native_asset(db, tenant, listing_id, row.artwork_sha256)
+    found = _review_native_asset(db, tenant, row)
     if found is None:
         raise HTTPException(404, "Native Master SHA not found in CAM")
-    job_id, asset_id = found
+    job_id, asset_id = found.locator
     remote = _private_drive_design(job_id, asset_id, tenant, db)
     headers = {"Cache-Control": "private, no-store",
                "X-Content-Type-Options": "nosniff",
@@ -2585,9 +2614,19 @@ def submit_visual_review(
         raise HTTPException(409, "Review unavailable or already recorded")
     if row.artwork_sha256 != payload.artworkSha256:
         raise HTTPException(409, "Reviewed artwork SHA changed")
-    found = _stored_native_asset(db, tenant, listing_id, payload.artworkSha256)
+    found = _review_native_asset(db, tenant, row)
     if found is None:
         raise HTTPException(409, "CAM Native Master SHA not validated")
+    if found.position == "unknown":
+        required = placement_review.review_contract(
+            found, row.artwork_sha256, row.product_image_url)
+        if (required is None or payload.placementReviewId != required["placementReviewId"]
+                or payload.observedPlacement is None):
+            raise HTTPException(422, "Read current placementReview and supply bound observedPlacement")
+        if payload.verdict == "pass" and payload.observedPlacement != "front_center":
+            raise HTTPException(422, "Unknown placement requires a visually verified centered front print")
+    elif payload.verdict == "pass" and payload.observedPlacement not in (None, "front_center"):
+        raise HTTPException(422, "Observed placement contradicts front master")
     has_checks = all((payload.sourceImageReviewed, payload.designMatchesSource,
                       payload.originalTextPreserved,
                       payload.transparentBackgroundChecked,
@@ -2609,9 +2648,17 @@ def submit_visual_review(
         "reviewed_at": _utc().isoformat(),
         "rights_verified": False, "print_ready": False,
     }
+    if found.position == "unknown":
+        review["placement_review"] = {
+            "policy": placement_review.POLICY,
+            "placementReviewId": payload.placementReviewId,
+            "observedPlacement": payload.observedPlacement,
+            "jobId": found.job_id, "assetId": found.asset_id,
+            "evidence": "worker_reported_comparative_visual_review",
+        }
     row.output_receipts = {"visual_qa": review}
     if payload.verdict == "pass":
-        job_id, asset_id = found
+        job_id, asset_id = found.locator
         row.artwork_asset_path = (
             f"/api/v1/etsy-spy/image-agents/designs/{job_id}/{asset_id}/original"
         )
@@ -4598,14 +4645,14 @@ def _eligible_phase(db: Session, tenant: str,
     if cmd.action == "review_artwork":
         if job.status != "qa_hold" or _qa_record(job) is not None:
             return None
-        return ("review_artwork" if job.product_image_url and _stored_native_asset(
-            db, tenant, job.listing_key, cmd.artwork_sha256
+        return ("review_artwork" if job.product_image_url and _review_native_asset(
+            db, tenant, job
         ) else None)
     if job.status == "qa_hold":
         if _qa_record(job) is not None:
             return None
-        return ("review_artwork" if _stored_native_asset(
-            db, tenant, job.listing_key, cmd.artwork_sha256
+        return ("review_artwork" if _review_native_asset(
+            db, tenant, job
         ) and job.product_image_url else None)
     if not (set(_job_required_aspects(job)) - _verified_video_ratios(job)):
         return None
@@ -4633,6 +4680,13 @@ def _eligible_phase(db: Session, tenant: str,
             and isinstance(_qa_record(job), dict)
             and _qa_record(job).get("verdict") == "pass"
             and _qa_record(job).get("artwork_sha256") == cmd.artwork_sha256):
+        qa = _qa_record(job)
+        if qa.get("placement_review") is not None:
+            match = _stored_native_asset(db, tenant, job.listing_key, job.artwork_sha256)
+            if not match or job.artwork_asset_path != (
+                f"/api/v1/etsy-spy/image-agents/designs/{match[0]}/{match[1]}/original"
+            ):
+                return None
         return "create_video"
     return None
 
@@ -4925,7 +4979,9 @@ def _muse_command_list_payload(limit: int, tenant: str, db: Session, review_only
             (_pinned_story_v33(job) or _story_v33_allowed_for_job(job))
             and _story_candidate_v33(job)
         )
-        items.append({**_command_status(cmd), "phase": phase,
+        items.append({**_command_status(cmd), "phase": phase, "nextStep": phase,
+                      **(_aspect_work_view(job) if phase == "create_video" else {}),
+                      "placementReview": _review_placement_view(db, tenant, job) if phase == "review_artwork" else None,
                       "savedVideoAspectRatios": sorted(_verified_video_ratios(job)),
                       "videoJobClaim": (
                           _video_job_claim_contract(job)
@@ -5413,6 +5469,7 @@ def claim_muse_command(command_id: str, request: Request,
                         "reviews" if phase == "review_artwork" else "jobs",
             "task": (cmd.details if cmd.action == "execute_task" else None),
             "videoJobClaim": video_claim,
+            "placementReview": _review_placement_view(db, tenant, job) if phase == "review_artwork" else None,
             "artworkSha256": cmd.artwork_sha256}
 
 
