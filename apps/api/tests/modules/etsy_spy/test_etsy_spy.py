@@ -501,6 +501,63 @@ def test_picked_agent_feed_is_full_tenant_scoped_versioned_and_revocable(scenari
     assert client.get(url, headers=headers).status_code == 401
 
 
+def test_listing_idea_agent_export_is_read_only_scoped_and_revocable(scenario, monkeypatch):
+    client, db, principal = scenario
+    agent, headers = pair(client, db)
+    listing_id = "1234567890"
+    url = f"/api/v1/etsy-spy/agents/{agent.id}/listings/{listing_id}/listing-idea-preflight"
+    assert client.get(url).status_code == 401
+    assert client.get(url, headers=headers).status_code == 404
+    assert sync(client, agent, headers, batch()).status_code == 200
+    db.add(EtsySpyPicked(tenant_id="boostgame", listing_key=listing_id))
+    db.commit()
+    response = client.get(url, headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.headers["cache-control"] == "no-store"
+    result = response.json()
+    assert result["agent_export"] is True
+    assert result["listingKey"] == listing_id
+    assert result["source"]["title"] == "Rudolph T-Shirt"
+    assert result["submitted_to_sms"] is False
+    assert result["ready_for_sms_submit"] is False
+    assert "google_drive_video_links_missing" in result["blockers"]
+    assert client.put(url, headers=headers, json={}).status_code == 405
+
+    # No access across tenants, or with a dedicated image agent credential.
+    other, other_headers = pair(client, db, tenant="another-tenant")
+    other_url = url.replace(agent.id, other.id)
+    assert client.get(other_url, headers=other_headers).status_code == 404
+    assert client.get(url, headers=other_headers).status_code == 401
+    image, secret = create_agent(db, "boostgame", "CAM Image Agent / test")
+    assert client.get(url.replace(agent.id, image.id),
+                      headers={"Authorization": f"Bearer {secret}"}).status_code == 403
+
+    # Verify privacy filtering even with populated private-media projections.
+    import importlib
+    routes = importlib.import_module("app.modules.etsy_spy.router")
+    design = {"id": "a", "position": "front", "output_sha256": "a" * 64,
+              "thumbnail_url": "PRIVATE_IMAGE", "original_url": "PRIVATE_MASTER"}
+    result["designs"] = [design]
+    result["selected_design"] = design
+    result["video_ugc"] = {"status": "saved", "count": 1, "videos": [
+        {"aspectRatio": "9:16", "qaStatus": "pass", "storageVerified": True,
+         "url": "PRIVATE_VIDEO", "posterUrl": "PRIVATE_POSTER",
+         "drive_file_id": "PRIVATE_DRIVE_ID"}]}
+    monkeypatch.setattr(routes, "_listing_idea_preflight_view", lambda *args: result)
+    media = client.get(url, headers=headers)
+    assert media.status_code == 200, media.text
+    assert "PRIVATE_" not in media.text
+    assert media.json()["video_ugc"]["videos"][0]["aspectRatio"] == "9:16"
+    monkeypatch.setattr(routes, "_auto_later_ids", lambda tenant: {"1234567890"})
+    assert client.get(url, headers=headers).status_code == 404
+    monkeypatch.setattr(routes, "_auto_later_ids", lambda tenant: set())
+    db.delete(db.get(EtsySpyPicked, ("boostgame", listing_id)))
+    db.commit()
+    assert client.get(url, headers=headers).status_code == 404
+    assert client.post(f"/api/v1/etsy-spy/agents/{agent.id}/revoke").status_code == 200
+    assert client.get(url, headers=headers).status_code == 401
+
+
 def test_admin_pair_secret_only_once_and_reader_cannot_pair(scenario):
     client, db, principal = scenario
     assert client.post("/api/v1/etsy-spy/agents",

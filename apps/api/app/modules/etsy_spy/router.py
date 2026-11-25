@@ -2370,6 +2370,49 @@ def agent_picked_listings(
 
 
 
+@router.get("/agents/{agent_id}/listings/{listing_key}/listing-idea-preflight")
+def agent_listing_idea_preflight(
+    agent_id: str, listing_key: str, response: Response,
+    authorization: str | None = Header(None), db: Session = Depends(get_db),
+):
+    """Read one picked product for SMS review using the paired Scout credential.
+
+    No browser session, signed media URLs, marketplace writes or attestations.
+    Never accept a caller-supplied tenant, and exclude the Image Agent role.
+    """
+    agent = authenticate_agent(db, agent_id, authorization)
+    if not re.fullmatch(r"[0-9]{5,20}", listing_key):
+        raise HTTPException(422, "Invalid Etsy Listing ID")
+    picked = db.scalar(select(Picked).where(
+        Picked.tenant_id == agent.tenant_id, Picked.listing_key == listing_key,
+        Picked.listing_key.not_in(_auto_later_ids(agent.tenant_id)),
+    ))
+    if picked is None:
+        raise HTTPException(404, "Picked listing not found")
+    view = _listing_idea_preflight_view(db, agent.tenant_id, picked)
+    # Use the same draft composition as the operator UI, but do not return
+    # media routes, image contents, private storage identifiers or raw receipts.
+    design_fields = ("id", "position", "variant", "output_sha256",
+                     "artwork_kind", "status", "rights_status", "color_match")
+    def safe_design(item):
+        return {k: item[k] for k in design_fields if k in item}
+    videos = view.get("video_ugc") or {}
+    media_status = {
+        "status": videos.get("status"), "count": videos.get("count", 0),
+        "artworkSha256": videos.get("artworkSha256"),
+        "videos": [
+            {k: item[k] for k in ("aspectRatio", "qaStatus", "storageVerified",
+                "width", "height", "durationSeconds") if k in item}
+            for item in videos.get("videos", [])
+        ],
+    }
+    selected = view.get("selected_design")
+    response.headers["Cache-Control"] = "no-store"
+    return {**view, "designs": [safe_design(item) for item in view["designs"]],
+            "selected_design": safe_design(selected) if selected else None,
+            "video_ugc": media_status, "agent_export": True}
+
+
 @router.post("/agents/{agent_id}/review-intents")
 async def agent_submit_review_intent(
     agent_id: str, request: Request, response: Response,
