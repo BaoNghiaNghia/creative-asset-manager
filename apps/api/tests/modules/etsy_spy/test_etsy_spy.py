@@ -520,7 +520,8 @@ def test_listing_idea_agent_export_is_read_only_scoped_and_revocable(scenario, m
     assert result["source"]["title"] == "Rudolph T-Shirt"
     assert result["submitted_to_sms"] is False
     assert result["ready_for_sms_submit"] is False
-    assert "google_drive_video_links_missing" in result["blockers"]
+    assert "google_drive_video_links_missing" in result["warnings"]
+    assert result["sms_video_fields"] == []
     assert client.put(url, headers=headers, json={}).status_code == 405
 
     # No access across tenants, or with a dedicated image agent credential.

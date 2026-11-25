@@ -1582,7 +1582,7 @@ def listing_tiktok_skill_detail(
 
 
 def _listing_idea_preflight_view(db: Session, tenant: str, picked: Picked, *, draft_override=None) -> dict:
-    from .listing_idea_preflight import compose
+    from .listing_idea_preflight import compose, table_video_links
     key = picked.listing_key
     listing = db.scalar(select(Listing).where(
         Listing.tenant_id == tenant, Listing.listing_key == key,
@@ -1598,11 +1598,13 @@ def _listing_idea_preflight_view(db: Session, tenant: str, picked: Picked, *, dr
     extraction = latest_extraction_job(db, tenant, key)
     designs = (project_design_assets(extraction)
                if extraction is not None and not extraction.cancellation_requested else [])
-    video = video_ugc_view(db.get(CamMuseJob, (tenant, key)))
+    muse_job = db.get(CamMuseJob, (tenant, key))
+    video = video_ugc_view(muse_job)
+    table_links = table_video_links(muse_job, video, key)
     image_count = db.scalar(select(func.count()).select_from(ListingImage).where(
         ListingImage.tenant_id == tenant, ListingImage.listing_key == key)) or 0
     return compose(listing_key=key, source=source, seo=seo, designs=designs,
-                   video_ugc=video, listing_image_count=image_count,
+                   video_ugc=video, listing_image_count=image_count, table_links=table_links,
                    saved=picked.listing_idea_draft if draft_override is None else draft_override)
 
 

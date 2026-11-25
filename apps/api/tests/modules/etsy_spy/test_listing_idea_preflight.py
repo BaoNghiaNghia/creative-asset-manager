@@ -1,6 +1,8 @@
 """Pre-SMS draft regression tests; runnable with stdlib unittest, no DB."""
 import unittest
-from app.modules.etsy_spy.listing_idea_preflight import compose, validate_draft, clean_video_links
+from types import SimpleNamespace
+from app.modules.etsy_spy.listing_idea_preflight import compose, validate_draft, clean_video_links, table_video_links
+from app.modules.muse_bridge.ui import video_ugc_view
 
 SHA = "a" * 64
 TEMPLATE = {"id": "template-1", "name": "C1717 Print", "version": 3,
@@ -41,7 +43,7 @@ class PreflightTests(unittest.TestCase):
 
     def test_missing_data_explicit(self):
         view = self.view(saved={})
-        self.assertIn("google_drive_video_links_missing", view["blockers"])
+        self.assertIn("google_drive_video_links_missing", view["warnings"])
         self.assertIn("sms_template_selection_required", view["blockers"])
         self.assertIn("seo_fact_review_required", view["blockers"])
         self.assertFalse(view["ready_for_sms_payload_review"])
@@ -75,6 +77,58 @@ class PreflightTests(unittest.TestCase):
         ]:
             with self.subTest(entries=entries), self.assertRaises(ValueError):
                 clean_video_links(entries)
+
+    def test_visible_table_video_exports_even_when_content_qa_held_or_pending(self):
+        row = {"storageVerified": True, "storage_provider": "google_drive_managed",
+               "drive_file_id": "exampleVideo123", "drive_folder_id": "exampleFolder123",
+               "sha256": "b" * 64}
+        for verdict in ("hold", "pass", None):
+            job = SimpleNamespace(listing_key="1234567890", artwork_sha256=SHA,
+                                  status="qa_hold", output_receipts={
+                "drive_uploads": {"9:16": row},
+                "independentVideoReviewV33": {"artworkSha256": SHA,
+                    "reviewedVideoSha256ByAspect": {"9:16": row["sha256"]},
+                    "verdict": verdict},
+            })
+            projection = video_ugc_view(job)
+            links = table_video_links(job, projection, job.listing_key)
+            self.assertEqual(len(links), 1)
+            self.assertEqual(links[0]["source"], "cam_video_ugc_table")
+            self.assertFalse(links[0]["content_verified"])
+            self.assertFalse(links[0]["qa_required_for_sms"])
+            self.assertEqual(links[0]["url"], "https://drive.google.com/file/d/exampleVideo123/view")
+            view = self.view(video_ugc=projection, table_links=links)
+            self.assertEqual(len(view["video_links"]), 1)
+            self.assertEqual(view["video_links"][0]["source"], "cam_video_ugc_table")
+            self.assertEqual(view["sms_video_fields"], [{"name":"UGC Video 9:16 (Drive link)",
+                                                        "value":links[0]["url"]}])
+            self.assertFalse(view["submitted_to_sms"])
+            self.assertFalse(view["ready_for_sms_submit"])
+
+    def test_no_table_video_does_not_block_draft(self):
+        draft = validate_draft({**DRAFT, "video_links":[]})
+        view = self.view(saved=draft)
+        self.assertFalse(view["blockers"])
+        self.assertIn("google_drive_video_links_missing", view["warnings"])
+        self.assertEqual(view["sms_video_fields"], [])
+
+    def test_missing_invalid_or_stale_storage_not_exported(self):
+        row = {"storageVerified": True, "storage_provider": "google_drive_managed",
+               "drive_file_id": "exampleVideo123", "drive_folder_id": "exampleFolder123",
+               "sha256": "b" * 64}
+        for bad in ({**row,"storageVerified":False},
+                    {**row,"drive_file_id":"https://example.com"},
+                    {**row,"sha256":"invalid"},
+                    {**row,"drive_folder_id":None}):
+            job = SimpleNamespace(listing_key="1234567890", artwork_sha256=SHA,
+                                  status="qa_hold", output_receipts={"drive_uploads":{"9:16":bad}})
+            self.assertEqual(table_video_links(job,video_ugc_view(job),job.listing_key),[])
+        job = SimpleNamespace(listing_key="1234567890", artwork_sha256=SHA,
+                              status="qa_hold", output_receipts={"drive_uploads":{"9:16":row}})
+        projection = video_ugc_view(job)
+        self.assertEqual(table_video_links(job,projection,"9999999999"),[])
+        projection["videos"][0]["sha256"] = "c"*64
+        self.assertEqual(table_video_links(job,projection,job.listing_key),[])
 
     def test_reject_unknown_write_fields(self):
         with self.assertRaises(ValueError):
