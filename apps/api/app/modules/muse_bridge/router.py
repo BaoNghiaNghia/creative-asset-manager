@@ -68,6 +68,7 @@ from . import workflow_contract as workflow
 from . import source_qa_recheck as recheck
 from . import receipt_ack as ack_replay
 from . import progress_watch
+from . import latest_artwork
 
 
 class MuseObservedRoute(APIRoute):
@@ -83,7 +84,7 @@ class MuseObservedRoute(APIRoute):
 
 
 router = APIRouter(prefix="/api/v1/muse-bridge", tags=["muse-bridge"], route_class=MuseObservedRoute)
-BRIDGE_VERSION = "1.4.22"
+BRIDGE_VERSION = "1.4.23"
 HEX64 = re.compile(r"^[a-f0-9]{64}$")
 LISTING_ID = re.compile(r"^[0-9]{5,20}$")
 ARTWORK_PATH = re.compile(
@@ -409,12 +410,23 @@ def _native_asset_matches(db: Session, tenant: str, listing_id: str, digest: str
 
 def _review_native_asset(db: Session, tenant: str, job: CamMuseJob):
     """Unknown is eligible for review only; never a render-ready master."""
+    pinned, is_pinned = latest_artwork.pinned_match(db, tenant, job)
+    if is_pinned:
+        return pinned if pinned and (pinned.position == "front" or job.product_image_url) else None
     front, unknown = _native_asset_matches(db, tenant, job.listing_key, job.artwork_sha256)
     return front or (unknown if job.product_image_url else None)
 
 
 def _stored_native_asset(db: Session, tenant: str, listing_id: str, digest: str):
     """Keep the original front path; unknown needs bound, accepted visual QA."""
+    job = db.get(CamMuseJob, (tenant, listing_id))
+    if job is not None and job.artwork_sha256 == digest:
+        pinned, is_pinned = latest_artwork.pinned_match(db, tenant, job)
+        if is_pinned:
+            if pinned and (pinned.position == "front" or placement_review.approved_unknown(
+                    pinned, digest, job.product_image_url, _qa_record(job))):
+                return pinned.locator
+            return None
     front, unknown = _native_asset_matches(db, tenant, listing_id, digest)
     if front:
         return front.locator
@@ -1907,6 +1919,7 @@ def muse_worker_shared_config(
     config["skipReconciliation"] = skips.contract()
     config["observability"] = obs.contract()
     config["videoProgressPolicy"] = progress_watch.contract()
+    config["latestArtworkPolicy"] = latest_artwork.contract()
     config["videoAspectPolicy"] = {
         "phase": _video_aspect_phase(),
         "requiredVideoAspectRatios": _phase_required_aspects(),
@@ -2046,6 +2059,7 @@ def sync_agent(agent_id: str, payload: SyncRequest, authorization: str | None = 
         EtsySpyPicked.listing_key.in_([i.listingId for i in payload.items]))).all())
     if len(picked) != len(payload.items):
         raise HTTPException(409, "Only tenant-owned Picked listings may sync")
+    selected = latest_artwork.load(db, tenant, [item.listingId for item in payload.items])
     changed = 0
     for item in payload.items:
         row = db.get(CamMuseJob, (tenant, item.listingId))
@@ -2053,6 +2067,7 @@ def sync_agent(agent_id: str, payload: SyncRequest, authorization: str | None = 
         # Don't treat unverified or inaccessible artwork as render-ready.
         if status == "ready_for_muse" and not (item.artworkSha256 and item.artworkAssetPath):
             status = "qa_hold"
+        current_original = selected.get(item.listingId)
         if row is None:
             row = CamMuseJob(tenant_id=tenant, listing_key=item.listingId,
                             picked_at=item.pickedAt, title=item.title,
@@ -2060,8 +2075,21 @@ def sync_agent(agent_id: str, payload: SyncRequest, authorization: str | None = 
                             keyword=item.keyword, artwork_sha256=item.artworkSha256,
                             artwork_asset_path=item.artworkAssetPath,
                             product_image_url=item.productImageUrl)
+            if current_original is not None:
+                row.source_state = row.status = "qa_hold"
+                row.artwork_asset_path = None
+                row.artwork_sha256 = current_original.digest if current_original.state == "saved" else None
+                row.product_image_url = (current_original.source_url
+                    if current_original.state == "saved" else item.productImageUrl)
+                if current_original.state == "saved":
+                    row.output_receipts = {latest_artwork.CURRENT: latest_artwork.revision_marker(
+                        current_original, None, _utc())}
             db.add(row)
             changed += 1
+            continue
+        if latest_artwork.enabled() and (current_original is not None or row.artwork_sha256):
+            # Only CAM's authoritative version reconciler may replace a
+            # persisted artwork identity. A delayed Windows sync cannot.
             continue
         if row.status in ("claimed", "submitted", "completed"):
             # Never overwrite a claimed or delivered job with stale source data.
@@ -2105,7 +2133,9 @@ def pending_jobs(limit: int = Query(default=10, ge=1, le=50),
             ((CamMuseJob.status == "claimed") & (CamMuseJob.lease_expires_at < _utc())))
     ).order_by(CamMuseJob.picked_at.asc())
     rows = db.scalars(query).all()
-    rows = [row for row in rows if not skips.active(row) and set(_job_required_aspects(row)) - _verified_video_ratios(row)]
+    latest_artwork.prime(db, tenant, [row.listing_key for row in rows])
+    rows = [row for row in rows if latest_artwork.current(db, tenant, row)
+            and not skips.active(row) and set(_job_required_aspects(row)) - _verified_video_ratios(row)]
     return {"items": [_row_view(x) for x in rows[:limit]]}
 
 @router.get("/queue")
@@ -2229,6 +2259,7 @@ def missing_video_work(
     candidates = db.scalars(claimable_commands_query(
         tenant, _utc(), actions=("create_video", "review_artwork"),
     ).limit(2000)).all()
+    latest_artwork.prime(db, tenant, [c.listing_key for c in candidates])
 
     items = []
     seen = set()
@@ -2593,10 +2624,11 @@ def visual_review_queue(
     rows = db.scalars(query.order_by(CamMuseJob.picked_at.asc()).limit(
         1 if listing_id else 500)).all()
     items = []
+    latest_artwork.prime(db, tenant, [row.listing_key for row in rows])
     for row in rows:
         if len(items) >= limit:
             break
-        if _qa_record(row):
+        if _qa_record(row) or not latest_artwork.current(db, tenant, row):
             continue
         asset = _review_native_asset(db, tenant, row)
         if asset is None:
@@ -2833,6 +2865,11 @@ def claim(listing_id: str, payload: ClaimRequest, request: Request,
     # The atomic UPDATE intentionally disables ORM synchronization. Reload
     # even if this session already inspected the pending listing.
     row = db.get(CamMuseJob, (tenant, listing_id), populate_existing=True)
+    try:
+        latest_artwork.require_current(db, tenant, row)
+    except HTTPException:
+        db.rollback()
+        raise
     if existing is None:
         from .regeneration import requested_aspects
         required = requested_aspects(row) or required
@@ -4729,6 +4766,8 @@ def _eligible_phase(db: Session, tenant: str,
                     job: CamMuseJob, cmd: CamMuseCommand):
     if job.artwork_sha256 != cmd.artwork_sha256 or getattr(cmd, "attempts", 0) >= recheck.claim_limit(cmd):
         return None
+    if not latest_artwork.current(db, tenant, job):
+        return None
     receipts = job.output_receipts if isinstance(job.output_receipts, dict) else {}
     scope = recheck.marker(job)
     if job.status == "qa_hold" and scope and (
@@ -5049,7 +5088,8 @@ def _muse_command_list_payload(limit: int, tenant: str, db: Session, review_only
             CamMuseCommand.command_id.asc(),
         )
         .limit(2000)
-    )
+    ).all()
+    latest_artwork.prime(db, tenant, [c.listing_key for c in rows])
     items = []
     circuit = renderer_circuit(db, tenant)
     for cmd in rows:
@@ -5563,6 +5603,7 @@ def claim_muse_command(command_id: str, request: Request,
         ).with_for_update())
         if not job:
             raise HTTPException(409, "CAM listing no longer Picked")
+        latest_artwork.require_current(db, tenant, job)
         phase = _eligible_phase(db, tenant, job, cmd)
         if phase is None:
             raise HTTPException(409, "Artwork QA / video workflow not eligible")

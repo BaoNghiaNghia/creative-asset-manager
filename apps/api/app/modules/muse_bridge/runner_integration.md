@@ -35,6 +35,9 @@ A lost HTTP response after a genuine successful video completion is not a render
 ## Progress watchdog (CAM Bridge 1.4.21+)
 Inspect videoProgress in /automation/diagnostics when eligible work is not advancing. Use its CAM-observed discovery, claim and storage signals to diagnose routing and contract errors. A lease is not proof of renderer success. Do not restart a running renderer, renew another worker's lease, bypass cooldown or turn a genuine QA hold into a pass. Preserve the existing task, one active renderer, the exact claimed workflow and Original artwork verification. This watchdog observes; normal queue recovery and authenticated runner actions still own state transitions.
 
+## Latest Design Original (CAM Bridge 1.4.23+)
+CAM selects the latest saved Native Master generation for each synced listing. A changed original SHA is a new artwork revision, not a retry of the old render. Do not cache completed listings, QA, or hero images by listing ID alone. Always use the live SHA-bound execution contract and download the claimed Original. If CAM replies ARTWORK_VERSION_CHANGED, refresh discovery and do not render the old revision; normal lease recovery handles any unstarted command. Active job leases stay pinned until completion. Identical original bytes and thumbnail changes do not cause regeneration. Historical Drive media remains intact. Genuine operator/provider holds still apply.
+
 ## Runner checkpoints
 - Start the current run: RUN_STARTED, WORKER_HEARTBEAT.
 - Normal polling: POLL_SUCCESS or QUEUE_EMPTY when actually observed.

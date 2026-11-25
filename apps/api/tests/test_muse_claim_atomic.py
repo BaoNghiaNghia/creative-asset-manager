@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.core.database import get_db
+from app.modules.processing.model import ProcessingJobModel as P
 from app.modules.muse_bridge import router as m
 from app.modules.muse_bridge.model import CamMuseCommand as C, CamMuseJob as J
 
@@ -31,7 +32,7 @@ class AtomicClaimTests(TestCase):
         self.engine = create_engine("sqlite+pysqlite:///:memory:",
             connect_args={"check_same_thread":False},poolclass=StaticPool)
         self.addCleanup(self.engine.dispose)
-        for model in (J,C):
+        for model in (P,J,C):
             model.__table__.create(self.engine)
         with Session(self.engine) as db:
             db.add(J(tenant_id=TENANT,listing_key=LID,picked_at=NOW,
@@ -42,6 +43,12 @@ class AtomicClaimTests(TestCase):
             db.add(C(tenant_id=TENANT,command_id=CID,listing_key=LID,
                 action="create_video",phase="create_video",request_id="test-atomic-claim",
                 artwork_sha256=SHA,status="pending",attempts=0,details={}))
+            db.add(P(id="12345678-1234-1234-1234-123456789abc",
+                tenant_id=TENANT,job_type="etsy_design_extract",entity_type="etsy_listing",entity_id=LID,
+                idempotency_key="initial-source",status="completed",created_at=NOW,
+                payload_json={"source":{"url":"https://i.etsystatic.com/test.jpg"},
+                              "design_assets":[{"id":"b"*24,"position":"front","variant":1,
+                                "method":"imagegen","artwork_kind":"native_master_v2","output_sha256":SHA}]}))
             db.commit()
         app=FastAPI()
         app.include_router(m.router)
@@ -65,6 +72,7 @@ class AtomicClaimTests(TestCase):
                 "CAM_MUSE_STORY_LITE_ENABLED":"true",
                 "CAM_MUSE_CONTINUOUS_GEN_ENABLED":"true",
                 "CAM_MUSE_ASPECT_PHASE":"vertical_first",
+                "CAM_MUSE_LATEST_ARTWORK_ENABLED":"true",
             }),
             patch.object(m,"_muse_dual_enabled",return_value=True),
             patch.object(m,"_assert_muse_executor_ready",return_value=None),
@@ -122,6 +130,35 @@ class AtomicClaimTests(TestCase):
             self.assertEqual(job.lease_hash,hashlib.sha256(result["lease"].encode()).hexdigest())
             self.assertEqual(job.output_receipts["museWorkerOwner"],"muse-01")
             self.assertEqual(job.output_receipts["story_contract_v33"]["creativePolicy"],m.LITE_POLICY)
+
+    def add_new_original(self):
+        with Session(self.engine) as db:
+            db.add(P(id=str(uuid4()),tenant_id=TENANT,job_type="etsy_design_extract",
+                entity_type="etsy_listing",entity_id=LID,idempotency_key="new-source",
+                status="completed",created_at=NOW+timedelta(seconds=1),
+                payload_json={"retry":{"source_job_id":"prior"},
+                              "source":{"url":"https://i.etsystatic.com/test.jpg"},
+                              "design_assets":[{"id":"c"*24,"position":"front","variant":1,
+                                  "method":"imagegen","artwork_kind":"native_master_v2",
+                                  "output_sha256":"d"*64}]}))
+            db.commit()
+
+    def test_new_original_blocks_stale_command_claim(self):
+        self.add_new_original()
+        response=self.command_claim()
+        self.assertEqual(response.status_code,409,response.text)
+        self.assertEqual(response.json()["detail"]["code"],"ARTWORK_VERSION_CHANGED")
+        with Session(self.engine) as db:
+            self.assertEqual(db.get(C,(TENANT,CID)).status,"pending")
+            self.assertEqual(db.get(C,(TENANT,CID)).attempts,0)
+
+    def test_new_original_between_claims_rolls_back_job_attempt(self):
+        body=self.claimed_command_body()
+        self.add_new_original()
+        response=self.video_claim(body)
+        self.assertEqual(response.status_code,409,response.text)
+        self.assertEqual(response.json()["detail"]["code"],"ARTWORK_VERSION_CHANGED")
+        self.assert_job_unclaimed()
 
     def test_actual_two_step_story_lite_claim(self):
         body=self.claimed_command_body()

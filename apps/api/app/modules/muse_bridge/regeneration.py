@@ -174,6 +174,10 @@ async def regenerate(db: Session, tenant: str, listing_id: str, expected: dict[s
                     "requiredVideoAspectRatios": list(selected),
                     "removedSha256ByAspect": expected,
                 }}
+    from . import latest_artwork
+    for key in (latest_artwork.HISTORY, latest_artwork.CURRENT):
+        if key in old:
+            receipts[key] = old[key]
     if kept:
         for key in ("hero_sources", "hero_revisions", "story_action_preflight"):
             by_ratio = old.get(key) or {}

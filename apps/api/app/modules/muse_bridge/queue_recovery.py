@@ -18,6 +18,7 @@ from sqlalchemy import select, text
 from .model import CamMuseCommand, CamMuseJob
 from . import skip_reconciliation as skips
 from . import source_qa_recheck as recheck
+from . import latest_artwork
 
 POLICY = "CAM_SMART_QUEUE_RECOVERY_V1"
 QUEUE_CAP = 12
@@ -229,6 +230,11 @@ def reconcile_queue(db, tenant, now=None, *, cap=QUEUE_CAP):
         job.updated_at = now
         stats["expiredJobsReleased"] += 1
     db.flush()
+    # Select the newest saved Native Master after ordinary expired-lease
+    # recovery. Revision changes never touch an active claim or old media.
+    import sys
+    stats.update(latest_artwork.reconcile(db, tenant, jobs, now, sys.modules[__name__], muse))
+    db.flush()
     # Historical partial uploads predate the first-aspect QA metadata. Only
     # backfill missing pending states, never manufacture a review verdict.
     for candidate in jobs:
@@ -301,7 +307,8 @@ def reconcile_queue(db, tenant, now=None, *, cap=QUEUE_CAP):
         aware(j.picked_at), j.listing_key,
     ))
     review_jobs = [j for j in jobs if j.status == "qa_hold"]
-    review_jobs.sort(key=lambda j: (not recheck.pending(j), aware(j.picked_at), j.listing_key))
+    review_jobs.sort(key=lambda j: (not bool((j.output_receipts or {}).get(latest_artwork.CURRENT)),
+                                    not recheck.pending(j), aware(j.picked_at), j.listing_key))
     video_jobs = [j for j in jobs if j.status == "pending"]
     # First reserve review slots, then fill remaining capacity with videos.
     # If video work is scarce, lend spare slots to review. A full preexisting
@@ -319,6 +326,8 @@ def reconcile_queue(db, tenant, now=None, *, cap=QUEUE_CAP):
         if candidate.listing_key in by_active or candidate.status not in ("pending", "qa_hold"):
             continue
         if not candidate.artwork_sha256 or not muse.HEX64.fullmatch(candidate.artwork_sha256):
+            continue
+        if not latest_artwork.current(db, tenant, candidate):
             continue
         # Cheap predicates before acquiring the listing lock.
         scope_candidate = candidate.status == "qa_hold" and recheck.pending(candidate)
