@@ -52,7 +52,70 @@ def clean_video_links(entries):
     return output
 
 
-def compose(*, listing_key, source, seo, designs, video_ugc, listing_image_count, saved):
+def table_video_links(job, projection, listing_key):
+    """Link exactly the stored videos projected in Etsy Spy, irrespective of visual QA.
+
+    The normal CAM upload already verifies Drive provenance. This is an internal
+    reference, not a share grant, fresh Drive access probe or visual approval.
+    Never export raw receipts, credentials, signed playback tickets or folders.
+    """
+    if (job is None or job.listing_key != listing_key
+            or not SHA.fullmatch(job.artwork_sha256 or "")):
+        return []
+    receipt = job.output_receipts if isinstance(job.output_receipts, dict) else {}
+    uploads = receipt.get("drive_uploads")
+    if not isinstance(uploads, dict):
+        return []
+    output, seen, aspects = [], set(), set()
+    for video in projection.get("videos", []):
+        ratio = video.get("aspectRatio")
+        item = uploads.get(ratio)
+        if ratio not in ("9:16", "16:9") or ratio in aspects or not isinstance(item, dict):
+            continue
+        ident, folder, digest = item.get("drive_file_id"), item.get("drive_folder_id"), item.get("sha256")
+        if (video.get("storageVerified") is not True
+                or item.get("storageVerified") is not True
+                or item.get("storage_provider") != "google_drive_managed"
+                or not isinstance(ident, str) or not re.fullmatch(r"[A-Za-z0-9_-]{10,128}", ident)
+                or not isinstance(folder, str) or not re.fullmatch(r"[A-Za-z0-9_-]{10,128}", folder)
+                or not isinstance(digest, str) or not SHA.fullmatch(digest)
+                or video.get("sha256") != digest
+                or ident in seen):
+            continue
+        seen.add(ident)
+        aspects.add(ratio)
+        output.append({"url": f"https://drive.google.com/file/d/{ident}/view",
+                       "aspect": ratio, "kind": "file", "source": "cam_video_ugc_table",
+                       "storage_verified": True, "content_verified": False,
+                       "sha256": digest, "qa_required_for_sms": False})
+    return output
+
+
+def merge_video_links(table_links, manual_links):
+    """Prefer current table assets; dedupe identical file IDs and aspect slots."""
+    merged, seen, aspects = [], set(), set()
+    for item in [*table_links, *manual_links]:
+        ident, _ = drive_reference(item["url"])
+        aspect = item.get("aspect")
+        if ident in seen or (aspect and aspect in aspects):
+            continue
+        seen.add(ident)
+        if aspect:
+            aspects.add(aspect)
+        merged.append(item)
+    return merged
+
+
+def sms_video_fields(links):
+    return [
+        {"name": ("UGC Video Folder " + str(i + 1) if v["kind"] == "folder"
+                  else "UGC Video " + str(v["aspect"] or i + 1) + " (Drive link)"),
+         "value": v["url"]}
+        for i, v in enumerate(links)
+    ]
+
+
+def compose(*, listing_key, source, seo, designs, video_ugc, listing_image_count, saved, table_links=None):
     """Join existing read projections. Operator attestations never become live SMS receipts."""
     saved = saved if isinstance(saved, dict) else {}
     source = source or {}
@@ -100,12 +163,16 @@ def compose(*, listing_key, source, seo, designs, video_ugc, listing_image_count
     require(bool(saved.get("colors")) and set(saved.get("colors", [])) <= set(template.get("colors", [])),
             "template_color_selection_required")
     try:
-        links = clean_video_links(saved.get("video_links", []))
+        manual_links = clean_video_links(saved.get("video_links", []))
     except ValueError:
-        links = []
-    require(bool(links), "google_drive_video_links_missing")
-    if links:
+        manual_links = []
+    links = merge_video_links(table_links or [], manual_links)
+    if not links:
+        warnings.append("google_drive_video_links_missing")
+    if manual_links:
         warnings.append("operator_drive_links_access_and_content_unverified")
+    if table_links:
+        warnings.append("table_video_links_no_visual_qa_gate_drive_access_not_rechecked")
     if not saved.get("skus"):
         warnings.append("seller_sku_and_sellable_stock_deferred_until_marketplace_listing")
     if template:
@@ -123,6 +190,9 @@ def compose(*, listing_key, source, seo, designs, video_ugc, listing_image_count
           "highlights": result.get("highlights", []), "search_terms": result.get("search_terms", [])},
         "designs": assets, "selected_design": chosen,
         "video_ugc": video_ugc, "video_links": links,
+        "sms_video_fields": sms_video_fields(links),
+        "sms_video_policy": "table_visible_no_visual_qa_gate",
+        "sms_video_transport": "drive_links_only",
         "listing_image_count": listing_image_count, "saved": saved,
         "blockers": blocks, "warnings": warnings,
         "ready_for_sms_payload_review": not blocks, "ready_for_sms_submit": False,
