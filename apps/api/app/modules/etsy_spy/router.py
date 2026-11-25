@@ -1581,6 +1581,82 @@ def listing_tiktok_skill_detail(
     return {"listingKey": listing_key, "enabled": tiktok_skill_enabled(), **view}
 
 
+def _listing_idea_preflight_view(db: Session, tenant: str, picked: Picked, *, draft_override=None) -> dict:
+    from .listing_idea_preflight import compose
+    key = picked.listing_key
+    listing = db.scalar(select(Listing).where(
+        Listing.tenant_id == tenant, Listing.listing_key == key,
+    ).order_by(Listing.is_current.desc(), desc(Listing.observed_at),
+               desc(Listing.updated_at)).limit(1))
+    source = None if listing is None else {
+        "title": listing.title, "keyword": listing.keyword,
+        "etsy_url": "https://www.etsy.com/listing/" + key,
+        "views24h": listing.views24h, "in_carts": listing.in_carts,
+        "bought24h": listing.bought24h, "item_reviews": listing.item_reviews,
+    }
+    seo = project_tiktok_skill(latest_tiktok_skill_job(db, tenant, key), detail=True)
+    extraction = latest_extraction_job(db, tenant, key)
+    designs = (project_design_assets(extraction)
+               if extraction is not None and not extraction.cancellation_requested else [])
+    video = video_ugc_view(db.get(CamMuseJob, (tenant, key)))
+    image_count = db.scalar(select(func.count()).select_from(ListingImage).where(
+        ListingImage.tenant_id == tenant, ListingImage.listing_key == key)) or 0
+    return compose(listing_key=key, source=source, seo=seo, designs=designs,
+                   video_ugc=video, listing_image_count=image_count,
+                   saved=picked.listing_idea_draft if draft_override is None else draft_override)
+
+
+@router.get("/listings/{listing_key}/listing-idea-preflight")
+def listing_idea_preflight(
+    listing_key: str, principal: CurrentPrincipal = Depends(READ),
+    db: Session = Depends(get_db),
+):
+    """Compose a tenant-scoped draft from CAM; never send to SMS."""
+    if not re.fullmatch(r"[0-9]{5,20}", listing_key):
+        raise HTTPException(422, "Invalid Etsy Listing ID")
+    tenant = principal.active_tenant_id
+    picked = db.get(Picked, (tenant, listing_key))
+    if picked is None:
+        raise HTTPException(404, "Picked listing not found")
+    return _listing_idea_preflight_view(db, tenant, picked)
+
+
+@router.put("/listings/{listing_key}/listing-idea-preflight")
+async def save_listing_idea_preflight(
+    listing_key: str, request: Request, principal: CurrentPrincipal = Depends(MANAGE),
+    db: Session = Depends(get_db),
+):
+    """Save explicit operator draft data; no external write, upload, or publish."""
+    from .listing_idea_preflight import validate_draft
+    if not re.fullmatch(r"[0-9]{5,20}", listing_key):
+        raise HTTPException(422, "Invalid Etsy Listing ID")
+    tenant = principal.active_tenant_id
+    picked = db.scalar(select(Picked).where(
+        Picked.tenant_id == tenant, Picked.listing_key == listing_key,
+    ).with_for_update())
+    if picked is None:
+        raise HTTPException(404, "Picked listing not found")
+    raw = await request.body()
+    if len(raw) > 128 * 1024:
+        raise HTTPException(413, "Listing idea draft too large")
+    try:
+        data = validate_draft(json.loads(raw))
+    except (ValueError, TypeError, RecursionError):
+        raise HTTPException(422, "Invalid listing idea draft")
+    view = _listing_idea_preflight_view(db, tenant, picked, draft_override=data)
+    if data.get("design_sha256") and not view["selected_design"]:
+        raise HTTPException(409, "Design changed or is not part of this listing")
+    if data.get("rights_review_sha256") and (
+            not view["selected_design"] or
+            data["rights_review_sha256"] != view["selected_design"]["output_sha256"]):
+        raise HTTPException(409, "Rights review must refer to selected design")
+    if data.get("seo_review_job_id") and data["seo_review_job_id"] != view["seo"]["job_id"]:
+        raise HTTPException(409, "SEO draft changed")
+    picked.listing_idea_draft = data
+    db.commit()
+    return view
+
+
 @router.post("/listings/{listing_key}/tiktok-listing/queue")
 def queue_listing_tiktok_skill(
     listing_key: str,

@@ -95,6 +95,7 @@ class EtsySpyPicked(Base):
     picked_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False,
     )
+    listing_idea_draft: Mapped[dict | None] = mapped_column(JSON(), nullable=True)
 
 
 
