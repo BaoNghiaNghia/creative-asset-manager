@@ -160,6 +160,21 @@ class AtomicClaimTests(TestCase):
         self.assertEqual(response.json()["detail"]["code"],"ARTWORK_VERSION_CHANGED")
         self.assert_job_unclaimed()
 
+    def test_explicit_both_regeneration_claim_pins_vertical_first(self):
+        with Session(self.engine) as db:
+            j=db.get(J,(TENANT,LID))
+            j.output_receipts={**j.output_receipts,"videoRegeneration":{
+                "requiredVideoAspectRatios":["9:16","16:9"]}}
+            db.commit()
+        body=self.claimed_command_body()
+        with Session(self.engine) as db:
+            c=db.get(C,(TENANT,CID))
+            self.assertEqual(c.details["requiredVideoAspectRatios"],["9:16"])
+        self.assert_video_response(self.video_claim(body))
+        with Session(self.engine) as db:
+            j=db.get(J,(TENANT,LID))
+            self.assertEqual(j.output_receipts["videoRegeneration"]["requiredVideoAspectRatios"],["9:16","16:9"])
+
     def test_actual_two_step_story_lite_claim(self):
         body=self.claimed_command_body()
         self.assert_video_response(self.video_claim(body))

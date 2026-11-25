@@ -40,7 +40,7 @@ API_WRITE_SLOTS = BoundedSemaphore(4)
 EventType = Literal[
     "RUN_STARTED", "WORKER_HEARTBEAT", "POLL_SUCCESS", "QUEUE_EMPTY",
     "COMMAND_CLAIMED", "JOB_CLAIMED", "HERO_READY", "RENDER_STARTED",
-    "RENDER_FAILED", "COOLDOWN_STARTED", "COOLDOWN_ENDED", "VIDEO_UPLOADED",
+    "RENDER_SUCCEEDED", "RENDER_FAILED", "COOLDOWN_STARTED", "COOLDOWN_ENDED", "VIDEO_UPLOADED",
     "CAM_ACK_RECEIVED", "RUN_FINISHED", "LOG_REPLAYED", "WORKER_ERROR",
 ]
 ErrorCode = Literal[
@@ -76,6 +76,7 @@ class WorkerEvent(BaseModel):
     commandId: UUID | None = None
     listingId: str | None = Field(default=None, pattern=r"^[0-9]{5,20}$")
     aspectRatio: Aspect | None = None
+    renderAttemptId: UUID | None = None
     state: WorkerState | None = None
     errorCode: ErrorCode | None = None
     httpStatus: int | None = Field(default=None, ge=100, le=599)
@@ -194,7 +195,7 @@ def contract():
         "retentionDays": RETENTION_DAYS, "maxBatchEvents": 20,
         "workerIdentityFromBearer": True, "telemetryDoesNotRenewLeases": True,
         "outboxProtocol": "Persist eventId and event JSON before send; retry unchanged on network/5xx. Remove only accepted/duplicate IDs. Quarantine rejected IDs. Never store credentials in the outbox.",
-        "instructions": "Send RUN_STARTED and independent WORKER_HEARTBEAT during idle, work and cooldown; send stage outcomes and RUN_FINISHED. Use the actual provider retry-after; never fabricate progress. Keep command heartbeats and upload contracts unchanged.",
+        "instructions": "Send RUN_STARTED and independent WORKER_HEARTBEAT during idle, work and cooldown; send stage outcomes and RUN_FINISHED. Use the actual provider retry-after; never fabricate progress. Keep command heartbeats and upload contracts unchanged. Optionally attach the same renderAttemptId UUID to RENDER_STARTED and the actual RENDER_SUCCEEDED or RENDER_FAILED outcome, with commandId and aspectRatio; this measures renderer errors separately from QA and upload. Do not wait for telemetry ACK to continue business work.",
     }
 
 
@@ -454,3 +455,125 @@ def diagnostics(db, tenant, *, recovery_enabled, worker_ids, now=None):
                 "lastFailure":_view(fail) if fail else None},
             "commands":counts(CamMuseCommand),"jobs":counts(CamMuseJob),
             "recentEvents":timeline(db,tenant,now,limit=30)}
+
+def summarize_video_throughput(rows, now, window_hours=3):
+    """Aggregate existing events only. Worker-reported errors are not proof
+    of upstream status. Count fresh storage separately from upload retries.
+    """
+    cutoff = now - timedelta(hours=window_hours)
+    stores, claims = [], []
+    upload_ok = upload_failed = render_started = render_failed = 0
+    renderer_codes = {}
+    attempts = {}
+    unpaired_events = 0
+    for row in rows:
+        stamp = aware(row.occurred_at)
+        if not cutoff <= stamp <= now:
+            continue
+        event = row.payload_json or {}
+        if row.event_type == "CAM_API_RESULT" and event.get("origin") == "cam_observed":
+            route, status = event.get("route"), event.get("httpStatus")
+            if type(status) is not int:
+                continue
+            if route in ("jobs_videos_vertical", "jobs_videos_horizontal") and event.get("method") == "POST":
+                if 200 <= status < 300:
+                    upload_ok += 1
+                    if event.get("newVideoStorageVerified") is True:
+                        stores.append(stamp)
+                elif status >= 400:
+                    upload_failed += 1
+            elif route == "jobs_claim" and event.get("method") == "POST" and 200 <= status < 300:
+                claims.append(stamp)
+        elif event.get("origin") == "worker_reported":
+            if row.event_type in ("RENDER_STARTED", "RENDER_SUCCEEDED", "RENDER_FAILED"):
+                aid = event.get("renderAttemptId")
+                owner = event.get("workerId")
+                if isinstance(aid, str) and owner in WORKERS:
+                    attempts.setdefault((owner, aid), []).append((stamp, row.event_type,
+                        event.get("commandId"), event.get("aspectRatio")))
+                else:
+                    unpaired_events += 1
+            if row.event_type == "RENDER_STARTED":
+                render_started += 1
+            elif row.event_type == "RENDER_FAILED":
+                render_failed += 1
+                code = event.get("errorCode") or "UNKNOWN"
+                if code not in ("NETWORK_ERROR", "TIMEOUT", "PROVIDER_RATE_LIMIT",
+                                "VIDEO_DAILY_BUDGET_EXHAUSTED", "PROVIDER_UNAVAILABLE",
+                                "RENDERER_UNAVAILABLE", "QA_HOLD", "GARMENT_MISMATCH",
+                                "INTERNAL_ERROR"):
+                    code = "UNKNOWN"
+                renderer_codes[code] = renderer_codes.get(code, 0) + 1
+    stores.sort()
+    claims.sort()
+    gaps = [(b-a).total_seconds() for a,b in zip(stores,stores[1:])]
+    # Measure an observed transition, not pure idle or provider render time.
+    # Only pair a save with the first later claim before the next save.
+    transitions = []
+    ci = 0
+    for index, stamp in enumerate(stores):
+        while ci < len(claims) and claims[ci] <= stamp:
+            ci += 1
+        if ci < len(claims) and (index+1 == len(stores) or claims[ci] < stores[index+1]):
+            transitions.append((claims[ci]-stamp).total_seconds())
+    def median(values):
+        if not values:
+            return None
+        values = sorted(values)
+        mid = len(values)//2
+        return round(values[mid] if len(values)%2 else (values[mid-1]+values[mid])/2, 1)
+    # Exact matched start and terminal outcome, not an estimate based on
+    # upload counts. Duplicates, conflicts and incomplete attempts are excluded.
+    matched = failed_matched = 0
+    for events in attempts.values():
+        events.sort()
+        if (len(events) == 2 and events[0][1] == "RENDER_STARTED"
+                and events[1][1] in ("RENDER_SUCCEEDED", "RENDER_FAILED")
+                and events[0][2:] == events[1][2:]
+                and events[0][2] and events[0][3] in ("9:16", "16:9")):
+            matched += 1
+            failed_matched += int(events[1][1] == "RENDER_FAILED")
+    total_upload = upload_ok + upload_failed
+    return {
+        "windowHours": window_hours,
+        "windowStartUtc": cutoff.isoformat(),
+        "asOfUtc": now.isoformat(),
+        "newVerifiedVideoCount": len(stores),
+        "videosPerHour": round(len(stores)/window_hours,2),
+        "lastNewVideoAgeSeconds": round((now-stores[-1]).total_seconds(),1) if stores else None,
+        "medianBetweenNewVideosSeconds": median(gaps),
+        "betweenVideoSamples": len(gaps),
+        "medianUploadToNextClaimSeconds": median(transitions),
+        "uploadToNextClaimSamples": len(transitions),
+        "uploadHttpRequests": total_upload,
+        "uploadHttpFailures": upload_failed,
+        "uploadHttpFailureRate": round(upload_failed/total_upload,4) if total_upload else None,
+        "rendererReportedStarts": render_started,
+        "rendererReportedFailures": render_failed,
+        "rendererReportedFailureCodes": renderer_codes,
+        "rendererMatchedAttempts": matched,
+        "rendererMatchedFailures": failed_matched,
+        "rendererUnmatchedAttempts": len(attempts)-matched,
+        "rendererUnpairedEvents": unpaired_events,
+        "rendererFailureRate": round(failed_matched/matched,4) if matched else None,
+        "rendererFailureRateReason": "Matched reported render calls only; coverage is not independently established" if matched else "No complete matched render-attempt telemetry",
+        "rendererEvidence": "worker_reported",
+        "observedOnly": True,
+    }
+
+
+def video_throughput(db, tenant, now=None):
+    now = now or utcnow()
+    rows = db.scalars(_rows(db, tenant, now,
+        ApplicationLogModel.occurred_at >= now-timedelta(hours=3),
+        ApplicationLogModel.occurred_at <= now,
+        ApplicationLogModel.event_type.in_(("CAM_API_RESULT", "RENDER_STARTED", "RENDER_SUCCEEDED", "RENDER_FAILED")),
+    ).order_by(ApplicationLogModel.occurred_at.desc()).limit(10001)).all()
+    result = summarize_video_throughput(rows[:10000], now)
+    result["sampleTruncated"] = len(rows) > 10000
+    if result["sampleTruncated"]:
+        # Do not publish a biased rate from a capped partial sample.
+        result["videosPerHour"] = None
+        result["uploadHttpFailureRate"] = None
+        result["rendererFailureRate"] = None
+    return result

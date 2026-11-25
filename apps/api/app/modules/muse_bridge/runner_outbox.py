@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
 
-TYPES = set("RUN_STARTED WORKER_HEARTBEAT POLL_SUCCESS QUEUE_EMPTY COMMAND_CLAIMED JOB_CLAIMED HERO_READY RENDER_STARTED RENDER_FAILED COOLDOWN_STARTED COOLDOWN_ENDED VIDEO_UPLOADED CAM_ACK_RECEIVED RUN_FINISHED LOG_REPLAYED WORKER_ERROR".split())
+TYPES = set("RUN_STARTED WORKER_HEARTBEAT POLL_SUCCESS QUEUE_EMPTY COMMAND_CLAIMED JOB_CLAIMED HERO_READY RENDER_STARTED RENDER_SUCCEEDED RENDER_FAILED COOLDOWN_STARTED COOLDOWN_ENDED VIDEO_UPLOADED CAM_ACK_RECEIVED RUN_FINISHED LOG_REPLAYED WORKER_ERROR".split())
 STATES = set("idle polling reviewing rendering uploading cooldown blocked stopping".split())
 ERRORS = set("NONE NETWORK_ERROR TIMEOUT PROVIDER_RATE_LIMIT VIDEO_DAILY_BUDGET_EXHAUSTED PROVIDER_UNAVAILABLE LEASE_REJECTED INVALID_CONTRACT ARTWORK_UNAVAILABLE QA_HOLD GARMENT_MISMATCH UPLOAD_FAILED CAM_ACK_FAILED RENDERER_UNAVAILABLE INTERNAL_ERROR UNKNOWN".split())
 
@@ -28,13 +28,16 @@ class Outbox:
         self.last_heartbeat = float("-inf")
 
     def emit(self, kind, *, state=None, command_id=None, listing_id=None,
-             aspect=None, error=None, http=None, retry_after=None, duration=None):
+             aspect=None, error=None, http=None, retry_after=None, duration=None,
+             render_attempt_id=None):
         if kind not in TYPES or (state is not None and state not in STATES):
             raise ValueError("invalid telemetry type/state")
         if error is not None and error not in ERRORS:
             raise ValueError("invalid telemetry error")
         e = {"eventId":str(uuid4()),"eventType":kind,"runId":self.run_id,
              "occurredAtUtc":datetime.now(timezone.utc).isoformat()}
+        if render_attempt_id is not None:
+            e["renderAttemptId"] = str(UUID(str(render_attempt_id)))
         if command_id is not None:
             e["commandId"] = str(UUID(str(command_id)))
         if listing_id is not None:

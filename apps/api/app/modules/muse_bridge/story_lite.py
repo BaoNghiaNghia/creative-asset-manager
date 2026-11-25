@@ -62,7 +62,9 @@ def lite_story_spec(base: dict) -> dict:
             "adult proportions and casual jeans or khakis; never reshape a person. "
             "Natural unforced expression, "
             "steady observational camera, ordinary real-time movement. "
-            "Keep the approved C1717 shirt and readable design recognizable. "
+            "Keep the reference shirt and entire approved print visible in the frame; "
+            "use a little framing clearance, no progressive push-in, and keep hands "
+            "and existing props clear of the print. Do not add text or logos. "
             "No new props, people, wardrobe changes, extreme turns, loops or "
             "frozen-frame padding. Face naturally visible, no timed face quota."
         )
@@ -116,7 +118,7 @@ def worker_policy() -> dict:
         ],
         "technicalGuards": [
             "approved artwork and C1717 product identity",
-            "actual valid H264 MP4 in the requested aspect ratio",
+            "native MP4 in the requested aspect ratio, unchanged provider bytes",
             "valid lease and verified Drive destination; never overwrite saved media",
         ],
         "placementGeometryRequired": False,
@@ -129,8 +131,8 @@ def worker_policy() -> dict:
             "POST its exact claim body. Use the existing approved worn image when "
             "visually suitable, otherwise generate one simple native-aspect source. "
             "Use the returned short aspect prompt. Generate one native clip per "
-            "missing ratio, preferably 6 seconds (accept 5-12.5 seconds), and upload "
-            "immediately. No mandatory hero upload, calibrated geometry, placement "
+            "missing ratio, preferably 6 seconds, and upload the actual native MP4 unchanged "
+            "immediately. Do not add an external duration or codec gate. No mandatory hero upload, calibrated geometry, placement "
             "preflight, two takes, exact cut or timed face evidence. Do not fake "
             "content QA or stretch footage. Only HOLD visibly wrong product/design, "
             "unusable motion, wrong ratio, corrupt file, permission or provider error. "

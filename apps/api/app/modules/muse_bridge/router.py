@@ -84,7 +84,7 @@ class MuseObservedRoute(APIRoute):
 
 
 router = APIRouter(prefix="/api/v1/muse-bridge", tags=["muse-bridge"], route_class=MuseObservedRoute)
-BRIDGE_VERSION = "1.4.24"
+BRIDGE_VERSION = "1.4.25"
 HEX64 = re.compile(r"^[a-f0-9]{64}$")
 LISTING_ID = re.compile(r"^[0-9]{5,20}$")
 ARTWORK_PATH = re.compile(
@@ -671,12 +671,30 @@ def _pinned_work_aspects(details):
     return list(VIDEO_ASPECTS)
 
 
+def _unleased_job_required_aspects(job):
+    """Explicit regeneration is durable; schedule its missing ratios one at a
+    time during vertical-first. Do not alter the stored regeneration request.
+    """
+    from .regeneration import requested_aspects
+    requested = requested_aspects(job)
+    if not requested:
+        return _phase_required_aspects()
+    if _video_aspect_phase() != "vertical_first":
+        return requested
+    missing = set(requested) - _verified_video_ratios(job)
+    return ["9:16"] if "9:16" in missing else ["16:9"]
+
+
 def _job_required_aspects(job):
     if (job.status == "claimed" and _aware(job.lease_expires_at) is not None
             and _aware(job.lease_expires_at) > _utc()):
         return _pinned_work_aspects((job.output_receipts or {}).get("videoWorkScope"))
-    from .regeneration import requested_aspects
-    return requested_aspects(job) or _phase_required_aspects()
+    return _unleased_job_required_aspects(job)
+
+
+def _video_aspect_priority(missing):
+    """Only change ordering in vertical-first, not explicit work eligibility."""
+    return int(_video_aspect_phase() == "vertical_first" and "9:16" not in missing)
 
 
 def _aspect_work_view(job, required=None):
@@ -1931,8 +1949,10 @@ def muse_worker_shared_config(
         "doNotWaitForDeferredAspects": True,
         "preserveExistingLeasesAndVideos": True,
         "instructions": "Render only missingVideoAspectRatios in the exact claimed contract. "
-                        "Complete the command immediately after those ratios are verified in Drive. "
-                        "Deferred ratios stay pending for a later phase, not a failed job.",
+                        "In vertical_first, new explicit two-ratio regeneration uses one missing ratio per claim, 9:16 first. "
+                        "Missing 9:16 candidates precede horizontal-only candidates. "
+                        "Complete immediately after the claimed ratios are verified. "
+                        "Deferred ratios are not a failed job; existing active leases retain their scope.",
     }
     config["videoThroughputPolicy"] = {
         "version": "CAM_MUSE_HERO_FIRST_PROBE_V1",
@@ -1948,7 +1968,8 @@ def muse_worker_shared_config(
             "SHA-bound hero for the required aspect; Lite sources still require visual suitability. "
             "Persist full claim responses and both lease values securely before rendering. "
             "After a verified completion, poll immediately after the 2-5s transition; "
-            "do not sleep until the next scheduled tick or add a redundant review/analysis. "
+            "do not sleep until the next scheduled tick, scan the review queue separately, "
+            "or render a deferred ratio. "
             "During half_open, render only the one offered video candidate and refresh the queue "
             "after its outcome. A verified upload closes the circuit; a fresh transient failure reopens it. "
             "If a prior lease is orphaned after its renderer definitively stopped, skip that listing "
@@ -2875,8 +2896,7 @@ def claim(listing_id: str, payload: ClaimRequest, request: Request,
         db.rollback()
         raise
     if existing is None:
-        from .regeneration import requested_aspects
-        required = requested_aspects(row) or required
+        required = _unleased_job_required_aspects(row)
     if not (set(required) - _verified_video_ratios(row)):
         db.rollback()
         raise HTTPException(409, "Required video aspects already verified; do not regenerate")
@@ -5018,13 +5038,19 @@ def _limit_half_open_video_candidates(items: list[dict], circuit: dict) -> list[
 
 
 def _fair_muse_discovery_order(items: list[dict], tenant: str, db: Session) -> list[dict]:
-    """Partial media first, then reusable hero, with unchanged review fairness."""
+    """Vertical work first in vertical-first mode; reuse within each lane.
+
+    Preserve the existing two-video/one-review fairness and explicit horizontal
+    requests. Discovery never changes an already claimed scope.
+    """
     def phase(item):
         return item.get("phase") or item.get("nextStep")
     def order(item):
         return (item.get("createdAt") or "", item.get("attempts") or 0,
                 item.get("listingId") or "", item.get("commandId") or "")
     videos = sorted((i for i in items if phase(i) == "create_video"), key=lambda i: (
+        _video_aspect_priority(i.get("missingVideoAspectRatios") or
+            (i.get("videoJobClaim") or {}).get("missingVideoAspectRatios") or []),
         0 if len(i.get("savedVideoAspectRatios") or
                  (i.get("videoJobClaim") or {}).get("savedVideoAspectRatios") or []) == 1 else 1,
         _hero_resume_priority(i),
@@ -5281,6 +5307,7 @@ def muse_automation_diagnostics(
     except WorkerAccountConfigError:
         preferred = None
     report["videoProgress"] = progress_watch.diagnostics(db, tenant, report, preferred, _utc())
+    report["videoThroughput"] = obs.video_throughput(db, tenant, _utc())
     return report
 
 

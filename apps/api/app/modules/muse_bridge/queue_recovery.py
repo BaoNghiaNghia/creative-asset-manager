@@ -302,6 +302,8 @@ def reconcile_queue(db, tenant, now=None, *, cap=QUEUE_CAP):
     # Give partially saved videos priority, then approved video work, then
     # unreviewed artwork. No fresh artwork verdict is manufactured here.
     jobs.sort(key=lambda j: (
+        muse._video_aspect_priority(set(muse._job_required_aspects(j)) -
+                                   muse._verified_video_ratios(j)),
         0 if len(muse._verified_video_ratios(j)) == 1 else
         1 if j.status == "pending" else 2,
         aware(j.picked_at), j.listing_key,
