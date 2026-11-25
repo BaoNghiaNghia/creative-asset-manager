@@ -267,13 +267,17 @@ def safe_business_result(result):
         value = result.get(key)
         if isinstance(value, str) and value in options:
             out[key] = value
-    for key in ("retryScheduled", "capabilityHold", "skipHoldActive", "artworkOriginalVerified"):
+    for key in ("retryScheduled", "capabilityHold", "skipHoldActive", "artworkOriginalVerified",
+                "videoDiscoveryAllowed", "newVideoStorageVerified"):
         if type(result.get(key)) is bool:
             out[key] = result[key]
     if (out.get("artworkOriginalVerified") is True
             and type(result.get("artworkBytes")) is int
             and 57 <= result["artworkBytes"] <= 20 * 1024 * 1024):
         out["artworkBytes"] = result["artworkBytes"]
+    if (type(result.get("videoCandidatesOffered")) is int
+            and 0 <= result["videoCandidatesOffered"] <= 20):
+        out["videoCandidatesOffered"] = result["videoCandidatesOffered"]
     if type(result.get("providerHttpStatus")) is int and result["providerHttpStatus"] in (429,502,503,504):
         out["providerHttpStatus"] = result["providerHttpStatus"]
         out["providerStatusIndependentlyVerified"] = False
@@ -331,7 +335,7 @@ def observe_recovery(tenant, report=None, failed=False):
     allowed = ("closed", "expiredCommandsRecovered", "expiredJobsReleased",
                "newVideoCommands", "newReviewCommands", "eligibleInflight",
                "eligibleInflightAfter", "reviewInflightAfter", "videoInflightAfter",
-               "transitionalOverflow", "cap", "partialQaMetadataRepaired", "heldPendingListings", "sourceScopeRechecksQueued", "skipped")
+               "transitionalOverflow", "cap", "partialQaMetadataRepaired", "heldPendingListings", "sourceScopeRechecksQueued", "readyVideoListings", "activeVideoListings", "skipped")
     payload = {k: report[k] for k in allowed if isinstance(report,dict) and k in report
                and isinstance(report[k], (int,bool))}
     payload.update({"origin":"cam_observed", "failed":failed})

@@ -257,12 +257,19 @@ def reconcile_queue(db, tenant, now=None, *, cap=QUEUE_CAP):
     by_active = defaultdict(list)
     occupied = set()
     review_occupied = set()
+    ready_video = set()
+    # Count durable leases separately from merely eligible queued work.
+    active_video = {j.listing_key for j in jobs if active_lease(j, now)}
+    active_listings = set(active_video)
     for c in active:
         by_active[c.listing_key].append(c)
         j = by_listing.get(c.listing_key)
         if j is None:
             continue
         if active_lease(c, now) or active_lease(j, now):
+            active_listings.add(c.listing_key)
+            if c.phase == "create_video":
+                active_video.add(c.listing_key)
             occupied.add(c.listing_key)
             if c.phase == "review_artwork":
                 review_occupied.add(c.listing_key)
@@ -272,6 +279,8 @@ def reconcile_queue(db, tenant, now=None, *, cap=QUEUE_CAP):
                 occupied.add(c.listing_key)
                 if phase == "review_artwork":
                     review_occupied.add(c.listing_key)
+                elif phase == "create_video":
+                    ready_video.add(c.listing_key)
     stats["heldPendingListings"] = len({c.listing_key for c in active
         if c.status == "pending" and c.phase == "create_video"
         and c.listing_key in by_listing and c.listing_key not in occupied
@@ -374,12 +383,16 @@ def reconcile_queue(db, tenant, now=None, *, cap=QUEUE_CAP):
         by_active[job.listing_key].append(command)
         if phase == "review_artwork":
             review_occupied.add(job.listing_key)
+        elif phase == "create_video":
+            ready_video.add(job.listing_key)
         stats["newReviewCommands" if phase == "review_artwork" else "newVideoCommands"] += 1
         stats["newCommands"].append({"listingId": job.listing_key,
                                      "commandId": command.command_id, "phase": phase})
     stats["eligibleInflightAfter"] = len(occupied)
     stats["reviewInflightAfter"] = len(review_occupied)
     stats["videoInflightAfter"] = len(occupied - review_occupied)
+    stats["readyVideoListings"] = len(ready_video - active_listings)
+    stats["activeVideoListings"] = len(active_video)
     stats["transitionalOverflow"] = max(0, len(occupied) - cap)
     db.commit()
     return stats

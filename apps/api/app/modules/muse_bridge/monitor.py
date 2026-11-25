@@ -19,7 +19,7 @@ def derive_alerts(report, now=None):
         cool = worker.get("cooldown", {})
         if ready is not False and status in ("NO_RECENT_SIGNAL", "NOT_OBSERVED"):
             add(wid+":signal", "error" if status=="NO_RECENT_SIGNAL" else "warning", wid+" has no recent runner signal.")
-        elif status == "API_ACTIVE_HEARTBEAT_UNCONFIRMED":
+        elif ready is not False and status == "API_ACTIVE_HEARTBEAT_UNCONFIRMED":
             if worker.get("apiSignalKind") == "config_only":
                 add(wid+":heartbeat", "warning", wid+" only reads configuration; no recent operational API signal or V2 heartbeat.")
             else:
@@ -39,6 +39,16 @@ def derive_alerts(report, now=None):
             if age is not None and 0 <= age <= 900:
                 code = (last.get("payload") or {}).get("errorCode") or last.get("eventType")
                 add(wid+":recent-error", "warning", wid+" reported a recent error: "+str(code))
+    progress = report.get("videoProgress") or {}
+    messages = {
+        "READY_QUEUE_POLLING_WITHOUT_VIDEO_PROGRESS": "Muse receives eligible video work but no new video claim or storage is observed.",
+        "READY_QUEUE_CLAIM_REJECTIONS": "Repeated command/job claim rejections are observed while video work has not progressed.",
+        "READY_QUEUE_DISCOVERY_MISMATCH": "CAM recovery reports eligible video work but repeated discovery responses offer no videos.",
+        "READY_QUEUE_NO_OBSERVED_DISCOVERY": "Ready video work exists, but no recent video discovery is observed from the available runner.",
+    }
+    if progress.get("state") in messages:
+        add("video-progress:" + progress["state"].lower().replace("_", "-"),
+            "warning", messages[progress["state"]])
     held = report.get("skipReconciliation", {}).get("activeListings", 0)
     if held:
         add("skip-reconciliation", "info", str(held)+" listings held by reconciled Muse skip reports; excluded from eligible video capacity.")

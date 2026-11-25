@@ -32,6 +32,9 @@ For new work, read workflowController from workers/config, then GET /commands?li
 ## Receipt acknowledgment recovery (CAM Bridge 1.4.20+)
 A lost HTTP response after a genuine successful video completion is not a renderer failure. Keep the exact success completion request securely until CAM acknowledges it. On timeout, replay that exact request to the same command /complete endpoint with the same original command lease. For up to 24 hours CAM can acknowledge a matching already committed receipt without a new claim, without modifying state, and without generating another video. If CAM rejects the retry, inspect the existing video-status receipt and ordinary lease recovery; never generate an already verified ratio or transfer a lease. A re-review command authorized by a CAM operator follows the same normal artwork review requirements. Never reuse the archived failed review as a new PASS.
 
+## Progress watchdog (CAM Bridge 1.4.21+)
+Inspect videoProgress in /automation/diagnostics when eligible work is not advancing. Use its CAM-observed discovery, claim and storage signals to diagnose routing and contract errors. A lease is not proof of renderer success. Do not restart a running renderer, renew another worker's lease, bypass cooldown or turn a genuine QA hold into a pass. Preserve the existing task, one active renderer, the exact claimed workflow and Original artwork verification. This watchdog observes; normal queue recovery and authenticated runner actions still own state transitions.
+
 ## Runner checkpoints
 - Start the current run: RUN_STARTED, WORKER_HEARTBEAT.
 - Normal polling: POLL_SUCCESS or QUEUE_EMPTY when actually observed.

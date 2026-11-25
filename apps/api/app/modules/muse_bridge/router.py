@@ -66,6 +66,7 @@ from . import original_artwork as original
 from . import workflow_contract as workflow
 from . import source_qa_recheck as recheck
 from . import receipt_ack as ack_replay
+from . import progress_watch
 
 
 class MuseObservedRoute(APIRoute):
@@ -81,7 +82,7 @@ class MuseObservedRoute(APIRoute):
 
 
 router = APIRouter(prefix="/api/v1/muse-bridge", tags=["muse-bridge"], route_class=MuseObservedRoute)
-BRIDGE_VERSION = "1.4.20"
+BRIDGE_VERSION = "1.4.21"
 HEX64 = re.compile(r"^[a-f0-9]{64}$")
 LISTING_ID = re.compile(r"^[0-9]{5,20}$")
 ARTWORK_PATH = re.compile(
@@ -1904,6 +1905,7 @@ def muse_worker_shared_config(
     config["artworkSourcePolicy"] = original.policy()
     config["skipReconciliation"] = skips.contract()
     config["observability"] = obs.contract()
+    config["videoProgressPolicy"] = progress_watch.contract()
     config["videoAspectPolicy"] = {
         "phase": _video_aspect_phase(),
         "requiredVideoAspectRatios": _phase_required_aspects(),
@@ -2423,6 +2425,7 @@ def missing_video_work(
     items = _limit_half_open_video_candidates(items, circuit)[:limit]
     pilot_readiness = _pilot_dispatch_readiness(tenant, db, by_listing)
     if request is not None:
+        _record_discovery_progress(request, items)
         items = _bind_muse_claim_worker({"items": items}, request)["items"]
     elif smart_queue_enabled() and view != "full":
         items = [_compact_discovery_item(item) for item in items]
@@ -4218,6 +4221,9 @@ async def upload_ugc_video(
     locked.output_receipts = receipts
     locked.updated_at = _utc()
     db.commit()
+    request.state.muse_business_result = {
+        "listingId": listing_id, "phase": "create_video", "newVideoStorageVerified": True,
+    }
     return {"ok": True, "reused": False, "status": locked.status,
             "aspectRatio": ratio, "storedCount": len(uploads),
             "storageVerified": True, "driveFolder": stored["relativeFolder"],
@@ -5203,6 +5209,12 @@ def muse_automation_diagnostics(
                 worker["executionReadiness"] = worker_execution_readiness(os.environ, worker["workerId"])
             except WorkerAccountConfigError:
                 worker["cooldownStateUnavailable"] = True
+    try:
+        preferred = (failover_status(os.environ)["preferredWorker"] if _muse_dual_enabled()
+                     else None if legacy_claims_draining(os.environ) else "legacy")
+    except WorkerAccountConfigError:
+        preferred = None
+    report["videoProgress"] = progress_watch.diagnostics(db, tenant, report, preferred, _utc())
     return report
 
 
@@ -5304,6 +5316,16 @@ def _bind_muse_claim_worker(result: dict, request: Request) -> dict:
     return result
 
 
+def _record_discovery_progress(request, items):
+    """Record actual offered video work, not just successful GET status."""
+    request.state.muse_business_result = {
+        "videoDiscoveryAllowed": not getattr(request.state, "muse_review_only", False),
+        "videoCandidatesOffered": sum(
+            (i.get("phase") or i.get("nextAction") or i.get("nextStep")) == "create_video"
+            for i in items),
+    }
+
+
 @router.get("/commands")
 def list_muse_commands(
     request: Request,
@@ -5320,6 +5342,7 @@ def list_muse_commands(
     review_only = getattr(request.state, "muse_review_only", False)
     payload = (_muse_command_list_payload(limit, tenant, db, review_only=True)
                if review_only else _muse_command_list_payload(limit, tenant, db))
+    _record_discovery_progress(request, payload.get("items", []))
     return _bind_muse_claim_worker(payload, request)
 
 
@@ -5359,6 +5382,7 @@ async def wait_muse_commands(
         args = (tenant, limit, True) if getattr(request.state, "muse_review_only", False) else (tenant, limit)
         result = await run_in_threadpool(_read_muse_commands_for_long_poll, *args)
         if result["items"] or loop.time() >= deadline:
+            _record_discovery_progress(request, result["items"])
             return {
                 **_bind_muse_claim_worker(result, request),
                 "longPoll": True,
@@ -5578,6 +5602,9 @@ def claim_muse_command(command_id: str, request: Request,
             "worker": "muse" if worker_id == "legacy" else worker_id,
             **video_claim["body"],
         }
+    request.state.muse_business_result = {
+        "phase": phase, "commandStatus": "claimed", "listingId": cmd.listing_key,
+    }
     return {"ok": True, "command": _command_status(cmd),
             "rendererProbeRequired": bool(phase == "create_video" and circuit.get("probeRequired")),
             "lease": lease, "leaseExpiresAt": cmd.lease_expires_at,
