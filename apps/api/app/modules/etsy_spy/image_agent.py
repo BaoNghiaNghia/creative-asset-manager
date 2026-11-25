@@ -531,6 +531,49 @@ def probe_image_agent(
     }
 
 
+@image_router.get("/{agent_id}/extraction-queue")
+def read_agent_extraction_queue(
+    agent_id: str, authorization: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Read-only, tenant-scoped queue counts for the paired Image Agent.
+
+    The browser's local children are counted separately. This endpoint
+    never claims, retries or exposes listing IDs, source URLs or artwork.
+    """
+    agent = _authenticate(db, agent_id, authorization)
+    now = utcnow()
+    job = ProcessingJobModel
+    waiting = job.status.in_(("pending", "retry"))
+    eligible = job.attempt_count < job.max_attempts
+    manual = job.payload_json["retry"]["source_job_id"].as_string().is_not(None)
+    rows = db.execute(select(
+        func.count().filter(waiting & eligible & (job.next_attempt_at <= now)),
+        func.count().filter(waiting & eligible & (job.next_attempt_at > now)),
+        func.count().filter(waiting & eligible & manual),
+        func.count().filter(waiting & ~eligible),
+        func.count().filter(job.status == "processing"),
+        func.count().filter((job.status == "processing") & manual),
+        func.count().filter((job.status == "processing") & (job.lease_expires_at <= now)),
+    ).where(
+        job.tenant_id == agent.tenant_id,
+        job.job_type == EXTRACTION_JOB_TYPE,
+        job.provider_key == EXTRACTION_ENGINE,
+        job.entity_type == "etsy_listing",
+        job.cancellation_requested.is_(False),
+        select(EtsySpyPicked.listing_key).where(
+            EtsySpyPicked.tenant_id == agent.tenant_id,
+            EtsySpyPicked.listing_key == job.entity_id,
+        ).exists(),
+    )).one()
+    ready, delayed, retries, exhausted, processing, processing_retry, expired = map(int, rows)
+    return {"protocol": "cam-extraction-queue-v1", "complete": True,
+            "ready": ready, "delayed": delayed, "waiting": ready + delayed,
+            "manual_retry": retries, "exhausted": exhausted,
+            "processing": processing, "manual_retry_processing": processing_retry,
+            "expired_processing": expired, "observed_at": now.isoformat()}
+
+
 @image_router.post("/{agent_id}/claim")
 def claim_image_job(
     agent_id: str, authorization: str | None = Header(None),
