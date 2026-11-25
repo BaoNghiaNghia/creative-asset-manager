@@ -5,7 +5,6 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import base64
-import subprocess
 import unittest
 from unittest.mock import patch
 from types import ModuleType, SimpleNamespace
@@ -257,21 +256,18 @@ class UGCPrivateR2Test(unittest.TestCase):
             self.assertTrue(m._head(fake, c, m.object_key("boostgame", sha, kind), sha, kind))
         self.assertEqual(fake.put_calls, 2)
 
-    def test_prepare_real_frame_from_generated_mp4(self):
-        fragment = subprocess.run(
-            ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
-             "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=12",
-             "-t", "1", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-             "-movflags", "frag_keyframe+empty_moov",
-             "-f", "mp4", "-"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=25,
-        )
-        if fragment.returncode != 0 or len(fragment.stdout) < 2048:
-            self.skipTest("ffmpeg H264 test codec unavailable")
-        playback, posters = m._prepare_derivatives(fragment.stdout)
-        self.assertTrue(m.has_faststart(playback))
-        self.assertTrue(0 < len(posters.get("poster320", b"")) < 700_000)
-        self.assertTrue(0 < len(posters.get("poster640", b"")) < 700_000)
+    def test_ingest_caches_exact_native_bytes_without_derivatives(self):
+        from hashlib import sha256
+        from unittest.mock import patch
+        original = atom(b"ftyp", b"isom0000") + atom(b"mdat", b"x"*4096) + atom(b"moov", b"headers")
+        source_sha = sha256(original).hexdigest()
+        with patch.object(m, "_client"), patch.object(m, "_put_if_absent", return_value=True) as put:
+            self.assertEqual(m._stage(config(), "boostgame", source_sha, original), {"playback":True})
+            self.assertEqual(put.call_count, 1)
+            self.assertEqual(put.call_args.args[3:], (source_sha, "playback", original))
+            put.reset_mock()
+            self.assertEqual(m._stage(config(), "boostgame", "0"*64, original), {})
+            put.assert_not_called()
 
     def test_projection_includes_private_poster_urls_only_for_verified_uploads(self):
         from types import SimpleNamespace

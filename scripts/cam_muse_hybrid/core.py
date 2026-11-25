@@ -428,10 +428,9 @@ class Coordinator:
             return self.journal.transition(key,{r["state"]},"terminal_rejected",failure_code=reason)
 
     def bind_validated_media(self,key,media_sha256,verify_media):
-        """Verifier is the existing media downloader/ffprobe/QA path.
+        """Verifier is the existing native media downloader and QA path.
 
-        It must independently check task identity, local file SHA, aspect,
-        duration, print fidelity, garment, motion and exact CAM contract.
+        It must independently check task identity, local file SHA and the actual CAM contract, print fidelity, garment, motion and exact CAM contract.
         A succeeded flag or text from the renderer is insufficient.
         """
         with self.lock:

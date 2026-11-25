@@ -1,6 +1,6 @@
 """Bounded, explicit one-time backfill of recent CAM Muse UGC derivatives.
 
-Reads only Drive-verified MP4 receipts, then stages playback/posters to the
+Reads only Drive-verified MP4 receipts, then stages unchanged native playback to the
 existing private R2 bucket. No writes to PostgreSQL, no local persistent media.
 Never runs from page view. Default is dry-run.
 """
@@ -19,7 +19,7 @@ from app.core.database import SessionLocal
 from app.domain.providers.contracts import OpenStoredAssetInput
 from app.modules.muse_bridge.model import CamMuseJob
 from app.modules.etsy_spy.model import EtsySpyPicked
-from app.modules.muse_bridge.ugc_media_cache import config_for_tenant, available, stage_uploaded, stage_posters
+from app.modules.muse_bridge.ugc_media_cache import config_for_tenant, available, stage_uploaded
 from app.modules.etsy_spy.imagegen_drive import provider_and_folder
 from app.modules.etsy_spy.listing_drive_folders import (
     ROOT_FOLDER_ID, verify_listing_file_provenance,
@@ -56,7 +56,7 @@ async def run(tenant: str, *, limit: int, apply: bool, offset: int = 0,
         raise ValueError("invalid tenant")
     if not 1 <= limit <= 25 or offset < 0:
         raise ValueError("invalid batch bounds")
-    kinds = ("poster320", "poster640") if posters_only else ("playback", "poster320", "poster640")
+    kinds = ("playback",)
     config = config_for_tenant(tenant)
     result: dict[str, int | bool] = {
         "apply": apply, "scanned": 0, "eligible": 0, "cached": 0,
@@ -65,6 +65,10 @@ async def run(tenant: str, *, limit: int, apply: bool, offset: int = 0,
         "offset": offset, "next_offset": offset, "has_more": False,
         "posters_only": posters_only,
     }
+    if posters_only:
+        # Keep legacy invocation compatible without reading/downloading MP4s.
+        result["poster_backfill_disabled"] = True
+        return result
     if config is None:
         return result
     cutoff = datetime.now(timezone.utc) - timedelta(days=29)
@@ -119,9 +123,8 @@ async def run(tenant: str, *, limit: int, apply: bool, offset: int = 0,
             if not _SHA.fullmatch(sha) or not _DRIVE.fullmatch(remote) or not _DRIVE.fullmatch(folder):
                 result["skipped"] += 1
                 continue
-            # Older completed uploads may have a playback object but no
-            # posters. Backfill must repair those too, without renewing MP4
-            # retention: stage_uploaded uses create-once R2 conditional PUT.
+            # Existing playback stays untouched; native ingest uses
+            # create-once R2 conditional PUT and fixed retention.
             present = {
                 kind: await available(config, tenant=tenant, sha=sha, kind=kind)
                 for kind in kinds
@@ -132,8 +135,6 @@ async def run(tenant: str, *, limit: int, apply: bool, offset: int = 0,
             result["eligible"] += 1
             if "playback" in present and not present["playback"]:
                 result["missing_playback"] += 1
-            result["missing_posters"] += sum(
-                not present[kind] for kind in ("poster320", "poster640"))
             if not apply:
                 continue
             asset_id = f"muse-ugc:{job.listing_key}:{job.artwork_sha256}:{aspect}"
@@ -146,13 +147,11 @@ async def run(tenant: str, *, limit: int, apply: bool, offset: int = 0,
                     provider, tenant=tenant, asset=asset_id,
                     remote_id=remote, expected_sha=sha,
                 )
-                stage = stage_posters if posters_only else stage_uploaded
-                status = await stage(config, tenant=tenant, sha=sha, mp4=content)
+                status = await stage_uploaded(config, tenant=tenant, sha=sha, mp4=content)
                 if all(present[kind] or status.get(kind) for kind in kinds):
                     result["cached"] += 1
                 else:
-                    # Preserve the partial R2 success; a later bounded rerun
-                    # can fill missing posters without overwriting playback.
+                    # Preserve existing R2 objects; do not overwrite playback.
                     result["failed"] += 1
             except Exception:
                 result["failed"] += 1
@@ -168,7 +167,7 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=10)
     parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--include-playback", action="store_true",
-                        help="Also backfill playback MP4; default only WebP posters")
+                        help="Backfill original MP4 bytes; legacy poster-only mode is disabled")
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
     if not 1 <= args.limit <= 25:

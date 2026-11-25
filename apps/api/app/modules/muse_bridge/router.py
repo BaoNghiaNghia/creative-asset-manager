@@ -84,7 +84,7 @@ class MuseObservedRoute(APIRoute):
 
 
 router = APIRouter(prefix="/api/v1/muse-bridge", tags=["muse-bridge"], route_class=MuseObservedRoute)
-BRIDGE_VERSION = "1.4.23"
+BRIDGE_VERSION = "1.4.24"
 HEX64 = re.compile(r"^[a-f0-9]{64}$")
 LISTING_ID = re.compile(r"^[0-9]{5,20}$")
 ARTWORK_PATH = re.compile(
@@ -1920,6 +1920,10 @@ def muse_worker_shared_config(
     config["observability"] = obs.contract()
     config["videoProgressPolicy"] = progress_watch.contract()
     config["latestArtworkPolicy"] = latest_artwork.contract()
+    config["nativeVideoPolicy"] = {"version": "CAM_MUSE_NATIVE_VIDEO_DIRECT_V1",
+        "enabled": True, "processing": "none", "preserveProviderBytes": True,
+        "storage": "verified_drive_original", "cache": "byte_identical_playback",
+        "instructions": "Upload the native Muse MP4 directly after the actual render. Do not remux, transcode, pad, join, or call external media probes. Keep SHA, lease and receipt checks; content QA remains separate."}
     config["videoAspectPolicy"] = {
         "phase": _video_aspect_phase(),
         "requiredVideoAspectRatios": _phase_required_aspects(),
@@ -4157,9 +4161,9 @@ async def upload_ugc_video(
         "artwork_sha256": expected_artwork_sha,
         "aspect": aspect, "mp4": bytes(parts),
     }
-    if lite:
-        storage_kwargs["required_duration_seconds"] = LITE_DURATION_BOUNDS
-    elif strict_story or action_pin:
+    # Native Story Lite output goes directly to storage. Strict historical
+    # contracts retain their existing declared duration requirement.
+    if strict_story or action_pin:
         storage_kwargs["required_duration_seconds"] = STORY_FINAL_DURATION_BOUNDS
     stored = await store_muse_video(**storage_kwargs)
     if action_pin:

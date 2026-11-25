@@ -1,7 +1,7 @@
-"""Disposable, private Muse UGC playback and poster derivatives in CAM's EXISTING R2 bucket.
+"""Disposable, private Muse UGC native playback and existing poster reads in CAM's EXISTING R2 bucket.
 
 Drive is the sole canonical copy. No new bucket, DB, master or persistent VPS
-file is created. R2 objects are written only during verified ingestion or an
+file is created. Native playback objects are written only during verified ingestion or an
 explicit operator backfill, never by viewing. The existing video-cache/ 30-day
 lifecycle and Worker expiry apply to every derivative.
 
@@ -16,18 +16,13 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from hashlib import sha256
 import hmac
-import io
 import logging
 import os
-from pathlib import Path
 import re
-import subprocess
-import tempfile
 import time
 from threading import Lock
 from urllib.parse import urlsplit
 
-from PIL import Image, ImageStat
 
 
 _LOG = logging.getLogger("app.muse_ugc_cache")
@@ -266,92 +261,17 @@ def has_faststart(mp4: bytes) -> bool:
     return bool(found) and found[0] == b"moov"
 
 
-def _extract_posters(source: Path) -> dict[str, bytes]:
-    """Select a real, nonblank video frame with bounded CPU and read time."""
-    for at in ("0.8", "2.0", "0.1"):
-        try:
-            frame = subprocess.run(
-                ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
-                 "-threads", "1", "-ss", at, "-i", str(source), "-frames:v", "1",
-                 "-vf", "scale=640:640:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos",
-                 "-threads", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-"],
-                capture_output=True, timeout=5, check=False,
-            )
-            if frame.returncode or not 0 < len(frame.stdout) < 5 * 1024 * 1024:
-                continue
-            with Image.open(io.BytesIO(frame.stdout)) as image:
-                image.load()
-                stats = ImageStat.Stat(image.convert("L"))
-                if not 12 < stats.mean[0] < 245 or stats.stddev[0] < 5:
-                    continue
-                posters: dict[str, bytes] = {}
-                for size in (320, 640):
-                    resized = image.convert("RGB")
-                    resized.thumbnail((size, size), Image.Resampling.LANCZOS)
-                    output = io.BytesIO()
-                    resized.save(output, format="WEBP", quality=78, method=4)
-                    data = output.getvalue()
-                    if 0 < len(data) < _MAX_POSTER:
-                        posters[f"poster{size}"] = data
-                if len(posters) == 2:
-                    return posters
-        except (OSError, ValueError, subprocess.TimeoutExpired):
-            continue
-    return {}
-
-
-def prepare_posters(mp4: bytes) -> dict[str, bytes]:
-    """Explicit backfill path: never remux or write playback."""
-    if not 2048 <= len(mp4) <= _MAX_MP4:
-        return {}
-    with tempfile.TemporaryDirectory(prefix="cam-ugc-poster-") as directory:
-        source = Path(directory) / "input.mp4"
-        source.write_bytes(mp4)
-        return _extract_posters(source)
-
-
-def _prepare_derivatives(mp4: bytes) -> tuple[bytes, dict[str, bytes]]:
-    playback = mp4
-    # Temporary files are removed after each invocation. There is no local
-    # persistent cache: on failure, Drive playback remains available.
-    with tempfile.TemporaryDirectory(prefix="cam-ugc-", dir=tempfile.gettempdir()) as directory:
-        source = Path(directory) / "input.mp4"
-        source.write_bytes(mp4)
-        playback_path = source
-        if not has_faststart(mp4):
-            candidate = Path(directory) / "faststart.mp4"
-            try:
-                remux = subprocess.run(
-                    ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
-                     "-i", str(source), "-map", "0", "-c", "copy",
-                     "-movflags", "+faststart", "-y", str(candidate)],
-                    capture_output=True, timeout=25, check=False,
-                )
-                if remux.returncode == 0 and candidate.exists() and (
-                    2048 <= candidate.stat().st_size <= _MAX_MP4 + 2 * 1024 * 1024
-                ):
-                    candidate_bytes = candidate.read_bytes()
-                    if has_faststart(candidate_bytes):
-                        playback = candidate_bytes
-                        playback_path = candidate
-            except (OSError, ValueError, subprocess.TimeoutExpired):
-                pass
-        posters = _extract_posters(playback_path)
-    return playback, posters
-
-
 def _stage(config: UgcCacheConfig, tenant: str, sha: str, mp4: bytes) -> dict[str, bool]:
     if not 2048 <= len(mp4) <= _MAX_MP4 or sha256(mp4).hexdigest() != sha:
         return {}
     try:
-        playback, posters = _prepare_derivatives(mp4)
+        # Native Muse MP4 is cached byte-for-byte. No remux, transcode,
+        # or poster extraction on the automatic ingest path.
         client = _client(config)
-        payloads = {"playback": playback, **posters}
+        payloads = {"playback": mp4}
         statuses = {kind: _put_if_absent(client, config, tenant, sha, kind, value)
                     for kind, value in payloads.items()}
-        _LOG.info("muse_ugc_cache_ingest playback=%s poster320=%s poster640=%s",
-                  statuses.get("playback", False), statuses.get("poster320", False),
-                  statuses.get("poster640", False))
+        _LOG.info("muse_ugc_native_cache_ingest playback=%s", statuses.get("playback", False))
         return statuses
     except Exception:
         _LOG.warning("muse_ugc_cache_ingest_failed")
@@ -365,27 +285,10 @@ async def stage_uploaded(config: UgcCacheConfig | None, *, tenant: str, sha: str
     return await asyncio.to_thread(_stage, config, tenant, sha, mp4)
 
 
-def _stage_posters(config: UgcCacheConfig, tenant: str, sha: str, mp4: bytes) -> dict[str, bool]:
-    if not 2048 <= len(mp4) <= _MAX_MP4 or sha256(mp4).hexdigest() != sha:
-        return {}
-    try:
-        posters = prepare_posters(mp4)
-        client = _client(config)
-        result = {kind: _put_if_absent(client, config, tenant, sha, kind, data)
-                  for kind, data in posters.items()}
-        _LOG.info("muse_ugc_poster_backfill poster320=%s poster640=%s",
-                  result.get("poster320", False), result.get("poster640", False))
-        return result
-    except Exception:
-        _LOG.warning("muse_ugc_poster_backfill_failed")
-        return {}
-
-
 async def stage_posters(config: UgcCacheConfig | None, *, tenant: str, sha: str,
                         mp4: bytes) -> dict[str, bool]:
-    if config is None:
-        return {}
-    return await asyncio.to_thread(_stage_posters, config, tenant, sha, mp4)
+    """Compatibility entrypoint; native-only mode never extracts frames."""
+    return {}
 
 
 def signed_url(config: UgcCacheConfig, key: str, *, now: int | None = None) -> str | None:

@@ -8,14 +8,13 @@ This is independent integration code, not a full fork of LynByte.
 ## Run offline acceptance
 
 Python 3.10+ (tested on Python 3.12), standard library only.
-Local FFmpeg and FFprobe are used in the synthetic technical-video tests.
 From this directory:
 
     python -m unittest discover -s . -p "test_*.py" -v
 
 No tests make a production claim, call a provider, launch a browser, use
-account credentials, emit worker telemetry, or write to Drive. The local
-MP4 fixture validates the technical media checks, not visual product QA.
+account credentials, emit worker telemetry, or write to Drive. The synthetic
+MP4 container fixture is not a playable clip or proof of visual product QA.
 
 ## What is implemented
 
@@ -23,12 +22,11 @@ MP4 fixture validates the technical media checks, not visual product QA.
   C1717/aspect/story version/take/authorized generation revision); single-owner
   OS lock; atomic bounded JSON journal; request fingerprint; exact hero bytes;
   conservative submit/status/reconcile state machine; CAM long-poll dispatcher.
-- media.py: bounded local media spool and FFprobe checks matching the CAM
-  1.4.23 codec/size/ratio/duration checks. Pass exact claimed duration bounds.
-  Never pad or transcode. Stage only media verified to belong to the exact
+- media.py and native_mp4.py: bounded native MP4 pass-through and container header checks.
+  Preserve exact bytes; no external decoder, remux, padding, or transcoding. Stage only media verified to belong to the exact
   backend task. Cleanup only after the CAM receipt has been verified.
 - test_core.py, test_media.py: mock transport, restart/race/timeout/partial/
-  cooldown/receipt cases and local H.264 fixture.
+  cooldown/receipt cases and synthetic container fixtures.
 
 This does not add a business queue, new database service, VPS or AI API.
 The existing CAM database, private Drive objects and R2 cache remain canonical.
@@ -39,7 +37,7 @@ them. A capacity or corrupt-journal warning requires reconciliation, not deletio
 ## Integration boundary (required before any live use)
 
 1. Register a dedicated authorized workstation workspace and verify its
-   Python 3.10+, FFmpeg/FFprobe, browser and gateway dependencies. Use an
+   Python 3.10+, browser and gateway dependencies. Use an
    owner-only state directory and Windows ACL; never store raw tokens, lease
    values, cookies, prompts or input media in the journal.
 2. Establish that the selected gateway/renderer and the planned automation
@@ -74,7 +72,7 @@ them. A capacity or corrupt-journal warning requires reconciliation, not deletio
    A lost CAM ACK uses existing receipt readback/replay, not another render.
 7. Download media through a task-bound, authorized downloader with URL
    allowlisting, bounded size/time, and no arbitrary redirects. Pass bytes
-   to MediaSpool. Technical checks do not establish visual QA. Use actual
+   to MediaSpool unchanged. Container checks do not establish visual QA. Use actual
    print/garment/motion/character checks in the existing runner. Verify the
    CAM receipt (listing, SHA, ratio, file hash and ownership) before calling
    confirm_receipt and cleanup_verified. If artwork changes during an active
@@ -111,3 +109,9 @@ The actual task API server needs the hardening described above. The current
 source environment passes offline tests; Windows runtime/ACL/lock behavior
 and the live account-specific execution callbacks still require verification.
 No production video, provider task, or Drive receipt is claimed by this pilot.
+## Native-video policy (1.4.24)
+CAM_MUSE_NATIVE_VIDEO_DIRECT_V1: upload the actual native Muse MP4 unchanged.
+No external multimedia binaries are required by the Hybrid core or normal CAM
+upload. Story Lite uses native duration; use the requested 9:16 aspect and
+retain real QA, lease, SHA and receipt checks. Do not synthesize metadata or
+re-render simply because an optional container metadata field is absent.

@@ -44,3 +44,7 @@ NRestarts=0, vertical_first, continuousGenerationEnabled=true,
 storyLiteEnabled=true. Release 089bd59a6611703703a2b1fe394f6343ca2f813f.
 No production claim, render, account change, scheduler change, database
 migration, or new backend release was performed in this setup.
+## Superseding native-video policy
+The original readiness report above records the initial installation only.
+CAM_MUSE_NATIVE_VIDEO_DIRECT_V1 removes external media tools from the Hybrid
+pipeline. Run the Python-only regression suite; no multimedia install is required.

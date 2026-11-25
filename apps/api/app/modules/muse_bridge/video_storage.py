@@ -7,9 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import re
-import subprocess
+from .native_mp4 import inspect_native_mp4, InvalidNativeMP4, MIN_VIDEO_BYTES, MAX_VIDEO_BYTES
 
 from fastapi import HTTPException
 
@@ -21,8 +20,6 @@ from app.modules.etsy_spy.listing_drive_folders import (
     ROOT_FOLDER_ID, ensure_listing_video_folder, verify_listing_file_provenance,
 )
 
-MAX_VIDEO_BYTES = 40 * 1024 * 1024
-MIN_VIDEO_BYTES = 2048
 _VIDEO_LIMIT = asyncio.Semaphore(1)
 _SHA = re.compile(r"^[a-f0-9]{64}$")
 _LISTING = re.compile(r"^[0-9]{5,20}$")
@@ -30,38 +27,20 @@ _RATIOS = {"vertical": "9:16", "horizontal": "16:9"}
 
 
 def validate_mp4(mp4: bytes, aspect: str) -> dict:
-    """Reject corrupted, wrong-ratio, non-H264, or non-video payloads."""
-    if (aspect not in _RATIOS or not MIN_VIDEO_BYTES <= len(mp4) <= MAX_VIDEO_BYTES
-            or mp4[4:8] != b"ftyp" or b"moov" not in mp4
-            or b"mdat" not in mp4):
-        raise HTTPException(422, "Invalid or incomplete MP4")
+    """Check container and read optional header metadata; never decode MP4."""
+    if aspect not in _RATIOS:
+        raise HTTPException(422, "Invalid video aspect")
     try:
-        checked = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries",
-             "stream=codec_name,codec_type,width,height,duration",
-             "-show_entries", "format=duration",
-             "-of", "json", "-i", "pipe:0"],
-            input=mp4, capture_output=True, timeout=15, check=True,
-        )
-        probe = json.loads(checked.stdout[:60000])
-        visual = next(
-            v for v in probe.get("streams", [])
-            if v.get("codec_type") == "video"
-        )
-        width = int(visual["width"])
-        height = int(visual["height"])
-        duration = float(probe.get("format", {}).get("duration")
-                         or visual.get("duration") or 0)
-    except (OSError, ValueError, TypeError, KeyError, StopIteration,
-            subprocess.SubprocessError, json.JSONDecodeError) as exc:
-        raise HTTPException(422, "MP4 cannot be decoded by ffprobe") from exc
+        metadata = inspect_native_mp4(mp4)
+    except InvalidNativeMP4 as exc:
+        raise HTTPException(422, "Invalid or incomplete MP4 container") from exc
+    # Aspect is supplied by the claimed ratio. If the existing MP4 header
+    # exposes display dimensions, reject an obvious wrong-ratio delivery.
+    width, height = metadata.get("width"), metadata.get("height")
     target = 9 / 16 if aspect == "vertical" else 16 / 9
-    if (visual.get("codec_name") != "h264"
-            or not 256 <= width <= 4096 or not 256 <= height <= 4096
-            or abs(width / height - target) > 0.07
-            or not 5 <= duration <= 60):
-        raise HTTPException(422, "Video codec, aspect ratio or duration is invalid")
-    return {"width": width, "height": height, "durationSeconds": round(duration, 2)}
+    if width and height and abs(width / height - target) > 0.07:
+        raise HTTPException(422, "Native MP4 aspect does not match claim")
+    return metadata
 
 
 async def store_muse_video(
@@ -74,10 +53,11 @@ async def store_muse_video(
             or not _SHA.fullmatch(artwork_sha256)
             or aspect not in _RATIOS):
         raise HTTPException(422, "Invalid listing artwork or video aspect")
-    metadata = await asyncio.to_thread(validate_mp4, mp4, aspect)
+    metadata = validate_mp4(mp4, aspect)
     if required_duration_seconds is not None:
         minimum, maximum = required_duration_seconds
-        if not minimum <= metadata["durationSeconds"] <= maximum:
+        duration = metadata.get("durationSeconds")
+        if duration is None or not minimum <= duration <= maximum:
             raise HTTPException(
                 422, "Story export must match its approved final duration; no loops or padding"
             )
@@ -138,5 +118,6 @@ async def store_muse_video(
         "listingFolderId": folders["listing_folder_id"],
         "relativeFolder": folders["relative_path"],
         "storageVerified": True, "qaStatus": "pending_review",
+        "mediaProcessing": "none", "nativeBytesPreserved": True,
         **metadata,
     }

@@ -61,3 +61,14 @@ Telemetry does not renew command/video leases. Continue existing command heartbe
 5. Do not mark the worker executable solely because telemetry arrived. The CAM upload receipt and independent renderer verification gates remain separate.
 
 Tests on CAM: python3 -m unittest discover -s ops -p test_muse_observability_outbox.py -v
+
+## Native video direct (CAM Bridge 1.4.24+)
+CAM_MUSE_NATIVE_VIDEO_DIRECT_V1 supersedes local video-processing requirements.
+For native Story Lite jobs, use the actual MP4 returned by the renderer in the
+requested ratio and upload its exact bytes directly. No FFmpeg/FFprobe,
+remux, conversion, padding, stitching, frame extraction or external probe.
+Do not treat a missing optional metadata field as a failure. Retain genuine
+provider results, latest Original SHA, owned leases, required CAM headers,
+verified Drive provenance and receipt ACK. A storage receipt is not content
+QA PASS. Strict historical pinned contracts still require their declared
+contract evidence; do not fabricate or downgrade a previous pin.

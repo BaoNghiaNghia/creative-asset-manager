@@ -1,34 +1,29 @@
-"""Use a local synthetic MP4 fixture to exercise actual ffprobe validation.
-
-This proves technical validation only, not product/garment/motion/print QA.
-No production storage, renderer or network calls.
-"""
-from pathlib import Path
-import shutil
-import subprocess
+"""Native container fixture tests; no decoder, renderer, or external binary."""
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
 from core import HybridBlocked, Journal, Coordinator, GatewayAdapter, digest
-from media import MediaSpool, validate_mp4
+from media import MediaSpool, validate_native_mp4
 from test_core import make_intent, MockGateway, ORIGINAL, HERO, TASK, PROMPT
 
 
-@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
-                     "local ffmpeg/ffprobe unavailable")
+def atom(kind,payload):
+    return (len(payload)+8).to_bytes(4,"big")+kind+payload
+
+
+def native_fixture(width=288,height=512,ticks=6000):
+    # Synthetic ISO BMFF headers for container tests only, not a playable clip.
+    mvhd=bytes(12)+(1000).to_bytes(4,"big")+ticks.to_bytes(4,"big")+bytes(80)
+    matrix=(65536).to_bytes(4,"big")+bytes(12)+(65536).to_bytes(4,"big")+bytes(16)
+    tkhd=bytes(40)+matrix+(width*65536).to_bytes(4,"big")+(height*65536).to_bytes(4,"big")
+    hdlr=bytes(8)+b"vide"+bytes(12)
+    moov=atom(b"mvhd",mvhd)+atom(b"trak",atom(b"tkhd",tkhd)+atom(b"mdia",atom(b"hdlr",hdlr)))
+    return atom(b"ftyp",b"isom0000")+atom(b"moov",moov)+atom(b"mdat",b"x"*4096)
+
+
 class MediaTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.fixture_dir=TemporaryDirectory()
-        cls.addClassCleanup(cls.fixture_dir.cleanup)
-        path=Path(cls.fixture_dir.name)/"technical-fixture.mp4"
-        subprocess.run(["ffmpeg","-hide_banner","-loglevel","error","-f","lavfi",
-            "-i","testsrc2=size=288x512:rate=12","-t","6","-c:v","libx264",
-            "-threads","1","-preset","ultrafast","-pix_fmt","yuv420p",
-            "-movflags","+faststart","-y",str(path)],
-            check=True,capture_output=True,timeout=30)
-        cls.mp4=path.read_bytes()
+    mp4=native_fixture()
 
     def setUp(self):
         self.temp=TemporaryDirectory()
@@ -47,37 +42,42 @@ class MediaTests(unittest.TestCase):
         self.assertEqual(c.poll(self.key)["state"],"result_ready")
         return c
 
-    def test_real_ffprobe_story_lite_metadata(self):
-        meta=validate_mp4(self.mp4,"9:16",(5,12.5))
-        self.assertEqual(meta["codec"],"h264")
+    def test_native_container_metadata(self):
+        meta=validate_native_mp4(self.mp4,"9:16")
+        self.assertEqual(meta["mediaValidation"],"native_container_only")
         self.assertEqual((meta["width"],meta["height"]),(288,512))
         self.assertEqual(meta["durationSeconds"],6.0)
         self.assertEqual(meta["sha256"],digest(self.mp4))
+        self.assertTrue(meta["nativeBytesPreserved"])
 
-    def test_wrong_ratio_duration_and_corrupt_file(self):
-        with self.assertRaisesRegex(HybridBlocked,"MP4_CODEC_ASPECT_DURATION"):
-            validate_mp4(self.mp4,"16:9",(5,12.5))
-        with self.assertRaisesRegex(HybridBlocked,"MP4_OUTSIDE_CLAIM_DURATION"):
-            validate_mp4(self.mp4,"9:16",(10,12.5))
+    def test_wrong_aspect_and_truncated_file(self):
+        with self.assertRaisesRegex(HybridBlocked,"NATIVE_MP4_ASPECT_MISMATCH"):
+            validate_native_mp4(self.mp4,"16:9")
         with self.assertRaises(HybridBlocked):
-            validate_mp4(b"not a video","9:16")
+            validate_native_mp4(self.mp4[:-1],"9:16")
+        with self.assertRaises(HybridBlocked):
+            validate_native_mp4(b"not a video","9:16")
+
+    def test_unknown_duration_and_short_native_export_accepted(self):
+        self.assertNotIn("durationSeconds",validate_native_mp4(native_fixture(ticks=0),"9:16"))
+        self.assertEqual(validate_native_mp4(native_fixture(ticks=3000),"9:16")["durationSeconds"],3.0)
 
     def test_exact_task_binding_before_file_write(self):
         with Journal(self.temp.name) as j:
             self.prepare(j)
             spool=MediaSpool(j)
             with self.assertRaisesRegex(HybridBlocked,"TASK_MEDIA_NOT_CURRENT"):
-                spool.stage(self.key,"task_"+"f"*24,self.mp4,(5,12.5),lambda *_:True)
+                spool.stage(self.key,"task_"+"f"*24,self.mp4,lambda *_:True)
             with self.assertRaisesRegex(HybridBlocked,"TASK_MEDIA_BINDING_UNVERIFIED"):
-                spool.stage(self.key,TASK,self.mp4,(5,12.5),lambda *_:False)
+                spool.stage(self.key,TASK,self.mp4,lambda *_:False)
             self.assertFalse(spool._path(self.key).exists())
 
     def test_file_preserved_until_cam_ack_and_cleanup_idempotent(self):
         with Journal(self.temp.name) as j:
             c=self.prepare(j)
             spool=MediaSpool(j)
-            meta=spool.stage(self.key,TASK,self.mp4,(5,12.5),lambda *_:True)
-            self.assertEqual(spool.stage(self.key,TASK,self.mp4,(5,12.5),lambda *_:True),meta)
+            meta=spool.stage(self.key,TASK,self.mp4,lambda *_:True)
+            self.assertEqual(spool.stage(self.key,TASK,self.mp4,lambda *_:True),meta)
             with self.assertRaisesRegex(HybridBlocked,"CAM_ACK_REQUIRED"):
                 spool.cleanup_verified(self.key)
             c.bind_validated_media(self.key,meta["sha256"],lambda *_:True)
@@ -101,7 +101,7 @@ class MediaTests(unittest.TestCase):
             existing.write_bytes(self.mp4)
             with patch("media.SPOOL_CAP_BYTES",len(self.mp4)+1):
                 with self.assertRaisesRegex(HybridBlocked,"MEDIA_SPOOL_FULL"):
-                    spool.stage(self.key,TASK,self.mp4,(5,12.5),lambda *_:True)
+                    spool.stage(self.key,TASK,self.mp4,lambda *_:True)
             self.assertEqual(existing.read_bytes(),self.mp4)
             self.assertFalse(spool._path(self.key).exists())
 
@@ -109,7 +109,7 @@ class MediaTests(unittest.TestCase):
         with Journal(self.temp.name) as j:
             c=self.prepare(j)
             spool=MediaSpool(j)
-            sha=spool.stage(self.key,TASK,self.mp4,(5,12.5),lambda *_:True)["sha256"]
+            sha=spool.stage(self.key,TASK,self.mp4,lambda *_:True)["sha256"]
             c.bind_validated_media(self.key,sha,lambda *_:True)
             c.confirm_receipt(self.key,"mock-receipt",lambda *_:True)
             path=spool._path(self.key)

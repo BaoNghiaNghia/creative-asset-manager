@@ -94,15 +94,11 @@ class DrivePosterTest(unittest.IsolatedAsyncioTestCase):
             provider.get_access_token.assert_not_awaited()
 
 
-class PosterBackfillTest(unittest.TestCase):
-    def test_poster_only_stage_never_puts_mp4(self):
+class PosterBackfillTest(unittest.IsolatedAsyncioTestCase):
+    async def test_poster_only_mode_never_reads_or_writes_video(self):
         content = b"x"*4096
         sha = hashlib.sha256(content).hexdigest()
-        put = Mock(return_value=True)
-        with patch.object(r2,"prepare_posters",return_value={"poster320":b"small","poster640":b"large"}), patch.object(r2,"_client"), patch.object(r2,"_put_if_absent",put):
-            self.assertEqual(r2._stage_posters(Mock(),TENANT,sha,content),
-                             {"poster320":True,"poster640":True})
-            self.assertEqual([call.args[4] for call in put.call_args_list],["poster320","poster640"])
-            put.reset_mock()
-            self.assertEqual(r2._stage_posters(Mock(),TENANT,"0"*64,content),{})
+        with patch.object(r2,"_client") as client, patch.object(r2,"_put_if_absent") as put:
+            self.assertEqual(await r2.stage_posters(Mock(),tenant=TENANT,sha=sha,mp4=content),{})
+            client.assert_not_called()
             put.assert_not_called()
