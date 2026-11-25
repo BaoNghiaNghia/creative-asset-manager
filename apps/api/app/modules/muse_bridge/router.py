@@ -63,6 +63,7 @@ from . import observability as obs
 from . import native_placement_review as placement_review
 from . import skip_reconciliation as skips
 from . import original_artwork as original
+from . import workflow_contract as workflow
 
 
 class MuseObservedRoute(APIRoute):
@@ -78,7 +79,7 @@ class MuseObservedRoute(APIRoute):
 
 
 router = APIRouter(prefix="/api/v1/muse-bridge", tags=["muse-bridge"], route_class=MuseObservedRoute)
-BRIDGE_VERSION = "1.4.18"
+BRIDGE_VERSION = "1.4.19"
 HEX64 = re.compile(r"^[a-f0-9]{64}$")
 LISTING_ID = re.compile(r"^[0-9]{5,20}$")
 ARTWORK_PATH = re.compile(
@@ -430,6 +431,16 @@ def _review_placement_view(db: Session, tenant: str, job: CamMuseJob):
 def _qa_record(row: CamMuseJob):
     r = row.output_receipts
     return r.get("visual_qa") if isinstance(r, dict) else None
+
+
+def _execution_contract(job, phase):
+    headers = {"X-CAM-Muse-Policy-Version": POLICY_VERSION}
+    if phase == "create_video" and _fresh_action_story_v1(job):
+        headers.update({
+            "X-CAM-Story-Action-Contract": STORY_ACTION_VERSION,
+            "X-CAM-Placement-Proof-Contract": PLACEMENT_PROOF_VERSION,
+        })
+    return workflow.execution(job, phase, headers)
 
 
 def _story_v33_enabled() -> bool:
@@ -924,6 +935,7 @@ def _compact_discovery_item(item: dict) -> dict:
         "heartbeatCommandPath", "claimVideoJobPath", "videoJobClaim", "task",
         "heroUploadRequired", "targetDurationSeconds", "savedHeroAspectRatios",
         "camLinked", "videoGenerationEnabled", "videoExecutor", "placementReview", "artworkSource",
+        "executionContract", "artworkQa", "artworkQaStatusPath", "nextAction",
         "videoAspectPhase", "requiredVideoAspectRatios", "allMissingVideoAspectRatios",
         "deferredVideoAspectRatios", "verticalReady", "allVideoAspectsComplete",
     )
@@ -991,6 +1003,8 @@ def _row_view(job):
             "pickedAt": job.picked_at, "artworkSha256": job.artwork_sha256,
             "artworkAssetPath": job.artwork_asset_path,
             "artworkSource": original.source(job.listing_key, job.artwork_sha256, review=source_review),
+            "artworkQa": workflow.artwork_qa(job),
+            "artworkReviewScope": workflow.review_scope() if source_review else None,
             "artworkUrl": f"/api/v1/muse-bridge/jobs/{job.listing_key}/artwork" if job.artwork_asset_path else None,
             "productImageUrl": job.product_image_url if source_review else None,
             "sourceProductImageRole": "design_comparison_only" if source_review else "not_a_video_start_frame",
@@ -1785,7 +1799,7 @@ def muse_worker_shared_config(
     config["automationHealthPath"] = "/api/v1/muse-bridge/automation/health"
     config["continuousOnNoClaimsInstructions"] = (
         "A 2-minute GET poll is NOT a video render. For each run, call "
-        "/commands?limit=10 and claim a legitimate command. If no claim "
+        "/commands?limit=20 and use its eligible executionContract. If no claim "
         "happens for 60 minutes while commands are pending, the Muse runner "
         "is stalled even if CAM dispatcher is active. Inspect Muse scheduler "
         "enablement and provider quota; do not create a duplicate worker. "
@@ -1878,6 +1892,9 @@ def muse_worker_shared_config(
         "Do not retry a provider refusal or bypass attempt limits. "
         "A historical workflow failure is not proof that a currently eligible command is impossible."
     )
+    config["workflowController"] = workflow.config()
+    config["artworkReviewScope"] = workflow.review_scope()
+    config["queueDiscoveryPolicy"]["recommendedPath"] = "/api/v1/muse-bridge/commands?limit=20"
     config["artworkSourcePolicy"] = original.policy()
     config["skipReconciliation"] = skips.contract()
     config["observability"] = obs.contract()
@@ -1895,7 +1912,7 @@ def muse_worker_shared_config(
         "version": "CAM_MUSE_HERO_FIRST_PROBE_V1",
         "preferVerifiedReusableHero": True,
         "heroPriorityDoesNotWaiveSourceQa": True,
-        "pollLimit": 10, "maxVerticalVideosPerInvocation": 6,
+        "pollLimit": 20, "maxVerticalVideosPerInvocation": 6,
         "nextJobDelaySeconds": [2, 5], "idlePollSeconds": 120,
         "maxActiveRendererOperations": 1,
         "singleVideoProbeAfterCircuitPause": True,
@@ -2265,6 +2282,10 @@ def missing_video_work(
                 "measurement": "along garment fabric, not frame pixels",
             },
             "nextStep": phase,
+            "nextAction": phase,
+            "executionContract": _execution_contract(job, phase),
+            "artworkQa": workflow.artwork_qa(job),
+            "artworkQaStatusPath": workflow.artwork_qa(job)["statusPath"],
             "placementReview": _review_placement_view(db, tenant, job) if phase == "review_artwork" else None,
             "missingAspectRatios": missing,
             "savedAspectRatios": [x for x in ("9:16", "16:9") if x in saved],
@@ -2513,6 +2534,7 @@ def read_muse_video_status(
     return {
         "ok": True, "listingId": listing_id, "status": job.status,
         "artworkSha256": job.artwork_sha256,
+        "artworkQa": workflow.artwork_qa(job),
         "savedVideoAspectRatios": sorted(ratios),
         **_aspect_work_view(job),
         "missingVideoAspectRatios": [r for r in VIDEO_ASPECTS if r not in ratios],
@@ -2523,6 +2545,25 @@ def read_muse_video_status(
         "videoContentQa": receipts.get("videoContentQa", "pending_review") if ratios else None,
         "neverRegenerateSavedRatios": True,
     }
+
+
+@router.get("/jobs/{listing_id}/artwork-qa")
+def read_artwork_qa(
+    listing_id: str, response: Response,
+    tenant: str = Depends(_muse), db: Session = Depends(get_db),
+):
+    """Read-only tenant-scoped current QA evidence, including completed reviews."""
+    if not LISTING_ID.fullmatch(listing_id):
+        raise HTTPException(404, "Listing not found")
+    job = db.get(CamMuseJob, (tenant, listing_id))
+    if job is None:
+        raise HTTPException(404, "Listing not found")
+    response.headers["Cache-Control"] = "private, no-store"
+    return {"ok": True, "listingId": listing_id,
+            "artworkQa": workflow.artwork_qa(job),
+            "reviewScope": workflow.review_scope(),
+            "jobStatus": job.status, "sourceState": job.source_state,
+            "claimStillRequired": True}
 
 
 @router.get("/reviews")
@@ -2558,13 +2599,23 @@ def visual_review_queue(
             "artworkSource": original.source(row.listing_key, row.artwork_sha256, review=True),
             "videoGenerationEnabled": False,
             "requiresComparativeVisualQA": True,
+            "artworkQa": workflow.artwork_qa(row),
+            "reviewScope": workflow.review_scope(),
             "placementReview": placement_review.review_contract(
                 asset, row.artwork_sha256, row.product_image_url),
             "rightsVerified": False,
             "printReady": False,
         })
-    return {"ok": True, "items": items, "count": len(items),
-            "visualQaRequired": True, "rightsVerified": False}
+    result = {"ok": True, "items": items, "count": len(items),
+              "visualQaRequired": True, "rightsVerified": False,
+              "pendingReviewQueueOnly": True, "reviewScope": workflow.review_scope()}
+    if listing_id:
+        job = db.get(CamMuseJob, (tenant, listing_id))
+        result["artworkQa"] = workflow.artwork_qa(job) if job else None
+        result["visualQaRequired"] = not (
+            result["artworkQa"] is not None and result["artworkQa"]["status"] == "pass"
+        )
+    return result
 
 
 async def _read_original_artwork(db, tenant, job_id, asset_id, digest, filename):
@@ -2652,6 +2703,7 @@ def submit_visual_review(
         raise HTTPException(422, "Insufficient comparative visual QA evidence")
     review = {
         "verdict": payload.verdict, "reviewer": "muse",
+        "review_scope_policy": workflow.QA_SCOPE,
         "artwork_sha256": payload.artworkSha256,
         "checks": {
             "sourceImageReviewed": payload.sourceImageReviewed,
@@ -2672,7 +2724,7 @@ def submit_visual_review(
             "jobId": found.job_id, "assetId": found.asset_id,
             "evidence": "worker_reported_comparative_visual_review",
         }
-    row.output_receipts = {"visual_qa": review}
+    row.output_receipts = {**(row.output_receipts or {}), "visual_qa": review}
     if payload.verdict == "pass":
         job_id, asset_id = found.locator
         row.artwork_asset_path = (
@@ -4985,6 +5037,9 @@ def _muse_command_list_payload(limit: int, tenant: str, db: Session, review_only
             and _story_candidate_v33(job)
         )
         items.append({**_command_status(cmd), "phase": phase, "nextStep": phase,
+                      "nextAction": phase, "executionContract": _execution_contract(job, phase),
+                      "artworkQa": workflow.artwork_qa(job),
+                      "artworkQaStatusPath": workflow.artwork_qa(job)["statusPath"],
                       **(_aspect_work_view(job) if phase == "create_video" else {}),
                       "placementReview": _review_placement_view(db, tenant, job) if phase == "review_artwork" else None,
                       "artworkSource": original.source(job.listing_key, job.artwork_sha256, review=phase == "review_artwork"),
@@ -5507,6 +5562,10 @@ def claim_muse_command(command_id: str, request: Request,
                         "reviews" if phase == "review_artwork" else "jobs",
             "task": (cmd.details if cmd.action == "execute_task" else None),
             "videoJobClaim": video_claim,
+            "nextAction": phase,
+            "executionContract": _execution_contract(job, phase) if phase != "execute_task" else None,
+            "artworkQa": workflow.artwork_qa(job) if phase != "execute_task" else None,
+            "artworkSource": original.source(job.listing_key, job.artwork_sha256, review=phase == "review_artwork") if phase != "execute_task" else None,
             "placementReview": _review_placement_view(db, tenant, job) if phase == "review_artwork" else None,
             "artworkSha256": cmd.artwork_sha256}
 
