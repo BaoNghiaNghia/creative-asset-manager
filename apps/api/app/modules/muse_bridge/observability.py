@@ -267,9 +267,13 @@ def safe_business_result(result):
         value = result.get(key)
         if isinstance(value, str) and value in options:
             out[key] = value
-    for key in ("retryScheduled", "capabilityHold", "skipHoldActive"):
+    for key in ("retryScheduled", "capabilityHold", "skipHoldActive", "artworkOriginalVerified"):
         if type(result.get(key)) is bool:
             out[key] = result[key]
+    if (out.get("artworkOriginalVerified") is True
+            and type(result.get("artworkBytes")) is int
+            and 57 <= result["artworkBytes"] <= 20 * 1024 * 1024):
+        out["artworkBytes"] = result["artworkBytes"]
     if type(result.get("providerHttpStatus")) is int and result["providerHttpStatus"] in (429,502,503,504):
         out["providerHttpStatus"] = result["providerHttpStatus"]
         out["providerStatusIndependentlyVerified"] = False

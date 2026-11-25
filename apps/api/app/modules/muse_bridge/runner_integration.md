@@ -23,6 +23,9 @@ Example:
 
 Wrap local telemetry failures in a nonfatal logging boundary so they cannot prevent the existing command claim/complete or media delivery. Keep the existing full-response/lease validations. Outbox replay never grants authorization.
 
+## Original artwork source (CAM Bridge 1.4.18+)
+Read artworkSourcePolicy in workers/config and artworkSource in each job/command. After a legitimate claim, GET the authenticated job artwork path as binary PNG. Check X-CAM-Artwork-Variant=original and compute SHA256 of the entire downloaded bytes. It must equal artworkSource.expectedSha256 and X-CAM-Artwork-SHA256. Use the original unmodified bytes for garment print/hero creation. Never use thumbnails, previews, Etsy product photos, browser screenshots or resized/re-encoded artwork as a substitute. Existing approved heroes may be reused only when bound to the same artwork SHA and current workflow. The isolated transparent design is not a video start frame; generate/render the approved wearer/hero. Missing originals or mismatching bytes are ARTWORK_UNAVAILABLE; do not generate or fall back to a thumbnail. No new claim fields, extra renderer call or extra task is required.
+
 ## Runner checkpoints
 - Start the current run: RUN_STARTED, WORKER_HEARTBEAT.
 - Normal polling: POLL_SUCCESS or QUEUE_EMPTY when actually observed.

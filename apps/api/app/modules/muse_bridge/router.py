@@ -62,6 +62,7 @@ from .story_action_policy import (
 from . import observability as obs
 from . import native_placement_review as placement_review
 from . import skip_reconciliation as skips
+from . import original_artwork as original
 
 
 class MuseObservedRoute(APIRoute):
@@ -77,7 +78,7 @@ class MuseObservedRoute(APIRoute):
 
 
 router = APIRouter(prefix="/api/v1/muse-bridge", tags=["muse-bridge"], route_class=MuseObservedRoute)
-BRIDGE_VERSION = "1.4.17"
+BRIDGE_VERSION = "1.4.18"
 HEX64 = re.compile(r"^[a-f0-9]{64}$")
 LISTING_ID = re.compile(r"^[0-9]{5,20}$")
 ARTWORK_PATH = re.compile(
@@ -742,6 +743,7 @@ def _video_job_claim_contract(job, *, required_aspects=None) -> dict:
     return {
         "path": f"/api/v1/muse-bridge/jobs/{job.listing_key}/claim",
         "videoStatusPath": f"/api/v1/muse-bridge/jobs/{job.listing_key}/video-status",
+        "artworkSource": original.source(job.listing_key, job.artwork_sha256),
         "method": "POST",
         "body": body,
         "workerField": "Use /workers/config -> workerId for the authorized Muse account",
@@ -921,7 +923,7 @@ def _compact_discovery_item(item: dict) -> dict:
         "artworkPath", "uploadPaths", "claimCommandPath", "completeCommandPath",
         "heartbeatCommandPath", "claimVideoJobPath", "videoJobClaim", "task",
         "heroUploadRequired", "targetDurationSeconds", "savedHeroAspectRatios",
-        "camLinked", "videoGenerationEnabled", "videoExecutor", "placementReview",
+        "camLinked", "videoGenerationEnabled", "videoExecutor", "placementReview", "artworkSource",
         "videoAspectPhase", "requiredVideoAspectRatios", "allMissingVideoAspectRatios",
         "deferredVideoAspectRatios", "verticalReady", "allVideoAspectsComplete",
     )
@@ -988,6 +990,7 @@ def _row_view(job):
             "status": job.status,
             "pickedAt": job.picked_at, "artworkSha256": job.artwork_sha256,
             "artworkAssetPath": job.artwork_asset_path,
+            "artworkSource": original.source(job.listing_key, job.artwork_sha256, review=source_review),
             "artworkUrl": f"/api/v1/muse-bridge/jobs/{job.listing_key}/artwork" if job.artwork_asset_path else None,
             "productImageUrl": job.product_image_url if source_review else None,
             "sourceProductImageRole": "design_comparison_only" if source_review else "not_a_video_start_frame",
@@ -1004,7 +1007,7 @@ def _row_view(job):
                 "titleSourcePolicy": "untrusted_etsy_title_metadata_only",
                 "originalTitleMustNotBePassedToRenderer": True,
                 "referenceImagePolicy": {
-                    "artwork": "CAM Native Master PNG only",
+                    "artwork": "SHA256-verified CAM Native Master ORIGINAL PNG only; never thumbnail or preview",
                     "etsyProductImage": "artwork comparison only; NEVER image-to-video start frame",
                     "videoStartFrame": "approved worn C1717 hero or newly generated C1717 image",
                     "requireC1717CorrectShirtBeforeRender": True,
@@ -1875,6 +1878,7 @@ def muse_worker_shared_config(
         "Do not retry a provider refusal or bypass attempt limits. "
         "A historical workflow failure is not proof that a currently eligible command is impossible."
     )
+    config["artworkSourcePolicy"] = original.policy()
     config["skipReconciliation"] = skips.contract()
     config["observability"] = obs.contract()
     config["videoAspectPolicy"] = {
@@ -2251,6 +2255,7 @@ def missing_video_work(
             "actionStoryPlan": _action_story_candidate_v1(job),
             "sourceProductImageRole": "design_comparison_only_never_video_start_frame",
             "artworkSha256": job.artwork_sha256,
+            "artworkSource": original.source(lid, job.artwork_sha256, review=phase == "review_artwork"),
             "printPlacement": {
                 "policy": PRINT_ANCHOR_POLICY,
                 "printBoxPolicy": PRINT_BOX_POLICY,
@@ -2550,6 +2555,7 @@ def visual_review_queue(
             "keyword": row.keyword, "artworkSha256": row.artwork_sha256,
             "sourceImageUrl": row.product_image_url,
             "artworkUrl": f"/api/v1/muse-bridge/reviews/{row.listing_key}/artwork",
+            "artworkSource": original.source(row.listing_key, row.artwork_sha256, review=True),
             "videoGenerationEnabled": False,
             "requiresComparativeVisualQA": True,
             "placementReview": placement_review.review_contract(
@@ -2559,6 +2565,30 @@ def visual_review_queue(
         })
     return {"ok": True, "items": items, "count": len(items),
             "visualQaRequired": True, "rightsVerified": False}
+
+
+async def _read_original_artwork(db, tenant, job_id, asset_id, digest, filename):
+    """Read exact original bytes; never consult thumbnail/preview cache."""
+    remote = _private_drive_design(job_id, asset_id, tenant, db)
+    if remote:
+        from app.modules.etsy_spy.imagegen_drive import read_design_from_drive
+        if remote.get("output_sha256") != digest:
+            raise HTTPException(409, "Artwork SHA does not match approved source")
+        db.rollback()
+        png = await read_design_from_drive(
+            tenant_id=tenant, asset_id=job_id+":"+asset_id+":original",
+            remote_id=str(remote.get("drive_file_id") or ""),
+            sha256=digest, max_bytes=original.MAX_BYTES,
+        )
+    else:
+        source, stored_digest = _checked_design_media(job_id, asset_id, db, tenant)
+        if stored_digest != digest:
+            raise HTTPException(409, "Artwork SHA does not match approved source")
+        if source.stat().st_size > original.MAX_BYTES:
+            raise HTTPException(413, "Original Native Master exceeds the Muse artwork limit")
+        db.rollback()
+        png = await run_in_threadpool(source.read_bytes)
+    return original.verified_response(png, digest, filename)
 
 
 @router.get("/reviews/{listing_id}/artwork")
@@ -2575,25 +2605,9 @@ async def review_artwork(
     if found is None:
         raise HTTPException(404, "Native Master SHA not found in CAM")
     job_id, asset_id = found.locator
-    remote = _private_drive_design(job_id, asset_id, tenant, db)
-    headers = {"Cache-Control": "private, no-store",
-               "X-Content-Type-Options": "nosniff",
-               "Content-Disposition": 'inline; filename="muse-qa-native.png"'}
-    if remote:
-        from app.modules.etsy_spy.imagegen_drive import read_design_from_drive
-        if remote.get("output_sha256") != row.artwork_sha256:
-            raise HTTPException(409, "Artwork SHA mismatch")
-        db.rollback()
-        png = await read_design_from_drive(
-            tenant_id=tenant, asset_id=job_id+":"+asset_id+":original",
-            remote_id=str(remote.get("drive_file_id") or ""),
-            sha256=row.artwork_sha256, max_bytes=20*1024*1024,
-        )
-        return Response(png, media_type="image/png", headers=headers)
-    source, digest = _checked_design_media(job_id, asset_id, db, tenant)
-    if digest != row.artwork_sha256:
-        raise HTTPException(409, "Artwork SHA mismatch")
-    return FileResponse(str(source), media_type="image/png", headers=headers)
+    return await _read_original_artwork(
+        db, tenant, job_id, asset_id, row.artwork_sha256, "muse-qa-native.png",
+    )
 
 
 @router.post("/reviews/{listing_id}/verdict")
@@ -3156,25 +3170,14 @@ async def artwork(listing_id: str, request: Request, tenant: str = Depends(_muse
     if parts is None:
         raise HTTPException(404, "Invalid artwork locator")
     job_id, asset_id = row.artwork_asset_path.split("/")[6:8]
-    remote = _private_drive_design(job_id, asset_id, tenant, db)
-    headers = {"Cache-Control": "private, no-store",
-               "X-Content-Type-Options": "nosniff",
-               "Content-Disposition": 'inline; filename="cam-native-artwork.png"'}
-    if remote:
-        from app.modules.etsy_spy.imagegen_drive import read_design_from_drive
-        if remote.get("output_sha256") != row.artwork_sha256:
-            raise HTTPException(409, "Artwork SHA does not match approved source")
-        db.rollback()
-        png = await read_design_from_drive(
-            tenant_id=tenant, asset_id=job_id+":"+asset_id+":original",
-            remote_id=str(remote.get("drive_file_id") or ""),
-            sha256=row.artwork_sha256, max_bytes=20*1024*1024,
-        )
-        return Response(png, media_type="image/png", headers=headers)
-    source, digest = _checked_design_media(job_id, asset_id, db, tenant)
-    if digest != row.artwork_sha256:
-        raise HTTPException(409, "Artwork SHA does not match approved source")
-    return FileResponse(str(source), media_type="image/png", headers=headers)
+    result = await _read_original_artwork(
+        db, tenant, job_id, asset_id, row.artwork_sha256, "cam-native-artwork.png",
+    )
+    request.state.muse_business_result = {
+        "listingId": listing_id, "artworkOriginalVerified": True,
+        "artworkBytes": len(result.body),
+    }
+    return result
 
 
 @router.post("/jobs/{listing_id}/submit")
@@ -4984,6 +4987,7 @@ def _muse_command_list_payload(limit: int, tenant: str, db: Session, review_only
         items.append({**_command_status(cmd), "phase": phase, "nextStep": phase,
                       **(_aspect_work_view(job) if phase == "create_video" else {}),
                       "placementReview": _review_placement_view(db, tenant, job) if phase == "review_artwork" else None,
+                      "artworkSource": original.source(job.listing_key, job.artwork_sha256, review=phase == "review_artwork"),
                       "savedVideoAspectRatios": sorted(_verified_video_ratios(job)),
                       "videoJobClaim": (
                           _video_job_claim_contract(job)
