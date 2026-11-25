@@ -61,6 +61,7 @@ from .story_action_policy import (
 
 from . import observability as obs
 from . import native_placement_review as placement_review
+from . import skip_reconciliation as skips
 
 
 class MuseObservedRoute(APIRoute):
@@ -76,7 +77,7 @@ class MuseObservedRoute(APIRoute):
 
 
 router = APIRouter(prefix="/api/v1/muse-bridge", tags=["muse-bridge"], route_class=MuseObservedRoute)
-BRIDGE_VERSION = "1.4.16"
+BRIDGE_VERSION = "1.4.17"
 HEX64 = re.compile(r"^[a-f0-9]{64}$")
 LISTING_ID = re.compile(r"^[0-9]{5,20}$")
 ARTWORK_PATH = re.compile(
@@ -1874,6 +1875,7 @@ def muse_worker_shared_config(
         "Do not retry a provider refusal or bypass attempt limits. "
         "A historical workflow failure is not proof that a currently eligible command is impossible."
     )
+    config["skipReconciliation"] = skips.contract()
     config["observability"] = obs.contract()
     config["videoAspectPolicy"] = {
         "phase": _video_aspect_phase(),
@@ -2073,7 +2075,7 @@ def pending_jobs(limit: int = Query(default=10, ge=1, le=50),
             ((CamMuseJob.status == "claimed") & (CamMuseJob.lease_expires_at < _utc())))
     ).order_by(CamMuseJob.picked_at.asc())
     rows = db.scalars(query).all()
-    rows = [row for row in rows if set(_job_required_aspects(row)) - _verified_video_ratios(row)]
+    rows = [row for row in rows if not skips.active(row) and set(_job_required_aspects(row)) - _verified_video_ratios(row)]
     return {"items": [_row_view(x) for x in rows[:limit]]}
 
 @router.get("/queue")
@@ -2752,9 +2754,9 @@ def claim(listing_id: str, payload: ClaimRequest, request: Request,
             "retryAfterSeconds": retry_wait,
             "continueOtherListings": True,
         })
-    if _automation_soft_hold_active(row.output_receipts):
+    if _automation_soft_hold_active(row.output_receipts) or skips.active(row):
         db.rollback()
-        raise HTTPException(409, "Listing is on temporary operator HOLD")
+        raise HTTPException(409, "Listing is on operator or reconciled HOLD")
     # Opt in only when the Muse worker advertises the genuine 12-second
     # story workflow (up to 10s native per source take). Pin in one
     # transaction; retries cannot
@@ -4654,7 +4656,7 @@ def _eligible_phase(db: Session, tenant: str,
         return ("review_artwork" if _review_native_asset(
             db, tenant, job
         ) and job.product_image_url else None)
-    if not (set(_job_required_aspects(job)) - _verified_video_ratios(job)):
+    if skips.active(job) or not (set(_job_required_aspects(job)) - _verified_video_ratios(job)):
         return None
     # V3.3 is enabled for the two canaries, not for the whole queue until
     # a real renderer + independent story/print QA pass is verified.
@@ -5110,6 +5112,7 @@ def muse_automation_diagnostics(
     report = obs.diagnostics(db, tenant, recovery_enabled=smart_queue_enabled(),
                              worker_ids=workers, now=_utc())
     report["bridgeVersion"] = BRIDGE_VERSION
+    report["skipReconciliation"] = skips.summary(db, tenant, _utc())
     report["rendererCircuit"] = renderer_circuit(db, tenant, _utc())
     if _muse_dual_enabled():
         for worker in report["workers"]:
@@ -5192,6 +5195,7 @@ def muse_automation_health(
         "rendererCircuit": circuit,
         "smartQueueRecoveryEnabled": smart_queue_enabled(),
         "eligibleQueueCount": len(available),
+        "skipReconciliation": skips.summary(db, tenant, now),
         "commandStatusCounts": count_by_status,
         "camDispatcherDoesNotRenderVideo": True,
         "camCannotUnpauseExternalMuseScheduledTask": True,
@@ -5368,6 +5372,36 @@ def operator_soft_hold_command(
         "queueSlotFreed": True, "priorMediaPreserved": True,
         "eligibleForFutureRequeue": True,
     }
+
+
+@router.post("/commands/{command_id}/skip-report")
+def report_muse_skip(
+    command_id: UUID, payload: skips.SkipReport, request: Request,
+    response: Response, tenant: str = Depends(_muse), db: Session = Depends(get_db),
+    x_cam_muse_policy_version: str | None = Header(default=None),
+):
+    """Pre-claim, SHA-bound report from the primary authorized Muse worker."""
+    response.headers["Cache-Control"] = "private, no-store"
+    if _muse_identity(request) != "muse-01":
+        raise HTTPException(403, "Only authorized Muse-01 may reconcile its local skip list")
+    _assert_current_muse_policy(x_cam_muse_policy_version)
+    if not obs.INGRESS_LIMITER.admit(tenant + ":skip:muse-01"):
+        raise HTTPException(429, "Skip reporting backpressure", headers={"Retry-After": "2"})
+    result = skips.report(db, tenant, str(command_id), payload, "muse-01", _eligible_phase)
+    request.state.muse_business_result = {
+        "listingId": payload.listingId, "commandStatus": result["commandStatus"],
+        "skipReason": result["reason"], "skipHoldActive": result["holdActive"],
+    }
+    return result
+
+
+@router.post("/commands/{command_id}/skip-release", include_in_schema=False)
+def release_muse_skip(
+    command_id: UUID, payload: skips.SkipRelease,
+    tenant: str = Depends(_operator), db: Session = Depends(get_db),
+):
+    """Explicit operator re-evaluation; never clears provider refusals."""
+    return skips.release(db, tenant, str(command_id), payload)
 
 
 @router.post("/commands/{command_id}/claim")

@@ -16,6 +16,7 @@ from uuid import uuid4
 
 from sqlalchemy import select, text
 from .model import CamMuseCommand, CamMuseJob
+from . import skip_reconciliation as skips
 
 POLICY = "CAM_SMART_QUEUE_RECOVERY_V1"
 QUEUE_CAP = 12
@@ -111,7 +112,7 @@ def can_refill(job, history, now, muse):
     if active_lease(job, now) or job.attempts >= MAX_JOB_CLAIMS:
         return False
     r = job.output_receipts or {}
-    if (r.get("videoCapabilityHold") or muse._automation_soft_hold_active(r)
+    if (skips.active(job, now) or r.get("videoCapabilityHold") or muse._automation_soft_hold_active(r)
             or muse._render_retry_wait_seconds(r, now=now)):
         return False
     history = [c for c in history if c.artwork_sha256 == job.artwork_sha256]
@@ -265,6 +266,10 @@ def reconcile_queue(db, tenant, now=None, *, cap=QUEUE_CAP):
                 occupied.add(c.listing_key)
                 if phase == "review_artwork":
                     review_occupied.add(c.listing_key)
+    stats["heldPendingListings"] = len({c.listing_key for c in active
+        if c.status == "pending" and c.phase == "create_video"
+        and c.listing_key in by_listing and c.listing_key not in occupied
+        and skips.active(by_listing[c.listing_key], now)})
     stats["eligibleInflight"] = len(occupied)
     circuit = renderer_circuit(db, tenant, now)
     # Reserve review work even while the video queue is saturated. Existing

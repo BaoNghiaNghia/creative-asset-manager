@@ -199,7 +199,7 @@ def contract():
 
 
 # Only fixed route classes and validated IDs enter telemetry.
-_ROUTE = re.compile(r"^/api/v1/muse-bridge/(commands|jobs|reviews)/([^/]+)/(claim|heartbeat|complete|yield|artwork|verdict|story-contract|video-status|hero/(?:vertical|horizontal)|videos/(?:vertical|horizontal)|placement/preflight|submit)$")
+_ROUTE = re.compile(r"^/api/v1/muse-bridge/(commands|jobs|reviews)/([^/]+)/(claim|heartbeat|complete|yield|skip-report|artwork|verdict|story-contract|video-status|hero/(?:vertical|horizontal)|videos/(?:vertical|horizontal)|placement/preflight|submit)$")
 _DISCOVERY = {"commands": "command_poll", "commands/wait": "command_poll",
               "video-work": "video_poll", "reviews": "review_poll",
               "workers/config": "worker_config", "workers/cooldown": "cooldown_report"}
@@ -261,12 +261,13 @@ def safe_business_result(result):
     enums = {"outcome": {"success", "failed"}, "phase": {"create_video", "review_artwork", "execute_task"},
              "commandStatus": {"pending", "claimed", "failed", "completed", "receipt_submitted", "reviewed"},
              "jobStatus": {"pending", "qa_hold", "claimed", "submitted", "completed"},
-             "qaVerdict": {"pass", "hold", "fail"}}
+             "qaVerdict": {"pass", "hold", "fail"},
+             "skipReason": {"terminal_hold", "operator_paused", "source_blocked", "temporary_blocked", "provider_refused"}}
     for key, options in enums.items():
         value = result.get(key)
         if isinstance(value, str) and value in options:
             out[key] = value
-    for key in ("retryScheduled", "capabilityHold"):
+    for key in ("retryScheduled", "capabilityHold", "skipHoldActive"):
         if type(result.get(key)) is bool:
             out[key] = result[key]
     if type(result.get("providerHttpStatus")) is int and result["providerHttpStatus"] in (429,502,503,504):
@@ -326,7 +327,7 @@ def observe_recovery(tenant, report=None, failed=False):
     allowed = ("closed", "expiredCommandsRecovered", "expiredJobsReleased",
                "newVideoCommands", "newReviewCommands", "eligibleInflight",
                "eligibleInflightAfter", "reviewInflightAfter", "videoInflightAfter",
-               "transitionalOverflow", "cap", "partialQaMetadataRepaired", "skipped")
+               "transitionalOverflow", "cap", "partialQaMetadataRepaired", "heldPendingListings", "skipped")
     payload = {k: report[k] for k in allowed if isinstance(report,dict) and k in report
                and isinstance(report[k], (int,bool))}
     payload.update({"origin":"cam_observed", "failed":failed})

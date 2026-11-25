@@ -39,6 +39,9 @@ def derive_alerts(report, now=None):
             if age is not None and 0 <= age <= 900:
                 code = (last.get("payload") or {}).get("errorCode") or last.get("eventType")
                 add(wid+":recent-error", "warning", wid+" reported a recent error: "+str(code))
+    held = report.get("skipReconciliation", {}).get("activeListings", 0)
+    if held:
+        add("skip-reconciliation", "info", str(held)+" listings held by reconciled Muse skip reports; excluded from eligible video capacity.")
     circuit = report.get("rendererCircuit", {})
     if circuit.get("state") == "open":
         add("renderer-circuit", "warning", "Video claims paused by the renderer circuit; existing leases may finish.")

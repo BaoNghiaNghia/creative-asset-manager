@@ -147,7 +147,8 @@ async def regenerate(db: Session, tenant: str, listing_id: str, expected: dict[s
             or (muse._qa_record(job) or {}).get("verdict") != "pass"
             or (muse._qa_record(job) or {}).get("artwork_sha256") != job.artwork_sha256):
         raise HTTPException(409, "Native Master hoặc QA ảnh không còn hợp lệ")
-    if old.get("videoCapabilityHold") or muse._automation_soft_hold_active(old):
+    from . import skip_reconciliation as skips
+    if old.get("videoCapabilityHold") or muse._automation_soft_hold_active(old) or skips.active(job):
         raise HTTPException(409, "Listing đang bị hold; cần xử lý hold trước khi tạo lại")
     if requested_aspects(job):
         raise HTTPException(409, "Listing đã có yêu cầu tạo lại video")
