@@ -175,6 +175,28 @@ class AtomicClaimTests(TestCase):
             j=db.get(J,(TENANT,LID))
             self.assertEqual(j.output_receipts["videoRegeneration"]["requiredVideoAspectRatios"],["9:16","16:9"])
 
+    def test_reference_first_two_step_claim_and_recovery(self):
+        command=self.command_claim()
+        self.assertEqual(command.status_code,200,command.text)
+        claim=command.json()["videoJobClaim"]
+        before=claim["storySpecV33"]["aspectPlans"]["9:16"]
+        self.assertIn("referenceImagePrompt",before)
+        self.assertEqual(claim["body"]["storyOutputContract"],m.LITE_OUTPUT)
+        response=self.video_claim(claim["body"])
+        self.assert_video_response(response)
+        video=response.json()["job"]["videoSpec"]
+        after=video["storySpecV33"]["aspectPlans"]["9:16"]
+        self.assertEqual(after,before)
+        self.assertEqual(video["motionPromptByAspect"]["9:16"],after["prompt"])
+        self.assertFalse(video["heroUploadRequired"])
+        with Session(self.engine) as db:
+            row=db.get(J,(TENANT,LID))
+            self.assertTrue(row.output_receipts["videoWorkScope"]["referenceFirst"])
+        recovered=self.client.get(PREFIX+"/jobs/"+LID+"/story-contract?aspect=vertical",
+                                  headers=self.headers())
+        self.assertEqual(recovered.status_code,200,recovered.text)
+        self.assertEqual(recovered.json()["storySpecV33"]["aspectPlans"],{"9:16":after})
+
     def test_actual_two_step_story_lite_claim(self):
         body=self.claimed_command_body()
         self.assert_video_response(self.video_claim(body))

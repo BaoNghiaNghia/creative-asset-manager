@@ -41,7 +41,56 @@ THEME_INTENT = {
 }
 
 
-def lite_story_spec(base: dict) -> dict:
+# Reference preparation is separate from the video-generation prompt.
+# Only the controlled theme enum enters either prompt; never copy title/SKU
+# text onto the shirt. These are suggestions, not an additional QA contract.
+THEME_MOTION = {
+    "holiday": "gently glance at an existing festive detail",
+    "outdoors": "make a small relaxed shift of posture",
+    "ride": "settle into a comfortable stance",
+    "gaming": "briefly glance aside as if taking a break",
+    "sports": "relax the shoulders naturally",
+    "birthday": "react with a natural cheerful expression",
+    "pets": "glance briefly toward the existing surroundings",
+    "coffee": "settle into a relaxed posture",
+    "family": "share a warm natural smile",
+    "romance": "smile naturally",
+    "retro": "make a small comfortable posture shift",
+    "humor": "react with a natural amused expression",
+}
+
+
+def reference_image_prompt(ratio: str, context: str) -> str:
+    return (
+        f"Photorealistic {ratio} lifestyle still, {context}. One adult in a "
+        "washed short-sleeve crew-neck tee matching the approved garment and "
+        "exact supplied Native Master print, with casual jeans or khakis. "
+        "Frame head through upper thighs with comfortable clearance around "
+        "the entire print, arms relaxed and clear of the chest. Natural "
+        "skin texture, believable proportions, soft real-world lighting. "
+        "Use the setting already appropriate to the theme. No objects in "
+        "front of the print; no added text, garment codes, logos or design changes."
+    )
+
+
+def reference_motion_plan(ratio: str, context: str, theme: str) -> dict:
+    action = THEME_MOTION.get(theme, "make a small relaxed posture shift")
+    return {
+        "referenceImagePrompt": reference_image_prompt(ratio, context),
+        "meaningfulAction": action,
+        "cameraDirection": "fixed medium framing matching the supplied hero",
+        "beats": ["Begin in the supplied pose.", action.capitalize()+".",
+                  "Settle naturally."],
+        "prompt": (
+            f"Animate the supplied hero in {ratio}. The adult should {action}, "
+            "then settle naturally. Preserve the same person, shirt, exact print, "
+            "trousers and scene. Fixed camera and framing; keep the full print "
+            "unobstructed. Natural motion, blinking, gaze and smiles. No new text."
+        ),
+    }
+
+
+def lite_story_spec(base: dict, *, reference_first: bool = True) -> dict:
     """Keep CAM's source IDs and theme, not its old geometric/timing rules."""
     context = THEME_CONTEXT.get(base["storyTheme"], "a relaxed everyday moment")
     intent = THEME_INTENT.get(base["storyTheme"], "Take a short break in the existing scene.")
@@ -79,6 +128,8 @@ def lite_story_spec(base: dict) -> dict:
             "beats": [opening, action, ending],
             "prompt": prompt,
         }
+        if reference_first:
+            plans[ratio].update(reference_motion_plan(ratio, context, base["storyTheme"]))
     return {
         "storyVersion": base["storyVersion"],
         "storyOutputContract": LITE_OUTPUT,
@@ -90,12 +141,15 @@ def lite_story_spec(base: dict) -> dict:
         "storyStructure": "simple_beginning_action_resolution",
         "characterPolicy": "same_adult_identity_appearance_and_wardrobe_within_each_clip",
         "narrativePrompt": plans["9:16"]["prompt"],
+        **({"promptStrategy": "reference_first"} if reference_first else {}),
         "aspectPlans": plans,
         "renderPolicy": {
             "preferredNativeTakesPerAspect": 1,
             "preferredDurationSeconds": LITE_TARGET_SECONDS,
             "acceptedNativeDurationSeconds": list(LITE_DURATION_BOUNDS),
             "durationIsFlexible": True,
+            **({"referenceImagePromptField": "aspectPlans[].referenceImagePrompt",
+                "referenceSelectionAdvisory": True} if reference_first else {}),
             "mandatoryCut": False,
             "physicalPlacementProofRequired": False,
             "heroUploadRequired": False,
@@ -126,16 +180,24 @@ def worker_policy() -> dict:
         "heroUploadRequired": False,
         "independentQaRequiredForCamLinkage": False,
         "contentQaAfterUpload": "pending_review_not_pass",
+        "referenceImagePromptField": "aspectPlans[].referenceImagePrompt",
+        "referenceSelectionAdvisory": True,
         "instructions": (
             "For a command whose videoJobClaim.creativePolicy matches this policy, "
-            "POST its exact claim body. Use the existing approved worn image when "
-            "visually suitable, otherwise generate one simple native-aspect source. "
-            "Use the returned short aspect prompt. Generate one native clip per "
-            "missing ratio, preferably 6 seconds, and upload the actual native MP4 unchanged "
-            "immediately. Do not add an external duration or codec gate. No mandatory hero upload, calibrated geometry, placement "
-            "preflight, two takes, exact cut or timed face evidence. Do not fake "
-            "content QA or stretch footage. Only HOLD visibly wrong product/design, "
-            "unusable motion, wrong ratio, corrupt file, permission or provider error. "
-            "Follow renderer retry policy and continue eligible work."
+            "POST its exact claim body. For new Lite work, reuse a visually suitable "
+            "approved hero bound to the current artwork SHA and requested aspect. "
+            "Check its print, garment, adult character, trousers and framing once "
+            "before video generation. If unsuitable, use the separate referenceImagePrompt "
+            "to prepare a corrected source, or defer if unavailable. This is source "
+            "preparation, not a new CAM proof or QA gate. Send only the aspect motion "
+            "prompt and exact hero to the renderer; do not append listing titles, "
+            "SKU text, automation instructions or old QA gates. Prefer one native "
+            "take and at most one material-error correction within the existing budget. "
+            "Natural blinking, smiles and gaze are not defects. Use a short final "
+            "product, print and severe character-error check; upload the native MP4 "
+            "unchanged immediately. Six seconds is a preference, not a new duration "
+            "or codec gate. No mandatory hero upload, geometry, two takes or timed "
+            "face evidence. Never fake QA or downgrade a pinned strict contract. "
+            "Respect all live holds, provider limits and retry rules."
         ),
     }

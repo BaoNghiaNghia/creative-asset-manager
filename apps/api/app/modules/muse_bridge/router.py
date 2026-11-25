@@ -84,7 +84,7 @@ class MuseObservedRoute(APIRoute):
 
 
 router = APIRouter(prefix="/api/v1/muse-bridge", tags=["muse-bridge"], route_class=MuseObservedRoute)
-BRIDGE_VERSION = "1.4.25"
+BRIDGE_VERSION = "1.4.26"
 HEX64 = re.compile(r"^[a-f0-9]{64}$")
 LISTING_ID = re.compile(r"^[0-9]{5,20}$")
 ARTWORK_PATH = re.compile(
@@ -593,7 +593,16 @@ def _story_candidate_v33(job) -> dict | None:
         # CAM Muse video jobs currently have a fixed, validated C1717 contract.
         # Never infer C1717/G180/G185 from a marketplace listing title.
         base = _build_job_story_spec(job)
-        return lite_story_spec(base) if _story_lite_for_job(job) else base
+        if not _story_lite_for_job(job):
+            return base
+        # Do not change the prompt of a live pre-upgrade job during recovery.
+        # New job leases pin their prompt strategy alongside the existing scope;
+        # story/source/output contract versions and hero IDs remain unchanged.
+        deadline = _aware(getattr(job, "lease_expires_at", None))
+        active = job.status == "claimed" and (deadline is None or deadline > _utc())
+        scope = receipts.get("videoWorkScope") or {}
+        reference_first = not active or (isinstance(scope, dict) and scope.get("referenceFirst") is True)
+        return lite_story_spec(base, reference_first=reference_first)
     except ValueError:
         return None
 
@@ -947,9 +956,11 @@ def _lite_render_context(context: dict) -> dict:
         result.pop(key, None)
     result["preUploadVisualQaRequired"] = False
     result["renderInstruction"] = (
-        "Use an adult wearing the approved C1717 short-sleeve tee and exact "
-        "Native Master design. Match the source character and create a simple "
-        "natural event. No calibrated placement or timed visual proof required."
+        "Prepare or reuse an approved adult worn C1717 reference with exact Native "
+        "Master print and visible casual trousers. Keep the full print clear of hands "
+        "and frame edges. Use the separate referenceImagePrompt only if a new source "
+        "is needed; send the short aspect motion prompt with the actual hero. "
+        "Natural expression is welcome. No new proof, calibrated placement or timed QA gate."
     )
     result["creativePolicy"] = LITE_POLICY
     return result
@@ -981,7 +992,7 @@ def _compact_discovery_item(item: dict) -> dict:
         if isinstance(story, dict):
             summary = {k: story[k] for k in (
                 "storyVersion", "storyOutputContract", "storySourceContract",
-                "storyId", "storyTheme", "targetDurationSeconds", "creativePolicy",
+                "storyId", "storyTheme", "targetDurationSeconds", "creativePolicy", "promptStrategy",
             ) if k in story}
             summary["aspectPlans"] = {
                 ratio: {k: plan[k] for k in ("heroRequestId", "heroSeed", "storyId")
@@ -1176,7 +1187,7 @@ def _row_view(job):
             "motionPromptByAspect": {
                 ratio: plan["prompt"] for ratio, plan in story_preview["aspectPlans"].items()
             },
-            "startFramePolicy": "Use a suitable approved worn C1717 image; match artwork and actor.",
+            "startFramePolicy": "Reuse a suitable current-SHA, correct-aspect worn C1717 hero, or prepare a new reference using the aspect referenceImagePrompt when supplied. Animate the exact source; no mandatory hero upload.",
             "heroUploadRequired": False,
             "requiresMeasuredC1717SourceBeforeRender": False,
             "requiresSourceHeroShaMatchedPreflightForEachAspect": False,
@@ -3051,6 +3062,8 @@ def claim(listing_id: str, payload: ClaimRequest, request: Request,
     receipts = dict(row.output_receipts) if isinstance(row.output_receipts, dict) else {}
     receipts["videoWorkScope"] = {"requiredVideoAspectRatios": required,
                                   "commandId": existing.command_id if existing else None}
+    if _story_lite_pin(_pinned_story_v33(row)):
+        receipts["videoWorkScope"]["referenceFirst"] = True
     if _muse_dual_enabled():
         receipts["museWorkerOwner"] = _muse_identity(request)
     row.output_receipts = receipts
