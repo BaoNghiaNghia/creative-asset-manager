@@ -125,6 +125,68 @@ def sync(client, agent, headers, value):
 
 
 
+def test_sms_design_preview_ticket_is_scoped_to_exact_picked_design(scenario, monkeypatch):
+    import hashlib
+    import importlib
+    import io
+    from urllib.parse import urlsplit
+    from PIL import Image
+    from pydantic import SecretStr
+    from fastapi.responses import Response
+    from app.modules.etsy_spy.router import EXTRACTION_JOB_TYPE
+
+    client, db, _ = scenario
+    agent, headers = pair(client, db)
+    other_agent, other_headers = pair(client, db, tenant="other")
+    listing = "1234567890"
+    job_id = "12345678-1234-1234-1234-123456789abc"
+    asset_id = "a" * 24
+    raw = io.BytesIO()
+    Image.new("RGBA", (1440, 1080), (200, 10, 30, 128)).save(raw, "PNG")
+    digest = hashlib.sha256(raw.getvalue()).hexdigest()
+    db.add(EtsySpyPicked(tenant_id="boostgame", listing_key=listing))
+    db.add(ProcessingJobModel(id=job_id, tenant_id="boostgame",
+                              entity_type="etsy_listing", entity_id=listing,
+                              job_type=EXTRACTION_JOB_TYPE, idempotency_key="sms-preview"))
+    db.add(CamMuseJob(tenant_id="boostgame", listing_key=listing,
+                      picked_at=datetime.now(timezone.utc), title="Preview",
+                      source_state="ready_for_muse", artwork_sha256=digest,
+                      artwork_asset_path=f"/api/v1/etsy-spy/image-agents/designs/{job_id}/{asset_id}/original"))
+    db.commit()
+    routes = importlib.import_module("app.modules.etsy_spy.router")
+    muse = importlib.import_module("app.modules.muse_bridge.router")
+    monkeypatch.setattr(routes, "get_settings", lambda: SimpleNamespace(
+        PUBLIC_APP_URL="https://cam.example.com",
+        R2_VIDEO_MEDIA_SIGNING_SECRET=SecretStr("fixture-secret-not-for-production-123456")))
+    calls = []
+    async def original(_db, tenant, j, a, sha, filename):
+        calls.append((tenant, j, a, sha))
+        return Response(raw.getvalue(), media_type="image/png")
+    monkeypatch.setattr(muse, "_read_original_artwork", original)
+    path = f"/api/v1/etsy-spy/agents/{agent.id}/listings/{listing}/sms-design-preview-ticket"
+    params = {"design_sha256": digest}
+    assert client.post(path, params=params).status_code == 401
+    assert client.post(path, params=params, headers=other_headers).status_code == 401
+    assert client.post(path.replace(agent.id, other_agent.id), params=params,
+                       headers=other_headers).status_code == 404
+    assert client.post(path, params={"design_sha256": "b"*64}, headers=headers).status_code == 404
+    ticket = client.post(path, params=params, headers=headers)
+    assert ticket.status_code == 200, ticket.text
+    url = urlsplit(ticket.json()["previewUrl"])
+    preview_path = url.path + "?" + url.query
+    assert client.get(preview_path.replace(digest, "b"*64)).status_code == 404
+    assert not calls
+    preview = client.get(preview_path)
+    assert preview.status_code == 200
+    assert calls == [("boostgame", job_id, asset_id, digest)]
+    assert preview.headers["cache-control"] == "private, no-store"
+    with Image.open(io.BytesIO(preview.content)) as img:
+        assert img.size == (720, 540) and img.mode == "RGB"
+    db.delete(db.get(EtsySpyPicked, ("boostgame", listing)))
+    db.commit()
+    assert client.get(preview_path).status_code == 404
+
+
 def test_agent_review_intents_confirm_only_after_real_tenant_scoped_action(scenario):
     client, db, _ = scenario
     agent, headers = pair(client, db)

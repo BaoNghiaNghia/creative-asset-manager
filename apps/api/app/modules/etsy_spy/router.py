@@ -2415,6 +2415,79 @@ def agent_listing_idea_preflight(
             "video_ugc": media_status, "agent_export": True}
 
 
+def _sms_reference_artwork(db: Session, tenant: str, listing_key: str, digest: str):
+    """Bind the reference to the exact current Muse design and Picked listing."""
+    from app.modules.muse_bridge.router import ARTWORK_PATH
+    if not db.get(Picked, (tenant, listing_key)):
+        raise HTTPException(404, "Picked listing not found")
+    job = db.get(CamMuseJob, (tenant, listing_key))
+    if (not job or job.artwork_sha256 != digest
+            or not ARTWORK_PATH.fullmatch(job.artwork_asset_path or "")):
+        raise HTTPException(404, "Current design reference unavailable")
+    job_id, asset_id = job.artwork_asset_path.split("/")[6:8]
+    extraction = db.get(ProcessingJobModel, job_id)
+    if (not extraction or extraction.tenant_id != tenant
+            or extraction.entity_id != listing_key
+            or extraction.cancellation_requested
+            or extraction.job_type != EXTRACTION_JOB_TYPE):
+        raise HTTPException(404, "Current design reference unavailable")
+    return job_id, asset_id
+
+
+@router.post("/agents/{agent_id}/listings/{listing_key}/sms-design-preview-ticket")
+def mint_sms_design_preview_ticket(
+    agent_id: str, listing_key: str, design_sha256: str, response: Response,
+    authorization: str | None = Header(None), db: Session = Depends(get_db),
+):
+    """Explicitly request a temporary preview for an internal SMS reference."""
+    import time as clock
+    from urllib.parse import urlsplit
+    from .sms_design_preview import DIGEST, LISTING_ID, TTL, signature
+    agent = authenticate_agent(db, agent_id, authorization)
+    if not LISTING_ID.fullmatch(listing_key) or not DIGEST.fullmatch(design_sha256):
+        raise HTTPException(422, "Invalid design identity")
+    _sms_reference_artwork(db, agent.tenant_id, listing_key, design_sha256)
+    settings = get_settings()
+    secret = settings.R2_VIDEO_MEDIA_SIGNING_SECRET.get_secret_value()
+    origin = settings.PUBLIC_APP_URL.rstrip("/")
+    parsed = urlsplit(origin)
+    if (len(secret) < 32 or parsed.scheme != "https" or not parsed.hostname
+            or parsed.path or parsed.query or parsed.fragment or parsed.username or parsed.password):
+        raise HTTPException(503, "SMS preview signing not configured")
+    expiry = int(clock.time()) + TTL
+    token = signature(secret, agent.id, agent.tenant_id, listing_key, design_sha256, expiry)
+    response.headers["Cache-Control"] = "no-store"
+    url = (origin + "/api/v1/etsy-spy/sms-design-preview/" + agent.id + "/" + listing_key
+           + "/" + design_sha256 + "?exp=" + str(expiry) + "&sig=" + token)
+    return {"listingKey": listing_key, "designSha256": design_sha256, "previewUrl": url,
+            "expiresAtUnix": expiry, "previewOnly": True, "maxEdgePx": 720}
+
+
+@router.api_route("/sms-design-preview/{agent_id}/{listing_key}/{digest}", methods=["GET", "HEAD"])
+async def fetch_sms_design_preview(
+    agent_id: str, listing_key: str, digest: str, exp: int, sig: str, request: Request,
+    db: Session = Depends(get_db),
+):
+    """Bearer link, narrowly scoped to one preview and valid for five minutes."""
+    from starlette.concurrency import run_in_threadpool
+    from .sms_design_preview import AGENT_ID, verify, render_preview
+    from app.modules.muse_bridge.router import _read_original_artwork
+    agent = db.get(Agent, agent_id) if AGENT_ID.fullmatch(agent_id) else None
+    secret = get_settings().R2_VIDEO_MEDIA_SIGNING_SECRET.get_secret_value()
+    if (not agent or not agent.active or agent.name.startswith(IMAGE_AGENT_NAME_PREFIX)
+            or not verify(secret, agent_id, agent.tenant_id, listing_key, digest, exp, sig)):
+        raise HTTPException(404, "Reference preview unavailable")
+    tenant = agent.tenant_id
+    job_id, asset_id = _sms_reference_artwork(db, tenant, listing_key, digest)
+    original = await _read_original_artwork(db, tenant, job_id, asset_id, digest, "design-source.png")
+    preview = await run_in_threadpool(render_preview, original.body, digest)
+    return Response(preview, media_type="image/png", headers={
+        "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+        "Content-Disposition": 'inline; filename="design-reference.png"',
+    })
+
+
 @router.post("/agents/{agent_id}/review-intents")
 async def agent_submit_review_intent(
     agent_id: str, request: Request, response: Response,
