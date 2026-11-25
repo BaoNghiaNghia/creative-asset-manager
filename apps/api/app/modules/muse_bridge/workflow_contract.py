@@ -49,9 +49,11 @@ def artwork_qa(job):
         status = "pass"
     else:
         status = "invalid"
+    scope_recheck = receipts.get("sourceQaScopeRecheck")
     return {
         "authority": "CAM",
         "status": status,
+        "sourceScopeRecheckState": scope_recheck.get("state") if isinstance(scope_recheck, dict) else None,
         "artworkSha256": job.artwork_sha256,
         "reviewRecordMatchesCurrentSha": bool(matches),
         "reviewedAtUtc": review.get("reviewed_at") if matches else None,

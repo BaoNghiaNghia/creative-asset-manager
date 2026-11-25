@@ -64,6 +64,8 @@ from . import native_placement_review as placement_review
 from . import skip_reconciliation as skips
 from . import original_artwork as original
 from . import workflow_contract as workflow
+from . import source_qa_recheck as recheck
+from . import receipt_ack as ack_replay
 
 
 class MuseObservedRoute(APIRoute):
@@ -79,7 +81,7 @@ class MuseObservedRoute(APIRoute):
 
 
 router = APIRouter(prefix="/api/v1/muse-bridge", tags=["muse-bridge"], route_class=MuseObservedRoute)
-BRIDGE_VERSION = "1.4.19"
+BRIDGE_VERSION = "1.4.20"
 HEX64 = re.compile(r"^[a-f0-9]{64}$")
 LISTING_ID = re.compile(r"^[0-9]{5,20}$")
 ARTWORK_PATH = re.compile(
@@ -1893,6 +1895,10 @@ def muse_worker_shared_config(
         "A historical workflow failure is not proof that a currently eligible command is impossible."
     )
     config["workflowController"] = workflow.config()
+    config["receiptAckReplay"] = {
+        "policy": ack_replay.POLICY, "enabled": True, "replayWindowHours": 24,
+        "instructions": "If the success completion response is lost, retry the exact same completion request using the original command lease. CAM acknowledges only the already committed matching receipt. Do not generate another video.",
+    }
     config["artworkReviewScope"] = workflow.review_scope()
     config["queueDiscoveryPolicy"]["recommendedPath"] = "/api/v1/muse-bridge/commands?limit=20"
     config["artworkSourcePolicy"] = original.policy()
@@ -2724,7 +2730,8 @@ def submit_visual_review(
             "jobId": found.job_id, "assetId": found.asset_id,
             "evidence": "worker_reported_comparative_visual_review",
         }
-    row.output_receipts = {**(row.output_receipts or {}), "visual_qa": review}
+    row.output_receipts = recheck.verdict_marker(
+        {**(row.output_receipts or {}), "visual_qa": review}, payload.verdict, _utc())
     if payload.verdict == "pass":
         job_id, asset_id = found.locator
         row.artwork_asset_path = (
@@ -4692,9 +4699,14 @@ def _automation_soft_hold_active(receipts: dict | None) -> bool:
 
 def _eligible_phase(db: Session, tenant: str,
                     job: CamMuseJob, cmd: CamMuseCommand):
-    if job.artwork_sha256 != cmd.artwork_sha256:
+    if job.artwork_sha256 != cmd.artwork_sha256 or getattr(cmd, "attempts", 0) >= recheck.claim_limit(cmd):
         return None
     receipts = job.output_receipts if isinstance(job.output_receipts, dict) else {}
+    scope = recheck.marker(job)
+    if job.status == "qa_hold" and scope and (
+            scope.get("state") != "queued"
+            or getattr(cmd, "command_id", None) != scope.get("reviewCommandId")):
+        return None
     if _automation_soft_hold_active(receipts):
         return None
     # Each SHA-matched candidate may now be independently reviewed by Muse.
@@ -4746,6 +4758,17 @@ def _eligible_phase(db: Session, tenant: str,
                 return None
         return "create_video"
     return None
+
+
+@router.post("/reviews/{listing_id}/scope-recheck", include_in_schema=False, status_code=202)
+def approve_source_scope_recheck(
+    listing_id: str, payload: recheck.Approval,
+    tenant: str = Depends(_operator), db: Session = Depends(get_db),
+):
+    """One operator-reviewed historical source-scope error, not video approval."""
+    if not LISTING_ID.fullmatch(listing_id):
+        raise HTTPException(404, "Listing not found")
+    return recheck.approve(db, tenant, listing_id, payload, _utc(), _review_native_asset)
 
 
 @router.post("/commands", include_in_schema=False, status_code=202)
@@ -5480,7 +5503,7 @@ def claim_muse_command(command_id: str, request: Request,
         CamMuseCommand.tenant_id == tenant,
         CamMuseCommand.command_id == command_id,
     ).with_for_update())
-    if cmd is None or cmd.status not in ("pending", "claimed") or cmd.attempts >= 5:
+    if cmd is None or cmd.status not in ("pending", "claimed") or cmd.attempts >= recheck.claim_limit(cmd):
         raise HTTPException(409, "Command not available")
     if (cmd.status == "claimed" and (cmd.lease_expires_at is None
             or _aware(cmd.lease_expires_at) > _utc())):
@@ -5712,6 +5735,19 @@ def complete_muse_command(command_id: str, payload: CommandAck,
         CamMuseCommand.tenant_id == tenant,
         CamMuseCommand.command_id == command_id,
     ).with_for_update())
+    if cmd is not None and cmd.status == "receipt_submitted" and cmd.phase == "create_video":
+        prior_job = db.get(CamMuseJob, (tenant, cmd.listing_key))
+        if ack_replay.matches(cmd, prior_job, payload, _muse_identity(request),
+                              _verified_video_ratios, _utc()):
+            _assert_muse_owner(request, cmd.details)
+            response = {"ok": True, **_command_status(cmd),
+                        "retryScheduled": False, "renderRetry": None,
+                        "completionAckReplayed": True}
+            request.state.muse_business_result = {
+                "outcome": "success", "phase": "create_video",
+                "commandStatus": cmd.status, "listingId": cmd.listing_key,
+            }
+            return response
     if (cmd is None or cmd.status != "claimed"
             or cmd.lease_expires_at is None
             or _aware(cmd.lease_expires_at) <= _utc()
@@ -5862,6 +5898,11 @@ def complete_muse_command(command_id: str, payload: CommandAck,
             "providerStatusIndependentlyVerified": False,
         }} if transient_status is not None else {}),
     }
+    replay_record = ack_replay.record(
+        cmd, job, payload, _muse_identity(request),
+        _pinned_work_aspects(cmd.details), _verified_video_ratios, _utc())
+    if replay_record is not None:
+        cmd.details = {**cmd.details, ack_replay.KEY: replay_record}
     cmd.lease_hash = None
     cmd.lease_expires_at = None
     cmd.updated_at = _utc()

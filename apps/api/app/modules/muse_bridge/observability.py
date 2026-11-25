@@ -331,7 +331,7 @@ def observe_recovery(tenant, report=None, failed=False):
     allowed = ("closed", "expiredCommandsRecovered", "expiredJobsReleased",
                "newVideoCommands", "newReviewCommands", "eligibleInflight",
                "eligibleInflightAfter", "reviewInflightAfter", "videoInflightAfter",
-               "transitionalOverflow", "cap", "partialQaMetadataRepaired", "heldPendingListings", "skipped")
+               "transitionalOverflow", "cap", "partialQaMetadataRepaired", "heldPendingListings", "sourceScopeRechecksQueued", "skipped")
     payload = {k: report[k] for k in allowed if isinstance(report,dict) and k in report
                and isinstance(report[k], (int,bool))}
     payload.update({"origin":"cam_observed", "failed":failed})

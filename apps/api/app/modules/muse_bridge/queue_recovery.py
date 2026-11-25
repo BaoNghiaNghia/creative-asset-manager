@@ -17,6 +17,7 @@ from uuid import uuid4
 from sqlalchemy import select, text
 from .model import CamMuseCommand, CamMuseJob
 from . import skip_reconciliation as skips
+from . import source_qa_recheck as recheck
 
 POLICY = "CAM_SMART_QUEUE_RECOVERY_V1"
 QUEUE_CAP = 12
@@ -90,7 +91,7 @@ def reconcile_command(command, job, now, verified_ratios):
         if qa.get("verdict") != "pass":
             terminal_command(command, "failed", "artwork_review_on_hold", now)
             return "artwork_review_on_hold"
-    if command.attempts >= MAX_COMMAND_CLAIMS or (
+    if command.attempts >= recheck.claim_limit(command) or (
         command.phase == "create_video" and job.attempts >= MAX_JOB_CLAIMS
     ):
         terminal_command(command, "failed", "attempt_limit", now)
@@ -117,6 +118,10 @@ def can_refill(job, history, now, muse):
         return False
     history = [c for c in history if c.artwork_sha256 == job.artwork_sha256]
     if job.status == "qa_hold":
+        # Approved one-time source-scope rechecks have their own bounded lane.
+        # Never manufacture a second review command after that lane is used.
+        if recheck.marker(job):
+            return False
         # An actual negative review is not permission to review repeatedly.
         if muse._qa_record(job) is not None:
             return False
@@ -158,7 +163,8 @@ def reconcile_queue(db, tenant, now=None, *, cap=QUEUE_CAP):
     stats = {"policy": POLICY, "closed": 0, "expiredCommandsRecovered": 0,
              "expiredJobsReleased": 0, "newVideoCommands": 0,
              "newReviewCommands": 0, "eligibleInflight": 0, "cap": cap,
-             "newCommands": [], "partialQaMetadataRepaired": 0, "skipped": False}
+             "newCommands": [], "partialQaMetadataRepaired": 0,
+             "sourceScopeRechecksQueued": 0, "skipped": False}
     if db.get_bind().dialect.name == "postgresql":
         lock_key = int.from_bytes(hashlib.sha256(
             ("cam-muse-queue-recovery:" + tenant).encode()).digest()[:8], "big", signed=True)
@@ -180,7 +186,7 @@ def reconcile_queue(db, tenant, now=None, *, cap=QUEUE_CAP):
         job = by_listing.get(candidate.listing_key)
         if job is not None and active_lease(job, now):
             continue
-        if not (candidate.attempts >= 5 or expired_lease(candidate, now)
+        if not (candidate.attempts >= recheck.claim_limit(candidate) or expired_lease(candidate, now)
                 or (job is not None and (job.status in ("submitted", "completed")
                     or (candidate.phase == "review_artwork" and isinstance((job.output_receipts or {}).get("visual_qa"), dict))
                     or job.artwork_sha256 != candidate.artwork_sha256
@@ -260,7 +266,7 @@ def reconcile_queue(db, tenant, now=None, *, cap=QUEUE_CAP):
             occupied.add(c.listing_key)
             if c.phase == "review_artwork":
                 review_occupied.add(c.listing_key)
-        elif c.attempts < 5:
+        elif c.attempts < recheck.claim_limit(c):
             phase = muse._eligible_phase(db, tenant, j, c)
             if phase:
                 occupied.add(c.listing_key)
@@ -286,6 +292,7 @@ def reconcile_queue(db, tenant, now=None, *, cap=QUEUE_CAP):
         aware(j.picked_at), j.listing_key,
     ))
     review_jobs = [j for j in jobs if j.status == "qa_hold"]
+    review_jobs.sort(key=lambda j: (not recheck.pending(j), aware(j.picked_at), j.listing_key))
     video_jobs = [j for j in jobs if j.status == "pending"]
     # First reserve review slots, then fill remaining capacity with videos.
     # If video work is scarce, lend spare slots to review. A full preexisting
@@ -305,9 +312,11 @@ def reconcile_queue(db, tenant, now=None, *, cap=QUEUE_CAP):
         if not candidate.artwork_sha256 or not muse.HEX64.fullmatch(candidate.artwork_sha256):
             continue
         # Cheap predicates before acquiring the listing lock.
-        if candidate.status == "qa_hold" and (muse._qa_record(candidate) or not candidate.product_image_url):
+        scope_candidate = candidate.status == "qa_hold" and recheck.pending(candidate)
+        if candidate.status == "qa_hold" and (not candidate.product_image_url
+                or (muse._qa_record(candidate) and not scope_candidate)):
             continue
-        if not can_refill(candidate, [], now, muse):
+        if not scope_candidate and not can_refill(candidate, [], now, muse):
             continue
         job = _lock_job(db, tenant, candidate.listing_key)
         if job is None or job.status not in ("pending", "qa_hold"):
@@ -319,10 +328,21 @@ def reconcile_queue(db, tenant, now=None, *, cap=QUEUE_CAP):
             CamMuseCommand.status.in_(("pending", "claimed")),
         ).limit(1)) is not None:
             continue
-        if not can_refill(job, history, now, muse):
-            continue
-        phase = muse._eligible_phase(db, tenant, job, SimpleNamespace(
-            action="create_video", artwork_sha256=job.artwork_sha256))
+        command_id = str(uuid4())
+        prepared = None
+        if job.status == "qa_hold" and recheck.pending(job):
+            if lane == "video":
+                continue
+            prepared = recheck.prepared_receipts(
+                job, history, muse._review_native_asset(db, tenant, job), now, command_id)
+            if prepared is None:
+                continue
+            phase = "review_artwork"
+        else:
+            if not can_refill(job, history, now, muse):
+                continue
+            phase = muse._eligible_phase(db, tenant, job, SimpleNamespace(
+                action="create_video", artwork_sha256=job.artwork_sha256))
         if not phase or (lane == "video" and phase != "create_video") or (
                 lane != "video" and phase != "review_artwork"):
             continue
@@ -331,14 +351,23 @@ def reconcile_queue(db, tenant, now=None, *, cap=QUEUE_CAP):
             (history[0].command_id if history else "first")
         ).encode()).hexdigest()[:40]
         command = CamMuseCommand(
-            tenant_id=tenant, command_id=str(uuid4()), listing_key=job.listing_key,
-            action=phase, request_id="cam-smart-recovery-" + identity,
+            tenant_id=tenant, command_id=command_id, listing_key=job.listing_key,
+            action=phase, request_id=("cam-source-scope-recheck-" if prepared else "cam-smart-recovery-") + identity,
             artwork_sha256=job.artwork_sha256, status="pending", phase=phase,
             attempts=0, created_at=now, updated_at=now,
             details={"origin": POLICY, "rights_verified": False,
                      "note": "Recover eligible queue work. Use exact live per-listing contract; preserve saved media.",
                      "previousCommandId": history[0].command_id if history else None},
         )
+        if prepared:
+            command.details = {**command.details, recheck.KEY: {
+                "policy": recheck.POLICY,
+                "priorReviewAttempts": prepared[recheck.KEY]["priorReviewAttempts"],
+                "priorCommandId": prepared[recheck.KEY]["priorCommandId"],
+            }}
+            job.output_receipts = prepared
+            job.updated_at = now
+            stats["sourceScopeRechecksQueued"] += 1
         db.add(command)
         db.flush()
         occupied.add(job.listing_key)
