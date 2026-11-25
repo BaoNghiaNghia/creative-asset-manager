@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
+from fastapi.encoders import jsonable_encoder
 from fastapi.openapi.utils import get_openapi
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field, ValidationError, field_validator
@@ -62,7 +63,7 @@ from .story_action_policy import (
 from . import observability as obs
 from . import native_placement_review as placement_review
 from . import skip_reconciliation as skips
-from . import original_artwork as original
+from . import original_artwork
 from . import workflow_contract as workflow
 from . import source_qa_recheck as recheck
 from . import receipt_ack as ack_replay
@@ -82,7 +83,7 @@ class MuseObservedRoute(APIRoute):
 
 
 router = APIRouter(prefix="/api/v1/muse-bridge", tags=["muse-bridge"], route_class=MuseObservedRoute)
-BRIDGE_VERSION = "1.4.21"
+BRIDGE_VERSION = "1.4.22"
 HEX64 = re.compile(r"^[a-f0-9]{64}$")
 LISTING_ID = re.compile(r"^[0-9]{5,20}$")
 ARTWORK_PATH = re.compile(
@@ -757,7 +758,7 @@ def _video_job_claim_contract(job, *, required_aspects=None) -> dict:
     return {
         "path": f"/api/v1/muse-bridge/jobs/{job.listing_key}/claim",
         "videoStatusPath": f"/api/v1/muse-bridge/jobs/{job.listing_key}/video-status",
-        "artworkSource": original.source(job.listing_key, job.artwork_sha256),
+        "artworkSource": original_artwork.source(job.listing_key, job.artwork_sha256),
         "method": "POST",
         "body": body,
         "workerField": "Use /workers/config -> workerId for the authorized Muse account",
@@ -1005,7 +1006,7 @@ def _row_view(job):
             "status": job.status,
             "pickedAt": job.picked_at, "artworkSha256": job.artwork_sha256,
             "artworkAssetPath": job.artwork_asset_path,
-            "artworkSource": original.source(job.listing_key, job.artwork_sha256, review=source_review),
+            "artworkSource": original_artwork.source(job.listing_key, job.artwork_sha256, review=source_review),
             "artworkQa": workflow.artwork_qa(job),
             "artworkReviewScope": workflow.review_scope() if source_review else None,
             "artworkUrl": f"/api/v1/muse-bridge/jobs/{job.listing_key}/artwork" if job.artwork_asset_path else None,
@@ -1120,13 +1121,13 @@ def _row_view(job):
         }
     if story_active and story_preview.get("creativePolicy") == LITE_POLICY:
         # Do not leak contradictory V3.1/V3.3 strict prompts or geometry gates.
-        original = response["videoSpec"]
+        legacy_video_spec = response["videoSpec"]
         contract = _video_job_claim_contract(job)
         response["videoSpec"] = {
-            "formats": original["formats"],
-            "garment": original["garment"],
-            "garmentSku": original["garmentSku"],
-            "garmentLock": original["garmentLock"],
+            "formats": legacy_video_spec["formats"],
+            "garment": legacy_video_spec["garment"],
+            "garmentSku": legacy_video_spec["garmentSku"],
+            "garmentLock": legacy_video_spec["garmentLock"],
             "artworkShaStrict": True,
             "storyEnabled": True,
             "actionStoryEnabled": False,
@@ -1157,7 +1158,7 @@ def _row_view(job):
             "faceVisibilityQaRequired": False,
             "heroSourceQaRequired": False,
             "manualVideoApprovalRequiredForLinkage": False,
-            "videoUploadPaths": original["videoUploadPaths"],
+            "videoUploadPaths": legacy_video_spec["videoUploadPaths"],
             "uploadContentType": "video/mp4",
             "uploadLeaseHeader": "X-Muse-Lease",
             "requiredVideoUploadHeaders": contract["requiredVideoUploadHeaders"],
@@ -1902,7 +1903,7 @@ def muse_worker_shared_config(
     }
     config["artworkReviewScope"] = workflow.review_scope()
     config["queueDiscoveryPolicy"]["recommendedPath"] = "/api/v1/muse-bridge/commands?limit=20"
-    config["artworkSourcePolicy"] = original.policy()
+    config["artworkSourcePolicy"] = original_artwork.policy()
     config["skipReconciliation"] = skips.contract()
     config["observability"] = obs.contract()
     config["videoProgressPolicy"] = progress_watch.contract()
@@ -2280,7 +2281,7 @@ def missing_video_work(
             "actionStoryPlan": _action_story_candidate_v1(job),
             "sourceProductImageRole": "design_comparison_only_never_video_start_frame",
             "artworkSha256": job.artwork_sha256,
-            "artworkSource": original.source(lid, job.artwork_sha256, review=phase == "review_artwork"),
+            "artworkSource": original_artwork.source(lid, job.artwork_sha256, review=phase == "review_artwork"),
             "printPlacement": {
                 "policy": PRINT_ANCHOR_POLICY,
                 "printBoxPolicy": PRINT_BOX_POLICY,
@@ -2605,7 +2606,7 @@ def visual_review_queue(
             "keyword": row.keyword, "artworkSha256": row.artwork_sha256,
             "sourceImageUrl": row.product_image_url,
             "artworkUrl": f"/api/v1/muse-bridge/reviews/{row.listing_key}/artwork",
-            "artworkSource": original.source(row.listing_key, row.artwork_sha256, review=True),
+            "artworkSource": original_artwork.source(row.listing_key, row.artwork_sha256, review=True),
             "videoGenerationEnabled": False,
             "requiresComparativeVisualQA": True,
             "artworkQa": workflow.artwork_qa(row),
@@ -2638,17 +2639,17 @@ async def _read_original_artwork(db, tenant, job_id, asset_id, digest, filename)
         png = await read_design_from_drive(
             tenant_id=tenant, asset_id=job_id+":"+asset_id+":original",
             remote_id=str(remote.get("drive_file_id") or ""),
-            sha256=digest, max_bytes=original.MAX_BYTES,
+            sha256=digest, max_bytes=original_artwork.MAX_BYTES,
         )
     else:
         source, stored_digest = _checked_design_media(job_id, asset_id, db, tenant)
         if stored_digest != digest:
             raise HTTPException(409, "Artwork SHA does not match approved source")
-        if source.stat().st_size > original.MAX_BYTES:
+        if source.stat().st_size > original_artwork.MAX_BYTES:
             raise HTTPException(413, "Original Native Master exceeds the Muse artwork limit")
         db.rollback()
         png = await run_in_threadpool(source.read_bytes)
-    return original.verified_response(png, digest, filename)
+    return original_artwork.verified_response(png, digest, filename)
 
 
 @router.get("/reviews/{listing_id}/artwork")
@@ -2748,6 +2749,26 @@ def submit_visual_review(
     return {"ok": True, "listingId": listing_id, "status": row.status,
             "visualQa": payload.verdict, "rightsVerified": False,
             "printReady": False, "videoGenerated": False}
+
+
+def _commit_claim_response(db: Session, build_response):
+    """Validate the full wire response before making a new lease durable.
+
+    In-process response construction/encoding errors roll back the attempt,
+    lease and workflow pin. A network failure after commit remains subject
+    to ordinary lease recovery; never transfer another worker's lease.
+    """
+    try:
+        db.flush()
+        result = jsonable_encoder(build_response())
+        # FastAPI's JSONResponse rejects NaN/Infinity. Check that now, not
+        # after the only copy of the lease token has been committed.
+        json.dumps(result, allow_nan=False)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return result
 
 
 @router.post("/jobs/{listing_id}/claim")
@@ -2972,9 +2993,10 @@ def claim(listing_id: str, payload: ClaimRequest, request: Request,
     if _muse_dual_enabled():
         receipts["museWorkerOwner"] = _muse_identity(request)
     row.output_receipts = receipts
-    db.commit()
-    return {"lease": lease, "leaseExpiresAt": row.lease_expires_at,
-            "job": _row_view(row), "worker": payload.worker}
+    return _commit_claim_response(db, lambda: {
+        "lease": lease, "leaseExpiresAt": row.lease_expires_at,
+        "job": _row_view(row), "worker": payload.worker,
+    })
 
 @router.post("/jobs/{listing_id}/placement/preflight")
 def submit_c1717_placement_preflight(
@@ -5071,7 +5093,7 @@ def _muse_command_list_payload(limit: int, tenant: str, db: Session, review_only
                       "artworkQaStatusPath": workflow.artwork_qa(job)["statusPath"],
                       **(_aspect_work_view(job) if phase == "create_video" else {}),
                       "placementReview": _review_placement_view(db, tenant, job) if phase == "review_artwork" else None,
-                      "artworkSource": original.source(job.listing_key, job.artwork_sha256, review=phase == "review_artwork"),
+                      "artworkSource": original_artwork.source(job.listing_key, job.artwork_sha256, review=phase == "review_artwork"),
                       "savedVideoAspectRatios": sorted(_verified_video_ratios(job)),
                       "videoJobClaim": (
                           _video_job_claim_contract(job)
@@ -5591,33 +5613,37 @@ def claim_muse_command(command_id: str, request: Request,
     cmd.status = "claimed"
     cmd.attempts += 1
     cmd.updated_at = _utc()
-    db.commit()
-    video_claim = (
-        _video_job_claim_contract(job, required_aspects=_pinned_work_aspects(cmd.details))
-        if phase == "create_video" else None
-    )
-    if video_claim:
-        worker_id = _muse_identity(request)
-        video_claim["body"] = {
-            "worker": "muse" if worker_id == "legacy" else worker_id,
-            **video_claim["body"],
-        }
+
+    def build_response():
+        video_claim = (
+            _video_job_claim_contract(job, required_aspects=_pinned_work_aspects(cmd.details))
+            if phase == "create_video" else None
+        )
+        if video_claim:
+            worker_id = _muse_identity(request)
+            video_claim["body"] = {
+                "worker": "muse" if worker_id == "legacy" else worker_id,
+                **video_claim["body"],
+            }
+        return {"ok": True, "command": _command_status(cmd),
+                "rendererProbeRequired": bool(phase == "create_video" and circuit.get("probeRequired")),
+                "lease": lease, "leaseExpiresAt": cmd.lease_expires_at,
+                "nextStep": "execute_task" if phase == "execute_task" else
+                            "reviews" if phase == "review_artwork" else "jobs",
+                "task": (cmd.details if cmd.action == "execute_task" else None),
+                "videoJobClaim": video_claim,
+                "nextAction": phase,
+                "executionContract": _execution_contract(job, phase) if phase != "execute_task" else None,
+                "artworkQa": workflow.artwork_qa(job) if phase != "execute_task" else None,
+                "artworkSource": original_artwork.source(job.listing_key, job.artwork_sha256, review=phase == "review_artwork") if phase != "execute_task" else None,
+                "placementReview": _review_placement_view(db, tenant, job) if phase == "review_artwork" else None,
+                "artworkSha256": cmd.artwork_sha256}
+
+    result = _commit_claim_response(db, build_response)
     request.state.muse_business_result = {
-        "phase": phase, "commandStatus": "claimed", "listingId": cmd.listing_key,
+        "phase": phase, "commandStatus": "claimed", "listingId": result["command"]["listingId"],
     }
-    return {"ok": True, "command": _command_status(cmd),
-            "rendererProbeRequired": bool(phase == "create_video" and circuit.get("probeRequired")),
-            "lease": lease, "leaseExpiresAt": cmd.lease_expires_at,
-            "nextStep": "execute_task" if phase == "execute_task" else
-                        "reviews" if phase == "review_artwork" else "jobs",
-            "task": (cmd.details if cmd.action == "execute_task" else None),
-            "videoJobClaim": video_claim,
-            "nextAction": phase,
-            "executionContract": _execution_contract(job, phase) if phase != "execute_task" else None,
-            "artworkQa": workflow.artwork_qa(job) if phase != "execute_task" else None,
-            "artworkSource": original.source(job.listing_key, job.artwork_sha256, review=phase == "review_artwork") if phase != "execute_task" else None,
-            "placementReview": _review_placement_view(db, tenant, job) if phase == "review_artwork" else None,
-            "artworkSha256": cmd.artwork_sha256}
+    return result
 
 
 @router.post("/commands/{command_id}/yield")
