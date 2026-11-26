@@ -15,7 +15,7 @@ from collections import defaultdict
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select, func, case, update, or_
+from sqlalchemy import select, func, case, update, or_, literal, union_all, exists, null, cast, String, Integer
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -325,6 +325,127 @@ def read_agent_listing_image_coverage(
     return {"protocol": "cam-picked-listing-image-coverage-v1",
             "complete": True, "coveredListingIds": sorted(set(keys)),
             "total": len(set(keys))}
+
+
+@listing_image_router.get("/image-agents/{agent_id}/listing-image-slot-coverage")
+def read_agent_listing_image_slot_coverage(
+    agent_id: str, authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    """Complete tenant-scoped metadata snapshot of Picked slots.
+
+    Upload receipts, not queued jobs or inferred counts, are the evidence.
+    Pending deletions are the latest tombstone per slot without a newer
+    saved PNG. A single SQL statement makes the three sets consistent even
+    when an upload or deletion commits concurrently. Never truncate a set.
+    """
+    agent = authenticate_agent(db, agent_id, authorization, image_only=True)
+    tenant = agent.tenant_id
+    picked = select(Picked.listing_key.label("listing_key")).where(
+        Picked.tenant_id == tenant
+    ).order_by(Picked.listing_key).limit(10001).cte("picked_slot_coverage")
+    images = select(
+        ListingImage.listing_key.label("listing_key"),
+        ListingImage.pack_id.label("pack_id"),
+        ListingImage.slot.label("slot"),
+        ListingImage.garment_code.label("garment_code"),
+        ListingImage.design_sha256.label("design_sha256"),
+        ListingImage.source_sha256.label("source_sha256"),
+        ListingImage.placement.label("placement"),
+        ListingImage.output_sha256.label("sha"),
+        ListingImage.native_width.label("native_width"),
+        ListingImage.native_height.label("native_height"),
+    ).join(picked, picked.c.listing_key == ListingImage.listing_key).where(
+        ListingImage.tenant_id == tenant
+    ).limit(30001).cte("saved_slot_coverage")
+    occupied = exists(select(1).where(
+        ListingImage.tenant_id == tenant,
+        ListingImage.listing_key == DeletedListingImage.listing_key,
+        ListingImage.pack_id == DeletedListingImage.pack_id,
+        ListingImage.slot == DeletedListingImage.slot,
+    ))
+    ranked = select(
+        DeletedListingImage.listing_key.label("listing_key"),
+        DeletedListingImage.pack_id.label("pack_id"),
+        DeletedListingImage.slot.label("slot"),
+        DeletedListingImage.output_sha256.label("sha"),
+        func.row_number().over(
+            partition_by=(DeletedListingImage.listing_key,
+                          DeletedListingImage.pack_id, DeletedListingImage.slot),
+            order_by=(DeletedListingImage.deleted_at.desc(),
+                      DeletedListingImage.output_sha256.desc()),
+        ).label("rank"),
+    ).join(picked, picked.c.listing_key == DeletedListingImage.listing_key).where(
+        DeletedListingImage.tenant_id == tenant, ~occupied
+    ).cte("ranked_slot_deletions")
+    deletions = select(ranked.c.listing_key, ranked.c.pack_id,
+                       ranked.c.slot, ranked.c.sha).where(
+        ranked.c.rank == 1
+    ).limit(30001).cte("pending_slot_deletions")
+    # PostgreSQL cannot infer two different types for one shared NULL bind.
+    # Cast SQL NULL literals (no bind parameter) to the matching UNION columns.
+    null_text = cast(null(), String())
+    null_int = cast(null(), Integer())
+    statement = union_all(
+        select(literal("image").label("kind"), images.c.listing_key,
+               images.c.pack_id, images.c.slot, images.c.garment_code,
+               images.c.design_sha256, images.c.source_sha256,
+               images.c.placement, images.c.sha, images.c.native_width,
+               images.c.native_height),
+        select(literal("deletion"), deletions.c.listing_key, deletions.c.pack_id,
+               deletions.c.slot, null_text, null_text, null_text, null_text,
+               deletions.c.sha, null_int, null_int),
+        select(literal("picked"), picked.c.listing_key, null_text, null_int,
+               null_text, null_text, null_text, null_text, null_text, null_int, null_int),
+    )
+    picked_ids, receipts, pending = [], [], []
+    seen_images, seen_deletions = set(), set()
+    for row in db.execute(statement):
+        if not _LISTING.fullmatch(row.listing_key or ""):
+            raise HTTPException(409, "Invalid Picked listing identity in slot coverage")
+        if row.kind == "picked":
+            picked_ids.append(row.listing_key)
+            continue
+        if (not _PACK.fullmatch(row.pack_id or "") or
+            type(row.slot) is not int or not 1 <= row.slot <= 13 or
+            not _SHA.fullmatch(row.sha or "")):
+            raise HTTPException(409, "Invalid saved slot identity in coverage")
+        key = (row.listing_key, row.pack_id, row.slot)
+        identity = {"listing_id": row.listing_key, "pack_id": row.pack_id, "slot": row.slot}
+        if row.kind == "image":
+            if (key in seen_images or row.garment_code not in _GARMENTS or
+                not _SHA.fullmatch(row.design_sha256 or "") or
+                not _SHA.fullmatch(row.source_sha256 or "") or
+                not _PLACEMENT.fullmatch(row.placement or "")):
+                raise HTTPException(409, "Invalid ImageGen upload receipt in slot coverage")
+            seen_images.add(key)
+            receipts.append({
+                **identity, "garment_code": row.garment_code,
+                "design_sha256": row.design_sha256,
+                "source_sha256": row.source_sha256,
+                "placement": row.placement, "sha256": row.sha,
+                "preview_only": listing_preview_requires_review(
+                    row.native_width, row.native_height),
+            })
+        else:
+            if key in seen_deletions:
+                raise HTTPException(409, "Duplicate deletion receipt in slot coverage")
+            seen_deletions.add(key)
+            pending.append({**identity, "deleted_sha256": row.sha})
+    picked_set = set(picked_ids)
+    if (len(picked_ids) != len(picked_set) or len(picked_ids) > 10000 or
+        len(receipts) > 30000 or len(pending) > 30000 or
+        seen_images & seen_deletions or
+        any(key[0] not in picked_set for key in seen_images | seen_deletions)):
+        raise HTTPException(409, "Listing Image slot coverage exceeds safe bounds or is inconsistent")
+    sort_key = lambda row: (row["listing_id"], row["pack_id"], row["slot"])
+    return {
+        "protocol": "cam-picked-listing-slot-coverage-v1", "complete": True,
+        "storage_evidence": "cam_upload_receipts", "source_sha256_included": True,
+        "picked_listing_ids": sorted(picked_ids), "picked_total": len(picked_ids),
+        "images": sorted(receipts, key=sort_key), "image_total": len(receipts),
+        "pending_deletions": sorted(pending, key=sort_key), "deletion_total": len(pending),
+    }
 
 
 @listing_image_router.get("/image-agents/{agent_id}/listing-image-regeneration-pending")
