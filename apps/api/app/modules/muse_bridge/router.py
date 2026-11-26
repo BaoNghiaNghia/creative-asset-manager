@@ -2077,6 +2077,12 @@ def muse_worker_shared_config(
             config["reviewClaimAllowed"] = False
             if readiness["ready"]:
                 config["executionStatus"] = "STANDBY_PRIMARY_ACTIVE"
+    # P2D discovery is separate from video claims and does not grant execution.
+    from app.modules.image_orchestrator.read_api import is_read_api_enabled
+    config.update({"imageReadApiEnabled": is_read_api_enabled(),
+                   "imageClaimAllowed": False, "imageRendererAllowed": False,
+                   "imageExecutionStatus": "PREPARED_DISABLED",
+                   "imageCentralSchemaReady": False})
     return config
 
 
