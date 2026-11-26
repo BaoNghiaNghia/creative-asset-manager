@@ -143,6 +143,77 @@ class AtomicClaimTests(TestCase):
                                   "output_sha256":"d"*64}]}))
             db.commit()
 
+    def _budget_yield(self, command, job=None, **fields):
+        data={"lease":command["lease"],"reason":"video_daily_budget_exhausted",
+              "retryAfterSeconds":3600,**fields}
+        if job is not None:
+            data["jobLease"]=job["lease"]
+        cooldown={"cooldownActive":True,"reason":"video_daily_budget_exhausted",
+                  "secondsRemaining":3600,"cooldownUntilUtc":(NOW+timedelta(hours=1)).isoformat()}
+        with patch.object(m,"cooldown_status",return_value=cooldown), patch.object(m,"failover_status",return_value={"preferredWorker":None}):
+            return self.client.post(PREFIX+"/commands/"+CID+"/yield",json=data,headers=self.headers())
+
+    def test_budget_yield_unstarted_claim_once(self):
+        command=self.command_claim()
+        self.assertEqual(command.status_code,200,command.text)
+        response=self._budget_yield(command.json())
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertTrue(response.json()["commandClaimRefunded"])
+        self.assertFalse(response.json()["jobClaimRefunded"])
+        self.assertEqual(self._budget_yield(command.json()).status_code,409)
+        with Session(self.engine) as db:
+            self.assertEqual(db.get(C,(TENANT,CID)).attempts,0)
+            self.assertEqual(db.get(C,(TENANT,CID)).status,"pending")
+            self.assertEqual(db.get(J,(TENANT,LID)).attempts,0)
+
+    def test_budget_yield_paired_claim_preserves_pin_and_refunds_only_current(self):
+        with Session(self.engine) as db:
+            db.get(C,(TENANT,CID)).attempts=4
+            db.get(J,(TENANT,LID)).attempts=4
+            db.commit()
+        c=self.command_claim()
+        self.assertEqual(c.status_code,200,c.text)
+        command=c.json()
+        v=self.video_claim(command["videoJobClaim"]["body"])
+        self.assertEqual(v.status_code,200,v.text)
+        with Session(self.engine) as db:
+            j=db.get(J,(TENANT,LID))
+            self.assertEqual(j.attempts,5)
+            saved=j.output_receipts.copy()
+        self.assertEqual(self._budget_yield(command,v.json()).status_code,409)
+        response=self._budget_yield(command,v.json(),providerRejectedBeforeRender=True)
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertTrue(response.json()["jobClaimRefunded"])
+        with Session(self.engine) as db:
+            j=db.get(J,(TENANT,LID)); c=db.get(C,(TENANT,CID))
+            self.assertEqual((j.attempts,c.attempts),(4,4))
+            self.assertEqual((j.status,c.status),("pending","pending"))
+            self.assertIsNone(j.lease_hash)
+            self.assertIsNone(c.lease_hash)
+            self.assertEqual(j.output_receipts,saved)
+            self.assertFalse(c.details["lastProviderBudgetDeferral"]["providerStatusIndependentlyVerified"])
+
+    def test_budget_yield_wrong_lease_and_new_receipt_rejected(self):
+        c=self.command_claim().json()
+        v=self.video_claim(c["videoJobClaim"]["body"])
+        self.assertEqual(v.status_code,200,v.text)
+        self.assertEqual(self._budget_yield(c,{"lease":"z"*48},providerRejectedBeforeRender=True).status_code,409)
+        with patch.object(m,"_verified_video_ratios",return_value={"9:16"}):
+            self.assertEqual(self._budget_yield(c,v.json(),providerRejectedBeforeRender=True).status_code,409)
+        with Session(self.engine) as db:
+            self.assertEqual(db.get(J,(TENANT,LID)).status,"claimed")
+            self.assertEqual(db.get(J,(TENANT,LID)).attempts,1)
+            self.assertEqual(db.get(C,(TENANT,CID)).attempts,1)
+
+    def test_budget_yield_no_persisted_cooldown_rejected(self):
+        c=self.command_claim().json()
+        with patch.object(m,"cooldown_status",return_value={"cooldownActive":False}), patch.object(m,"failover_status",return_value={}):
+            response=self.client.post(PREFIX+"/commands/"+CID+"/yield",json={
+                "lease":c["lease"],"reason":"video_daily_budget_exhausted","retryAfterSeconds":3600},headers=self.headers())
+        self.assertEqual(response.status_code,409,response.text)
+        with Session(self.engine) as db:
+            self.assertEqual(db.get(C,(TENANT,CID)).attempts,1)
+
     def test_new_original_blocks_stale_command_claim(self):
         self.add_new_original()
         response=self.command_claim()

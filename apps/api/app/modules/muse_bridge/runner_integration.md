@@ -72,3 +72,30 @@ provider results, latest Original SHA, owned leases, required CAM headers,
 verified Drive provenance and receipt ACK. A storage receipt is not content
 QA PASS. Strict historical pinned contracts still require their declared
 contract evidence; do not fabricate or downgrade a previous pin.
+
+## Durable provider cooldown (Bridge 1.4.27+)
+The API stores cooldowns under its existing systemd STATE_DIRECTORY in a private
+muse-worker-state subdirectory, not the read-only registry directory. Legacy
+records remain readable; the later recorded deadline wins. Standalone admin
+readers must select the same directory via STATE_DIRECTORY or
+CAM_MUSE_COOLDOWN_STATE_DIR. Do not make the registry writable.
+
+On an actual provider daily-budget HTTP 429, report /workers/cooldown with
+providerStatus=429, reason=video_daily_budget_exhausted, the actual Retry-After,
+and cooldownUntilUtc when the observed absolute deadline is known. Replay the
+same deadline after reporting failures; do not start a fresh countdown each
+cron tick. Older relative daily reports do not slide an active daily cooldown.
+An HTTP 503 is not a saved cooldown; retain the local hold until synchronization
+succeeds. Use videoClaimAllowed and reviewClaimAllowed separately.
+
+Only for a new command with a matching live command lease and no accepted or
+uncertain render during that reservation, after the daily cooldown is persisted,
+POST /commands/{commandId}/yield with lease, reason=video_daily_budget_exhausted,
+retryAfterSeconds (the actual remaining/backoff value, subject to existing
+schema limits). If a paired job has been claimed, also provide jobLease and
+providerRejectedBeforeRender=true ONLY when the actual provider response rejected
+before any video generation was accepted during that lease. A successful yield
+refunds just the current reservation atomically, never past attempts. If work
+was accepted, status is uncertain, receipts changed, the lease is stale, or
+the baseline is unavailable, use ordinary reconciliation; do not assert false
+evidence or release an active renderer. No provider quota is reset or bypassed.

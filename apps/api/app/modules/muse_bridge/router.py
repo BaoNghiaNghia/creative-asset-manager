@@ -84,7 +84,7 @@ class MuseObservedRoute(APIRoute):
 
 
 router = APIRouter(prefix="/api/v1/muse-bridge", tags=["muse-bridge"], route_class=MuseObservedRoute)
-BRIDGE_VERSION = "1.4.26"
+BRIDGE_VERSION = "1.4.27"
 HEX64 = re.compile(r"^[a-f0-9]{64}$")
 LISTING_ID = re.compile(r"^[0-9]{5,20}$")
 ARTWORK_PATH = re.compile(
@@ -173,7 +173,8 @@ def _assert_muse_executor_ready(
     if cooldown["cooldownActive"] and not (
             review_only and cooldown.get("reason") == "video_daily_budget_exhausted"):
         raise HTTPException(
-            429, "Muse account cooling down; no new job claim permitted"
+            429, "Muse account cooling down; no new job claim permitted",
+            headers={"Retry-After": str(max(1, cooldown["secondsRemaining"]))},
         )
     if (identity == "muse-02" and not existing_command_job
             and route["preferredWorker"] != "muse-02"):
@@ -2045,6 +2046,22 @@ def muse_worker_shared_config(
             raise HTTPException(503, "Muse account cooldown state unavailable") from exc
         config["cooldown"] = own
         config["failover"] = route
+        config["providerBudgetDeferral"] = {
+            "cooldownReportPath": "/api/v1/muse-bridge/workers/cooldown",
+            "reportDeadlineField": "cooldownUntilUtc",
+            "yieldPath": "/api/v1/muse-bridge/commands/{commandId}/yield",
+            "reason": "video_daily_budget_exhausted",
+            "instructions": (
+                "Report the actual provider 429 and original deadline; retry the same "
+                "absolute deadline rather than renewing it. No video claims during "
+                "cooldown. For a newly claimed command whose job has not been claimed, "
+                "yield with its owned lease after cooldown is saved. For a paired "
+                "video job, also supply jobLease and providerRejectedBeforeRender=true "
+                "ONLY if no generation was accepted during this job lease and no "
+                "render is active or uncertain. Otherwise retain ordinary recovery; "
+                "never refund previous work or release an unknown render."
+            ),
+        }
         config["videoClaimAllowed"] = config["claimAllowed"] and not own["cooldownActive"]
         config["reviewClaimAllowed"] = config["claimAllowed"] and (
             not own["cooldownActive"] or own.get("reason") == "video_daily_budget_exhausted")
@@ -3062,6 +3079,8 @@ def claim(listing_id: str, payload: ClaimRequest, request: Request,
     receipts = dict(row.output_receipts) if isinstance(row.output_receipts, dict) else {}
     receipts["videoWorkScope"] = {"requiredVideoAspectRatios": required,
                                   "commandId": existing.command_id if existing else None}
+    if existing is not None:
+        receipts["videoWorkScope"]["commandClaimAttempt"] = existing.attempts
     if _story_lite_pin(_pinned_story_v33(row)):
         receipts["videoWorkScope"]["referenceFirst"] = True
     if _muse_dual_enabled():
@@ -4595,14 +4614,17 @@ class TaskResult(BaseModel):
 
 class WorkerYieldRequest(BaseModel):
     lease: str = Field(min_length=32, max_length=128)
-    reason: Literal["provider_rate_limit", "account_cooldown"]
+    reason: Literal["provider_rate_limit", "account_cooldown", "video_daily_budget_exhausted"]
     retryAfterSeconds: int = Field(ge=60, le=86400)
+    jobLease: str | None = Field(default=None, min_length=32, max_length=128)
+    providerRejectedBeforeRender: bool = False
 
 
 class WorkerCooldownReport(BaseModel):
     providerStatus: Literal[429]
     reason: Literal["provider_rate_limit", "video_daily_budget_exhausted"] = "provider_rate_limit"
     retryAfterSeconds: int = Field(ge=60, le=86400)
+    cooldownUntilUtc: datetime | None = None
 
 
 class OperatorSoftHoldRequest(BaseModel):
@@ -5235,10 +5257,12 @@ def report_muse_cooldown(
         state = report_provider_cooldown(
             os.environ, _muse_identity(request), provider_status=payload.providerStatus,
             retry_after_seconds=payload.retryAfterSeconds, reason=payload.reason,
+            cooldown_until=payload.cooldownUntilUtc,
         )
         routing = failover_status(os.environ)
-    except WorkerAccountConfigError as exc:
-        raise HTTPException(503, "Muse worker cooldown persistence unavailable") from exc
+    except (WorkerAccountConfigError, OSError) as exc:
+        raise HTTPException(503, "Muse worker cooldown persistence unavailable",
+                            headers={"Retry-After": "120"}) from exc
     except ValueError as exc:
         raise HTTPException(422, "Invalid Muse provider cooldown") from exc
     return {
@@ -5684,7 +5708,12 @@ def claim_muse_command(command_id: str, request: Request,
     if phase == "create_video":
         cmd.details = {**(cmd.details or {}),
                        "requiredVideoAspectRatios": _job_required_aspects(job),
-                       "videoAspectPhase": "vertical_first" if _job_required_aspects(job) == ["9:16"] else "both"}
+                       "videoAspectPhase": "vertical_first" if _job_required_aspects(job) == ["9:16"] else "both",
+                       "budgetClaimBaseline": {
+                           "commandAttempt": cmd.attempts + 1,
+                           "jobAttempts": job.attempts,
+                           "savedRatios": sorted(_verified_video_ratios(job)),
+                       }}
     if _muse_dual_enabled():
         # Persist owner on the same transaction as the row-locked claim.
         # A second account gets 409, and cannot heartbeat or complete the
@@ -5731,15 +5760,81 @@ def claim_muse_command(command_id: str, request: Request,
     return result
 
 
+def _daily_budget_yield(cmd, job, payload, request, now, cooldown):
+    """Refund only the current proven lease reservation, not past work.
+
+    Provider rejection is an authenticated worker report, not independent
+    renderer evidence. A paired render can be yielded only if the worker
+    explicitly reports that no generation was accepted during this lease.
+    Missing snapshots, stale leases or unknown work fail closed.
+    """
+    if (not cooldown.get("cooldownActive")
+            or cooldown.get("reason") != "video_daily_budget_exhausted"):
+        raise HTTPException(409, "Persist the actual daily provider cooldown before yielding")
+    previous = cmd.details or {}
+    baseline = previous.get("budgetClaimBaseline")
+    if (cmd.phase != "create_video" or cmd.action != "create_video"
+            or job is None or job.artwork_sha256 != cmd.artwork_sha256
+            or not isinstance(baseline, dict)
+            or baseline.get("commandAttempt") != cmd.attempts
+            or type(baseline.get("jobAttempts")) is not int
+            or baseline["jobAttempts"] < 0
+            or cmd.attempts < 1
+            or sorted(_verified_video_ratios(job)) != baseline.get("savedRatios")):
+        raise HTTPException(409, "Current video claim baseline unavailable or receipts changed")
+    receipts = job.output_receipts if isinstance(job.output_receipts, dict) else {}
+    if (receipts.get("videoCapabilityHold") or job.status not in ("pending", "claimed")):
+        raise HTTPException(409, "Existing hold or completed work cannot be budget-yielded")
+    refunded_job = False
+    if payload.jobLease is None:
+        if (job.status != "pending" or job.lease_hash is not None
+                or job.lease_expires_at is not None
+                or job.attempts != baseline["jobAttempts"]):
+            raise HTTPException(409, "Job was already claimed; matching job lease required")
+    else:
+        scope = receipts.get("videoWorkScope") or {}
+        if (not payload.providerRejectedBeforeRender or not isinstance(scope, dict)
+                or job.status != "claimed" or not job.lease_hash or _aware(job.lease_expires_at) is None
+                or _aware(job.lease_expires_at) <= now
+                or not hmac.compare_digest(job.lease_hash,
+                       hashlib.sha256(payload.jobLease.encode()).hexdigest())
+                or scope.get("commandId") != cmd.command_id
+                or scope.get("commandClaimAttempt") != cmd.attempts
+                or job.attempts != baseline["jobAttempts"] + 1):
+            raise HTTPException(409, "Paired live lease and explicit no-accepted-render report required")
+        _assert_muse_video_owner(request, job)
+        job.attempts -= 1
+        job.status = "pending"
+        job.lease_hash = None
+        job.lease_expires_at = None
+        job.updated_at = now
+        refunded_job = True
+    # Preserve all previous attempts, holds, hero and video receipts. The
+    # lease is invalidated in the same transaction as this single refund.
+    cmd.attempts -= 1
+    count = previous.get("providerBudgetDeferralCount", 0)
+    count = count if type(count) is int and count >= 0 else 0
+    cmd.details = {**previous, "providerBudgetDeferralCount": count + 1,
+                   "lastProviderBudgetDeferral": {
+                       "atUtc": now.isoformat(), "providerStatus": 429,
+                       "providerStatusIndependentlyVerified": False,
+                       "workerId": _muse_identity(request),
+                       "jobClaimRefunded": refunded_job,
+                       "noAcceptedRenderReported": refunded_job,
+                       "cooldownUntilUtc": cooldown["cooldownUntilUtc"],
+                   }}
+    return refunded_job
+
+
 @router.post("/commands/{command_id}/yield")
 def yield_muse_command_on_cooldown(
     command_id: str, payload: WorkerYieldRequest, request: Request,
     tenant: str = Depends(_muse), db: Session = Depends(get_db),
 ):
-    """Release only an unstarted command when this account hits a real 429.
+    """Return an unstarted command or explicitly rejected paired video claim.
 
-    A job whose video render has started stays leased; never allow a second
-    worker to produce conflicting MP4s. Cooldown only pauses this account.
+    Never yield an active/uncertain renderer, clear genuine holds, transfer
+    ownership or reset historical attempt counts.
     """
     if not _muse_dual_enabled():
         raise HTTPException(404, "Two-worker cooldown handoff not enabled")
@@ -5747,48 +5842,50 @@ def yield_muse_command_on_cooldown(
         UUID(command_id)
     except ValueError:
         raise HTTPException(404, "Invalid Muse command ID")
+    daily = payload.reason == "video_daily_budget_exhausted"
+    if not daily and (payload.jobLease is not None or payload.providerRejectedBeforeRender):
+        raise HTTPException(422, "Paired yield is only for a reported daily-budget rejection")
     cmd = db.scalar(select(CamMuseCommand).where(
         CamMuseCommand.tenant_id == tenant,
         CamMuseCommand.command_id == command_id,
     ).with_for_update())
+    now = _utc()
     if (cmd is None or cmd.status != "claimed"
             or not cmd.lease_hash or cmd.lease_expires_at is None
-            or _aware(cmd.lease_expires_at) <= _utc()
+            or _aware(cmd.lease_expires_at) <= now
             or not hmac.compare_digest(
                 cmd.lease_hash, hashlib.sha256(payload.lease.encode()).hexdigest())):
         raise HTTPException(409, "Cannot yield missing, expired or foreign lease")
     _assert_muse_owner(request, cmd.details)
+    job = None
     if cmd.listing_key is not None:
         job = db.scalar(select(CamMuseJob).where(
             CamMuseJob.tenant_id == tenant,
             CamMuseJob.listing_key == cmd.listing_key,
         ).with_for_update())
-        if (job is None or job.status == "submitted" or
-                (job.status == "claimed"
-                 and _aware(job.lease_expires_at) is not None
-                 and _aware(job.lease_expires_at) > _utc())):
-            raise HTTPException(
-                409, "A video job is in progress; do not reassign its lease")
-    now = _utc()
-    # Record the account-level cooldown BEFORE yielding a claim. If durable
-    # storage fails, retain the command lease rather than allowing Muse-01
-    # to immediately reclaim from the shared queue.
+        if job is None:
+            raise HTTPException(409, "CAM listing unavailable")
+        if not daily and job.status in ("submitted", "completed", "claimed"):
+            raise HTTPException(409, "A video job is in progress; do not reassign its lease")
     try:
-        cooldown = report_provider_cooldown(
-            os.environ, _muse_identity(request), provider_status=429,
-            retry_after_seconds=payload.retryAfterSeconds,
-            reason="provider_rate_limit",
-            now=now,
-        )
-    except WorkerAccountConfigError as exc:
+        cooldown = cooldown_status(os.environ, _muse_identity(request), now=now)
+        if not daily and not cooldown.get("cooldownActive"):
+            cooldown = report_provider_cooldown(
+                os.environ, _muse_identity(request), provider_status=429,
+                retry_after_seconds=payload.retryAfterSeconds,
+                reason="provider_rate_limit", now=now,
+            )
+        routing = failover_status(os.environ, now=now)
+    except (WorkerAccountConfigError, OSError) as exc:
         raise HTTPException(503, "Muse worker cooldown persistence unavailable") from exc
+    refunded_job = _daily_budget_yield(cmd, job, payload, request, now, cooldown) if daily else False
     previous = cmd.details if isinstance(cmd.details, dict) else {}
     cmd.details = {
         **previous,
         "lastCooldown": {
             "workerId": _muse_identity(request),
-            "reason": payload.reason,
-            "retryAfterSeconds": payload.retryAfterSeconds,
+            "reason": cooldown.get("reason") or payload.reason,
+            "retryAfterSeconds": cooldown["secondsRemaining"],
             "cooldownUntilUtc": cooldown["cooldownUntilUtc"],
             "at": now.isoformat(),
         },
@@ -5799,11 +5896,13 @@ def yield_muse_command_on_cooldown(
     cmd.updated_at = now
     db.commit()
     return {
-        "ok": True, "status": "pending", "jobWasClaimed": False,
+        "ok": True, "status": "pending", "jobWasClaimed": refunded_job,
         "returnedToCAM": True, "workerId": _muse_identity(request),
-        "accountCooldownSeconds": payload.retryAfterSeconds,
+        "accountCooldownSeconds": cooldown["secondsRemaining"],
         "cooldownUntilUtc": cooldown["cooldownUntilUtc"],
-        "failover": failover_status(os.environ),
+        "commandClaimRefunded": daily,
+        "jobClaimRefunded": refunded_job,
+        "failover": routing,
     }
 
 
