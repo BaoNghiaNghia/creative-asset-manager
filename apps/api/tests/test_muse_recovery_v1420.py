@@ -28,7 +28,8 @@ LEASE = "t"*48
 class RecoveryTests(TestCase):
     def setUp(self):
         engine = create_engine("sqlite+pysqlite:///:memory:")
-        for model in (J,C): model.__table__.create(engine)
+        from app.modules.processing.model import ProcessingJobModel
+        for model in (ProcessingJobModel,J,C): model.__table__.create(engine)
         self.db = Session(engine)
         self.addCleanup(engine.dispose)
         self.addCleanup(self.db.close)

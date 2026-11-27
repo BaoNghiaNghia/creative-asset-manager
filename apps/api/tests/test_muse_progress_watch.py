@@ -143,7 +143,8 @@ class ProgressTests(TestCase):
 class DatabaseTests(TestCase):
     def setUp(self):
         self.engine=create_engine("sqlite+pysqlite:///:memory:")
-        for model in (LogApplicationModel,ApplicationLogModel,J,C):
+        from app.modules.processing.model import ProcessingJobModel
+        for model in (LogApplicationModel,ApplicationLogModel,ProcessingJobModel,J,C):
             model.__table__.create(self.engine)
         self.db=Session(self.engine)
         self.addCleanup(self.engine.dispose)

@@ -25,7 +25,8 @@ def body(**kw):
 class Tests(TestCase):
     def setUp(self):
         self.engine=create_engine("sqlite+pysqlite:///:memory:")
-        for model in (J,C): model.__table__.create(self.engine)
+        from app.modules.processing.model import ProcessingJobModel
+        for model in (ProcessingJobModel,J,C): model.__table__.create(self.engine)
         self.db=Session(self.engine)
         self.addCleanup(self.engine.dispose)
         self.addCleanup(self.db.close)

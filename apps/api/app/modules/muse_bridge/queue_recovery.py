@@ -21,6 +21,7 @@ from . import source_qa_recheck as recheck
 from . import latest_artwork
 
 POLICY = "CAM_SMART_QUEUE_RECOVERY_V1"
+REFILL_POLICY = "CAM_AUTO_QUEUE_REFILL_V1"
 QUEUE_CAP = 12
 SWEEP_INTERVAL = 120
 MAX_COMMAND_CLAIMS = 5
@@ -130,7 +131,22 @@ def can_refill(job, history, now, muse):
         if sum(c.attempts for c in history if c.phase == "review_artwork") >= 5:
             return False
     # Bound recovery even when failures occur before video-job claim.
-    if sum((c.details or {}).get("origin") == POLICY for c in history) >= 3:
+    # A verified vertical completion creates genuinely new horizontal work.
+    # Successful earlier review/vertical phases are not failed recoveries
+    # of that unfinished horizontal aspect. Unknown/failed history remains
+    # charged conservatively; the listing-wide claim cap remains unchanged.
+    recovery_history = [c for c in history if (c.details or {}).get("origin") == POLICY]
+    if (job.status == "pending" and muse._verified_video_ratios(job) == {"9:16"}
+            and muse._job_required_aspects(job) == ["16:9"]):
+        recovery_history = [
+            c for c in recovery_history
+            if not (
+                (c.status == "reviewed" and c.phase == "review_artwork")
+                or (c.status == "receipt_submitted" and c.phase == "create_video"
+                    and (c.details or {}).get("requiredVideoAspectRatios") == ["9:16"])
+            )
+        ]
+    if len(recovery_history) >= 3:
         return False
     if history:
         last = history[0]
@@ -161,7 +177,8 @@ def _history(db, tenant, key):
 def reconcile_queue(db, tenant, now=None, *, cap=QUEUE_CAP):
     from . import router as muse
     now = now or datetime.now(timezone.utc)
-    stats = {"policy": POLICY, "closed": 0, "expiredCommandsRecovered": 0,
+    stats = {"policy": POLICY, "refillPolicy": REFILL_POLICY,
+             "closed": 0, "expiredCommandsRecovered": 0,
              "expiredJobsReleased": 0, "newVideoCommands": 0,
              "newReviewCommands": 0, "eligibleInflight": 0, "cap": cap,
              "newCommands": [], "partialQaMetadataRepaired": 0,
@@ -298,7 +315,8 @@ def reconcile_queue(db, tenant, now=None, *, cap=QUEUE_CAP):
     # or active lease just to reach the new target.
     review_reserve = min(4, max(1, cap // 3))
     stats["reviewReserve"] = review_reserve
-    stats["videoTarget"] = cap - review_reserve
+    video_target = max(1, cap - review_reserve)
+    stats["videoTarget"] = video_target
     # Give partially saved videos priority, then approved video work, then
     # unreviewed artwork. No fresh artwork verdict is manufactured here.
     jobs.sort(key=lambda j: (
@@ -323,7 +341,8 @@ def reconcile_queue(db, tenant, now=None, *, cap=QUEUE_CAP):
             continue
         if lane != "reserve" and len(occupied) >= cap:
             continue
-        if lane == "video" and circuit["open"]:
+        if lane == "video" and (circuit["open"] or
+                len(occupied - review_occupied) >= video_target):
             continue
         if candidate.listing_key in by_active or candidate.status not in ("pending", "qa_hold"):
             continue
@@ -376,8 +395,11 @@ def reconcile_queue(db, tenant, now=None, *, cap=QUEUE_CAP):
             artwork_sha256=job.artwork_sha256, status="pending", phase=phase,
             attempts=0, created_at=now, updated_at=now,
             details={"origin": POLICY, "rights_verified": False,
+                     "refillPolicy": REFILL_POLICY,
                      "note": "Recover eligible queue work. Use exact live per-listing contract; preserve saved media.",
-                     "previousCommandId": history[0].command_id if history else None},
+                     "previousCommandId": history[0].command_id if history else None,
+                     **({"requiredVideoAspectRatios": muse._job_required_aspects(job)}
+                        if phase == "create_video" else {})},
         )
         if prepared:
             command.details = {**command.details, recheck.KEY: {

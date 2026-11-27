@@ -693,17 +693,20 @@ def _pinned_work_aspects(details):
 
 
 def _unleased_job_required_aspects(job):
-    """Explicit regeneration is durable; schedule its missing ratios one at a
-    time during vertical-first. Do not alter the stored regeneration request.
+    """Vertical-first is priority, not a permanent horizontal embargo.
+
+    Explicit regeneration stays scoped. Ordinary continuations use the
+    verified vertical receipt to unlock the missing horizontal ratio.
+    Never change the scope of an active lease.
     """
     from .regeneration import requested_aspects
     requested = requested_aspects(job)
-    if not requested:
-        return _phase_required_aspects()
     if _video_aspect_phase() != "vertical_first":
-        return requested
-    missing = set(requested) - _verified_video_ratios(job)
-    return ["9:16"] if "9:16" in missing else ["16:9"]
+        return requested or _phase_required_aspects()
+    if not requested and not smart_queue_enabled():
+        return _phase_required_aspects()
+    missing = set(requested or VIDEO_ASPECTS) - _verified_video_ratios(job)
+    return ["9:16"] if "9:16" in missing or not missing else ["16:9"]
 
 
 def _job_required_aspects(job):
@@ -831,7 +834,9 @@ def _video_job_claim_contract(job, *, required_aspects=None) -> dict:
         "regenerateSavedRatios": False,
         "resumeByAspect": resume,
         "reuseLocallyBankedTakeOnlyAfterSourceAndStoryQa": True,
-        "forceFreshVideoAspectRatios": (receipts.get("videoRegeneration") or {}).get("requiredVideoAspectRatios", []),
+        "forceFreshVideoAspectRatios": [
+            r for r in (receipts.get("videoRegeneration") or {}).get("requiredVideoAspectRatios", [])
+            if r in scope["missingVideoAspectRatios"]],
         **({"heroRepairByAspect": receipts["heroRepairByAspect"]} if receipts.get("heroRepairByAspect") else {}),
         "videoGenerationRevisionByAspect": (receipts.get("videoGenerationRevisionByAspect") or {}),
     }
@@ -1840,6 +1845,10 @@ def muse_worker_shared_config(
         "reviewRefillEnabled": smart_queue_enabled(),
         "reviewReserve": 4,
         "videoTarget": 8,
+        "autoRefillPolicy": "CAM_AUTO_QUEUE_REFILL_V1",
+        "verticalFirstThenMissingHorizontal": smart_queue_enabled() and _video_aspect_phase() == "vertical_first",
+        "maxRecoveryCommandsPerUnfinishedWork": 3,
+        "successfulPriorPhaseDoesNotConsumeHorizontalRecoveryBudget": True,
         "maxTransitionalQueueOverflow": 4,
         "reviewFairness": "one_review_after_two_video_completions_when_available",
         "maxJobClaims": 5,
@@ -1857,10 +1866,11 @@ def muse_worker_shared_config(
     config["automationHealthPath"] = "/api/v1/muse-bridge/automation/health"
     config["continuousOnNoClaimsInstructions"] = (
         "A 2-minute GET poll is NOT a video render. For each run, call "
-        "/commands?limit=20 and use its eligible executionContract. If no claim "
-        "happens for 60 minutes while commands are pending, the Muse runner "
-        "is stalled even if CAM dispatcher is active. Inspect Muse scheduler "
-        "enablement and provider quota; do not create a duplicate worker. "
+        "/commands?limit=20 and use its eligible executionContract. CAM refills "
+        "eligible video commands every 120 seconds. A zero-item poll is not "
+        "catalogue completion; pending but held/ineligible commands are not "
+        "claimable work. If eligible commands persist without claims for 60 minutes, "
+        "inspect scheduler, failover and provider quota; never create a duplicate worker. "
         "If a known-bad listing is already on terminal HOLD, continue the "
         "next command. Report real quota cooldown, then retry after reset."
     )
@@ -1973,8 +1983,9 @@ def muse_worker_shared_config(
         "doNotWaitForDeferredAspects": True,
         "preserveExistingLeasesAndVideos": True,
         "instructions": "Render only missingVideoAspectRatios in the exact claimed contract. "
-                        "In vertical_first, new explicit two-ratio regeneration uses one missing ratio per claim, 9:16 first. "
-                        "Missing 9:16 candidates precede horizontal-only candidates. "
+                        "In vertical_first, the smart CAM queue prioritizes eligible missing 9:16 and then missing 16:9. "
+                        "The global phase is an ordering hint, not a reason to reject a valid horizontal-only claim. "
+                        "Explicit regeneration remains scoped to its selected missing ratios. "
                         "Complete immediately after the claimed ratios are verified. "
                         "Deferred ratios are not a failed job; existing active leases retain their scope.",
     }
@@ -2568,7 +2579,11 @@ def missing_video_work(
             and "9:16" not in _verified_video_ratios(job)),
         "deferredHorizontalOnlyCount": sum(
             1 for job in all_jobs if _verified_video_ratios(job) == {"9:16"}
-            and _video_aspect_phase() == "vertical_first"),
+            and _video_aspect_phase() == "vertical_first"
+            and not smart_queue_enabled()),
+        "missingHorizontalOnlyCount": sum(
+            1 for job in all_jobs if _verified_video_ratios(job) == {"9:16"}),
+        "autoRefillPolicy": "CAM_AUTO_QUEUE_REFILL_V1" if smart_queue_enabled() else None,
         "rendererCircuit": circuit,
         "inventoryTotal": inventory_total,
         "inventoryScanned": len(all_jobs),
@@ -4926,6 +4941,10 @@ def _eligible_phase(db: Session, tenant: str,
         ) and job.product_image_url else None)
     if skips.active(job) or not (set(_job_required_aspects(job)) - _verified_video_ratios(job)):
         return None
+    pinned_command_scope = (getattr(cmd, "details", None) or {}).get("requiredVideoAspectRatios")
+    if pinned_command_scope in (["9:16"], ["16:9"]):
+        if not (set(pinned_command_scope) & (set(_job_required_aspects(job)) - _verified_video_ratios(job))):
+            return None
     # V3.3 is enabled for the two canaries, not for the whole queue until
     # a real renderer + independent story/print QA pass is verified.
     # In-flight or partially uploaded legacy jobs keep their existing path.
