@@ -180,6 +180,10 @@ async def save_listing_output(
             raise HTTPException(422, "Invalid C1717 Main replacement receipt")
     elif revision_number is not None:
         raise HTTPException(422, "Main revision number requires previous SHA")
+    # Only a verified, listing-exclusive Muse pilot reservation fences this listing.
+    from app.modules.image_orchestrator.lite_api import reservation_blocks_legacy
+    if reservation_blocks_legacy(db, agent.tenant_id, listing):
+        raise HTTPException(409, "Listing reserved for Muse Image pilot")
     key = (agent.tenant_id, listing, pack, slot)
     # A previously deleted PNG is never re-imported from local receipts.
     # A genuinely new image for this missing slot (new SHA) is permitted
@@ -246,6 +250,13 @@ async def save_listing_output(
     # a new visible gallery entry. Re-pick can restore its previous history.
     if db.get(Picked, (agent.tenant_id, listing)) is None:
         raise HTTPException(409, "Listing was unpicked during upload")
+    # A reservation may have been established during Drive I/O. Serialize the
+    # final image-only receipt with Lite admission/claim; never lock video rows.
+    if db.get_bind().dialect.name == "postgresql":
+        from app.modules.image_orchestrator.lite_api import lock_tenant
+        lock_tenant(db, agent.tenant_id)
+    if reservation_blocks_legacy(db, agent.tenant_id, listing):
+        raise HTTPException(409, "Listing reserved for Muse Image pilot")
     # Recheck after remote upload in case the operator deleted this exact
     # PNG while the upload was in flight.
     if db.get(DeletedListingImage, (*key, sha)) is not None:

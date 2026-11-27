@@ -326,17 +326,28 @@ _ROLE_FILES_V13 = {
 }
 
 
+# Central V13 filenames are revision-scoped; preserve all legacy paths.
+_CENTRAL_ROLE_CONTRACT = "CAM_ROLE_01_WORN_04_FOLDED_PROPS_V1"
+_CENTRAL_ROLE_FILES = {**_ROLE_FILES_V13, 1: "01-base-worn-hero.png",
+                       4: "04-folded-editorial-props.png"}
+
+
 async def store_listing_output_to_drive(
     *, tenant_id: str, pack_id: str, slot: int, digest: str, png: bytes,
     listing_id: str, design_sha256: str, placement: str, garment_code: str,
     main_revision_number: int = 0, expected_slots: int = 10,
+    role_contract: str | None = None,
 ) -> dict:
     """Store a verified output below listing/design/target-garment hierarchy.
 
     Root is the operator-selected CAM ImageGen Designs folder; never
     reclassify a source listing by its blank type or upload into flat root.
     """
-    role_files = _ROLE_FILES_V13 if expected_slots == 13 else _ROLE_FILES
+    if role_contract is not None and (role_contract != _CENTRAL_ROLE_CONTRACT or
+                                      expected_slots != 13 or main_revision_number != 0):
+        raise HTTPException(422, "Invalid central image role contract")
+    role_files = (_CENTRAL_ROLE_FILES if role_contract == _CENTRAL_ROLE_CONTRACT else
+                  _ROLE_FILES_V13 if expected_slots == 13 else _ROLE_FILES)
     if (expected_slots not in (10, 13) or not 1 <= slot <= expected_slots or
         slot not in role_files or len(png) < 57 or len(png) > _MAX_PNG or
         hashlib.sha256(png).hexdigest() != digest):
@@ -389,9 +400,12 @@ async def store_listing_output_to_drive(
         )
         return remote_id
 
-    filename = (role_files[slot].replace(".png",
-                f"-rev-{main_revision_number:04d}.png")
-                if main_revision_number else _ROLE_FILES[slot])
+    if role_contract == _CENTRAL_ROLE_CONTRACT:
+        filename = f"{pack_id}-{role_files[slot]}"
+    else:
+        filename = (role_files[slot].replace(".png",
+                    f"-rev-{main_revision_number:04d}.png")
+                    if main_revision_number else _ROLE_FILES[slot])
     remote = await put("original", png, digest,
                        hierarchy["garment_folder_id"], filename)
     small = await put("thumbnail", thumbnail, thumb_sha,

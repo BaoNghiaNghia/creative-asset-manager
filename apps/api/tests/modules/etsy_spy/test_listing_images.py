@@ -21,6 +21,7 @@ from app.modules.etsy_spy.listing_images import (
 from app.modules.etsy_spy.model import (EtsySpyAgent, EtsySpyPicked,
     EtsySpyListingImage, EtsySpyListingImageDeletion)
 from app.modules.etsy_spy.service import create_agent
+from app.modules.processing.model import ProcessingJobModel
 
 
 def test_gallery_only_counts_saved_outputs_and_enforces_tenant(monkeypatch):
@@ -28,7 +29,7 @@ def test_gallery_only_counts_saved_outputs_and_enforces_tenant(monkeypatch):
                            poolclass=StaticPool)
     Base.metadata.create_all(engine, tables=[
         EtsySpyAgent.__table__, EtsySpyPicked.__table__,
-        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__])
+        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__, ProcessingJobModel.__table__])
     db = Session(engine)
     principal = SimpleNamespace(active_tenant_id="boostgame",
         effective_permissions=frozenset({"etsy_spy.read"}),
@@ -228,7 +229,7 @@ def test_partial_imagegen_pack_is_visible_before_main_is_uploaded():
                            poolclass=StaticPool)
     Base.metadata.create_all(engine, tables=[
         EtsySpyAgent.__table__, EtsySpyPicked.__table__,
-        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__])
+        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__, ProcessingJobModel.__table__])
     db = Session(engine)
     tenant, listing = "boostgame", "1234567890"
     pack = "sp-" + "c" * 40
@@ -269,7 +270,7 @@ def test_completed_native_preview_pack_never_claims_final_drive_manifest(monkeyp
                            poolclass=StaticPool)
     Base.metadata.create_all(engine, tables=[
         EtsySpyAgent.__table__, EtsySpyPicked.__table__,
-        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__])
+        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__, ProcessingJobModel.__table__])
     db = Session(engine)
     pack = "sp-" + "b" * 40
     tenant, listing = "boostgame", "1234567890"
@@ -314,7 +315,7 @@ def test_existing_private_r2_cache_only_after_picked_acl(monkeypatch):
                            poolclass=StaticPool)
     Base.metadata.create_all(engine, tables=[
         EtsySpyAgent.__table__, EtsySpyPicked.__table__,
-        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__])
+        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__, ProcessingJobModel.__table__])
     db = Session(engine)
     principal = SimpleNamespace(active_tenant_id="boostgame",
         effective_permissions=frozenset({"etsy_spy.read"}),
@@ -396,12 +397,12 @@ def test_read_only_agent_coverage_includes_only_picked_listing_with_saved_png():
                            poolclass=StaticPool)
     Base.metadata.create_all(engine, tables=[
         EtsySpyAgent.__table__, EtsySpyPicked.__table__,
-        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__])
+        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__, ProcessingJobModel.__table__])
     db = Session(engine)
     app = FastAPI()
     app.include_router(listing_image_router, prefix="/api/v1/etsy-spy")
     app.dependency_overrides[get_db] = lambda: db
-    agent, secret = create_agent(db, "boostgame", "Image Agent Coverage")
+    agent, secret = create_agent(db, "boostgame", "CAM Image Agent / Coverage")
     for key in ("1234567890", "2345678901"):
         db.add(EtsySpyPicked(tenant_id="boostgame", listing_key=key))
     # 123 is Picked and has a saved PNG, 234 is Picked but image-less.
@@ -438,7 +439,7 @@ def test_v13_complete_preview_pack_does_not_publish_final_manifest(monkeypatch):
                            poolclass=StaticPool)
     Base.metadata.create_all(engine, tables=[
         EtsySpyAgent.__table__, EtsySpyPicked.__table__,
-        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__])
+        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__, ProcessingJobModel.__table__])
     db = Session(engine)
     tenant, listing, pack = "boostgame", "1234567890", "sp-" + "e" * 40
     db.add(EtsySpyPicked(tenant_id=tenant, listing_key=listing))
@@ -477,7 +478,7 @@ def test_delete_listing_image_removes_exact_drive_png_and_defers_regeneration(mo
                            poolclass=StaticPool)
     Base.metadata.create_all(engine, tables=[
         EtsySpyAgent.__table__, EtsySpyPicked.__table__,
-        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__])
+        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__, ProcessingJobModel.__table__])
     db = Session(engine)
     principal = SimpleNamespace(active_tenant_id="boostgame",
         effective_permissions=frozenset({"etsy_spy.read"}),
@@ -503,7 +504,7 @@ def test_delete_listing_image_removes_exact_drive_png_and_defers_regeneration(mo
             drive_thumbnail_id=f"previewFile{slot}123456",
             native_width=1254, native_height=1254))
     db.commit()
-    agent, secret = create_agent(db, tenant, "ImageGen Delete Test")
+    agent, secret = create_agent(db, tenant, "CAM Image Agent / Delete Test")
     delete_url = (f"/api/v1/etsy-spy/listings/{listing}/listing-images/"
                   f"{pack}/1?sha256=" + "1" * 64)
     gallery_url = f"/api/v1/etsy-spy/listings/{listing}/listing-images"
@@ -599,7 +600,7 @@ def test_delete_listing_image_never_deletes_shared_remote_drive_asset(monkeypatc
                            poolclass=StaticPool)
     Base.metadata.create_all(engine, tables=[
         EtsySpyAgent.__table__, EtsySpyPicked.__table__,
-        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__])
+        EtsySpyListingImage.__table__, EtsySpyListingImageDeletion.__table__, ProcessingJobModel.__table__])
     db = Session(engine)
     tenant, pack = "boostgame", "sp-" + "b" * 40
     principal = SimpleNamespace(active_tenant_id=tenant,
