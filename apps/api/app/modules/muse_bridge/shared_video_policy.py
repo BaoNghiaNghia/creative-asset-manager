@@ -84,13 +84,26 @@ def _validate_snapshot(value):
     return expected
 
 def _directory():
-    # Same durable installation root as the existing protected worker roster.
-    # Not in an immutable release checkout; dedicated private writable folder.
-    return registration_file(os.environ).parent / "muse-video-policy"
+    # Use the writable persistent systemd StateDirectory, as cooldown does.
+    # The protected installation/registration tree stays read-only.
+    root = os.environ.get("STATE_DIRECTORY")
+    if not root:
+        return registration_file(os.environ).parent / "muse-video-policy"
+    parent = Path(root)
+    if not parent.is_absolute() or ":" in root or ".." in parent.parts:
+        raise ValueError("Invalid shared policy state root")
+    meta = parent.lstat()
+    if not stat.S_ISDIR(meta.st_mode) or (meta.st_uid != os.geteuid() and os.geteuid() != 0):
+        raise ValueError("Shared policy state root owner invalid")
+    directory = parent / "muse-video-policy"
+    directory.mkdir(mode=0o700, exist_ok=True)
+    _check_dir(directory)
+    return directory
 
 def _check_dir(path):
     meta = path.lstat()
-    if not stat.S_ISDIR(meta.st_mode) or meta.st_mode & 0o077:
+    if (not stat.S_ISDIR(meta.st_mode) or stat.S_IMODE(meta.st_mode) != 0o700
+            or (meta.st_uid != os.geteuid() and os.geteuid() != 0)):
         raise ValueError("Shared policy directory is not private")
 
 def _read(path):
@@ -152,8 +165,8 @@ def _write(path, state):
             os.unlink(tmp)
 
 def _mutate(expected, action):
-    directory = _directory()
     try:
+        directory = _directory()
         _check_dir(directory)
         fd = os.open(directory / ".lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         try:

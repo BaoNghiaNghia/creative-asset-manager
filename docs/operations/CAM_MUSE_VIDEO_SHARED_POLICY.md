@@ -1,7 +1,7 @@
 # CAM Muse video shared policy V1
 
-One video-only policy registry under the stable production ops directory:
-`ops/muse-video-policy/registry.json`. The directory must be private (0700) and writable by the CAM API service account. Registry files and lock are 0600. No database migration, external service, or direct Drive connection.
+One video-only registry under the API's persistent systemd StateDirectory:
+`$STATE_DIRECTORY/muse-video-policy/registry.json`. The API creates the private (0700) directory; registry and lock are 0600. Standalone installations without StateDirectory use the protected ops directory. No database migration, external service, or direct Drive connection.
 
 ## Worker contract
 
@@ -27,4 +27,4 @@ Workers read new revisions at normal config refresh and use pinned story spec on
 
 ## Deployment and tests
 
-Pre-create the private directory using the same authorized service account that owns the worker registry. Keep it outside immutable releases. Run Muse test suites. Deploy through reviewed standard backend release procedure with no migration. Verify authenticated config policy, existing health, worker/operator auth separation, and story readback without claiming work. Registry updates thereafter are atomic hot-reloads without API restarts. Use version rollback for creative changes, standard immutable release rollback for code regression. Do not force render as a test.
+Use the systemd-managed writable state root outside immutable releases. Keep ProtectSystem=strict. Run Muse test suites. Deploy through reviewed standard backend release procedure with no migration. Verify authenticated config policy, existing health, worker/operator auth separation, and story readback without claiming work. Registry updates thereafter are atomic hot-reloads without API restarts. Use version rollback for creative changes, standard immutable release rollback for code regression. Do not force render as a test.

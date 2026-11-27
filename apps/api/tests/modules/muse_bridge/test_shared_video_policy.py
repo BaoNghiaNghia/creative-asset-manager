@@ -1,4 +1,5 @@
 """Shared creative settings are operator controlled and independent of worker identity."""
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -114,6 +115,19 @@ class SharedVideoPolicyTests(unittest.TestCase):
             policy.propose("muse-02", self.change())
         self.assertEqual(policy.publish(self.change(castingVariantCount=480))["status"], "ALREADY_ACTIVE")
         self.assertEqual(policy.active()["revision"], 1)
+
+class SystemdStateDirectoryTests(unittest.TestCase):
+    def test_private_registry_under_systemd_state_directory(self):
+        with tempfile.TemporaryDirectory() as root:
+            with patch.dict(os.environ, {"STATE_DIRECTORY": root}):
+                location = Path(root) / "muse-video-policy"
+                self.assertEqual(policy._directory(), location)
+                self.assertEqual(location.stat().st_mode & 0o777, 0o700)
+                request = policy.ChangeRequest(expectedRevision=1,
+                    changes=policy.CreativePatch(castingVariantCount=500))
+                self.assertEqual(policy.publish(request)["active"]["revision"], 2)
+                self.assertTrue((location / "registry.json").is_file())
+                self.assertEqual(policy.active()["settings"]["castingVariantCount"], 500)
 
 if __name__ == "__main__":
     unittest.main()
