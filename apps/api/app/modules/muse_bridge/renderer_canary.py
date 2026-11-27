@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import re
 
 import httpx
@@ -29,6 +30,16 @@ FOLDER_NAME = "muse_02_renderer_canary"
 _DRIVE = re.compile(r"[A-Za-z0-9_-]{10,128}\Z")
 _API = "https://www.googleapis.com/drive/v3/files"
 _LOCK = asyncio.Lock()
+_LOG = logging.getLogger(__name__)
+
+
+def canary_asset_id() -> str:
+    # Google Drive appProperties limits each UTF-8 key + value to 124 bytes.
+    # Keep the complete UUID (without separator characters) and SHA-256.
+    value = f"m02-canary:{RUN_ID.replace('-', '')}:{SHA256}"
+    if len(("cam_asset_id" + value).encode("utf-8")) > 124:
+        raise HTTPException(503, "Canary storage identity exceeds metadata limit")
+    return value
 
 def contract():
     return {"policyVersion": POLICY, "uploadPath": PATH, "method": "POST",
@@ -133,12 +144,14 @@ async def ingest(request, tenant, worker, run_id, sha256):
         provider, root = provider_and_folder()
         if root != ROOT_FOLDER_ID:
             raise HTTPException(503, "Shared CAM Drive root mismatch")
-        asset_id = f"muse-02-native-canary:{RUN_ID}:{SHA256}"
+        asset_id = canary_asset_id()
+        stage = "destination"
         async def chunks():
             for offset in range(0, len(raw), 1024 * 1024):
                 yield raw[offset:offset + 1024 * 1024]
         try:
             await _check_folder(provider, tenant)
+            stage = "store_asset"
             stored = await provider.store_asset(StoreAssetInput(
                 tenant_id=tenant, asset_id=asset_id, content_hash=SHA256,
                 destination_folder_id=FOLDER_ID, filename=f"native-{RUN_ID}.mp4",
@@ -146,10 +159,14 @@ async def ingest(request, tenant, worker, run_id, sha256):
             file_id = str(stored.remote_file_id or "")
             if not _DRIVE.fullmatch(file_id) or stored.remote_folder_id != FOLDER_ID:
                 raise HTTPException(502, "Canary storage returned unexpected destination")
+            stage = "provenance"
             await verify_listing_file_provenance(provider=provider, remote_file_id=file_id,
                 folder_id=FOLDER_ID, tenant_id=tenant, asset_id=asset_id, sha256=SHA256)
+            stage = "readback"
             await _readback(provider, tenant, asset_id, file_id)
         except StorageProviderError as exc:
+            _LOG.warning("Muse-02 canary storage failure stage=%s status=%s retryable=%s",
+                         stage, exc.status_code, exc.retryable)
             raise HTTPException(503 if exc.retryable else 502, "Canary storage unavailable") from exc
         return {"ok": True, "policyVersion": POLICY, "workerId": "muse-02",
                 "runId": RUN_ID, "sha256": SHA256, "bytes": SIZE,

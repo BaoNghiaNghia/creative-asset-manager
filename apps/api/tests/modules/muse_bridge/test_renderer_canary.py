@@ -65,7 +65,8 @@ class IngestTests(IsolatedAsyncioTestCase):
         async def save(arg):
             self.assertEqual(arg.tenant_id,"tenant")
             self.assertEqual(arg.destination_folder_id,c.FOLDER_ID)
-            self.assertEqual(arg.asset_id,f"muse-02-native-canary:{c.RUN_ID}:{sha}")
+            self.assertEqual(arg.asset_id, f"m02-canary:{c.RUN_ID.replace('-', '')}:{sha}")
+            self.assertLessEqual(len(("cam_asset_id" + arg.asset_id).encode("utf-8")), 124)
             self.assertEqual(b"".join([p async for p in arg.body]),data)
             return SimpleNamespace(remote_file_id="native_file_123",remote_folder_id=c.FOLDER_ID)
         async def body():
