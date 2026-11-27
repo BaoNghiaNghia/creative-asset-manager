@@ -611,6 +611,9 @@ def _story_candidate_v33(job) -> dict | None:
         if snapshot is not None:
             story = shared_video_policy.apply_story(
                 story, snapshot, job.listing_key, job.artwork_sha256)
+        if receipts.get("heroRepairByAspect"):
+            from .regeneration import apply_hero_repairs
+            story = apply_hero_repairs(story, job)
         return story
     except ValueError:
         return None
@@ -829,6 +832,7 @@ def _video_job_claim_contract(job, *, required_aspects=None) -> dict:
         "resumeByAspect": resume,
         "reuseLocallyBankedTakeOnlyAfterSourceAndStoryQa": True,
         "forceFreshVideoAspectRatios": (receipts.get("videoRegeneration") or {}).get("requiredVideoAspectRatios", []),
+        **({"heroRepairByAspect": receipts["heroRepairByAspect"]} if receipts.get("heroRepairByAspect") else {}),
         "videoGenerationRevisionByAspect": (receipts.get("videoGenerationRevisionByAspect") or {}),
     }
 
@@ -2671,7 +2675,14 @@ def read_muse_video_status(
         "videos": [{"aspectRatio": r, "sha256": uploads[r]["sha256"],
                     "storageVerified": True} for r in sorted(ratios)],
         "camLinked": bool(receipts.get("camLinked")),
-        "videoContentQa": receipts.get("videoContentQa", "pending_review") if ratios else None,
+        "videoContentQa": receipts.get("videoContentQa", "pending_review") if ratios or receipts.get("heroRepairByAspect") else None,
+        **({"rejectedVideoContentQaByAspect": {
+            r: [{"sha256": entry["videoSha256"], "videoContentQa": entry["videoContentQa"],
+                 "reasonCode": entry["reasonCode"], "reason": entry["reason"]}
+                for entry in entries]
+            for r, entries in (receipts.get("rejectedVideoHistoryByAspect") or {}).items()},
+            "heroRepairByAspect": receipts.get("heroRepairByAspect") or {}}
+           if receipts.get("rejectedVideoHistoryByAspect") else {}),
         "neverRegenerateSavedRatios": True,
     }
 
