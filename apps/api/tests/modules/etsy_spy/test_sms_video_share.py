@@ -118,6 +118,23 @@ class HandoffTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['fields'][0]['value'], url)
         self.assertNotIn('video_urls', result)
 
+    async def test_inherited_viewer_does_not_mutate_permissions(self):
+        drive = FakeDrive()
+        drive.data['permissions'].append(dict(PERMISSION))
+        result = await handoff(P, 'prepare', drive, AsyncMock(return_value=True), inherited_root=True)
+        self.assertEqual(result['state'], 'viewer_link_verified')
+        self.assertFalse(result['changed'])
+        self.assertFalse(drive.calls)
+        with self.assertRaisesRegex(ShareError, 'ROOT_VIEWER_INHERITED'):
+            await handoff(P, 'revoke', drive, AsyncMock(return_value=True), inherited_root=True)
+        self.assertFalse(drive.calls)
+
+    async def test_inherited_viewer_missing_does_not_create_permission(self):
+        drive = FakeDrive()
+        with self.assertRaisesRegex(ShareError, 'ROOT_VIEWER_NOT_INHERITED'):
+            await handoff(P, 'prepare', drive, AsyncMock(return_value=True), inherited_root=True)
+        self.assertFalse(drive.calls)
+
     async def test_probe_failure_rolls_back(self):
         drive = FakeDrive()
         with self.assertRaisesRegex(ShareError, 'VIEW_PAGE_UNAVAILABLE'):

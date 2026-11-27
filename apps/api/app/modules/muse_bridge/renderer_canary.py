@@ -15,7 +15,8 @@ import httpx
 from fastapi import HTTPException
 
 from app.domain.providers.contracts import OpenStoredAssetInput, StoreAssetInput, StorageProviderError
-from app.modules.etsy_spy.imagegen_drive import provider_and_folder, verify_private_drive_destination
+from app.modules.etsy_spy.imagegen_drive import (provider_and_folder, verify_private_drive_destination,
+                                                    root_link_viewer_enabled, link_viewer_permission)
 from app.modules.etsy_spy.listing_drive_folders import ROOT_FOLDER_ID, verify_listing_file_provenance
 from .story_lite import LITE_DURATION_BOUNDS
 from .video_storage import validate_mp4
@@ -101,17 +102,19 @@ async def _check_folder(provider, tenant):
             or props.get("cam_tenant") != tenant or props.get("cam_worker") != "muse-02"):
         raise HTTPException(409, "Canary destination identity or provenance mismatch")
     await verify_private_drive_destination(provider, ROOT_FOLDER_ID)
-    await verify_private_drive_destination(provider, FOLDER_ID)
+    await verify_private_drive_destination(provider, FOLDER_ID, verified_parent=ROOT_FOLDER_ID)
 
 async def _readback(provider, tenant, asset_id, file_id):
-    meta = await _metadata(provider, file_id, "id,parents,trashed,mimeType,size,permissions(type,role)")
+    meta = await _metadata(provider, file_id, "id,parents,trashed,mimeType,size,permissions(type,role,allowFileDiscovery)")
     permissions = meta.get("permissions")
     if (meta.get("id") != file_id or meta.get("trashed") is not False
             or meta.get("mimeType") != "video/mp4"
             or FOLDER_ID not in (meta.get("parents") or [])
             or meta.get("size") != str(SIZE)
             or not isinstance(permissions, list) or not permissions
-            or any(not isinstance(p, dict) or p.get("type") not in {"user", "group"}
+            or any(not isinstance(p, dict) or (
+                p.get("type") not in {"user", "group"} and not (
+                    root_link_viewer_enabled() and link_viewer_permission(p)))
                    for p in permissions)):
         raise HTTPException(409, "Canary saved file identity or privacy mismatch")
     stream = await provider.open_asset(OpenStoredAssetInput(

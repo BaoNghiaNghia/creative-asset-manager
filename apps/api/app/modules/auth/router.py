@@ -174,7 +174,7 @@ async def connect_imagegen_drive(
 async def imagegen_drive_status(
     principal: CurrentPrincipal = Depends(require_platform_admin),
 ):
-    """Independent OAuth and actual private upload readiness; no token leakage."""
+    """Independent OAuth and scoped storage sharing readiness; no token leakage."""
     from app.modules.etsy_spy.imagegen_drive import (
         provider_and_folder, verify_private_drive_destination,
     )
@@ -192,11 +192,11 @@ async def imagegen_drive_status(
     if state["connected"] and not state["reconnect_required"]:
         try:
             provider, target = provider_and_folder()
-            await verify_private_drive_destination(provider, target)
-            ready = True
-            sharing = "restricted"
+            sharing = await verify_private_drive_destination(provider, target)
+            ready = sharing in {"restricted", "link_viewer"}
         except HTTPException as exc:
-            if str(exc.detail) == "Set ImageGen Drive folder sharing to Restricted":
+            if str(exc.detail) in {"Set ImageGen Drive folder sharing to Restricted",
+                                   "ImageGen Drive sharing must be Restricted or Anyone with the link - Viewer"}:
                 sharing = "public"
             else:
                 sharing = "unverified"
@@ -386,7 +386,7 @@ async def callback(
         response.delete_cookie(OAUTH_BINDING_COOKIE, path="/api/auth/google")
         return response
 
-    imagegen_private = False
+    imagegen_ready = False
     try:
         granted_scopes = resolve_granted_scopes(flow.credentials, token_response if isinstance(token_response, dict) else None)
         if managed_storage_connect or imagegen_storage_connect:
@@ -399,7 +399,7 @@ async def callback(
                 raise ValueError("Managed Storage destination folder is not configured")
             if imagegen_storage_connect:
                 from app.modules.etsy_spy.imagegen_drive import verify_imagegen_oauth_token
-                imagegen_private = await verify_imagegen_oauth_token(
+                imagegen_ready = await verify_imagegen_oauth_token(
                     flow.credentials.token, root_folder_id,
                     restrict_public_sharing=True, allow_public_sharing=True,
                 )
@@ -473,7 +473,7 @@ async def callback(
 
     if imagegen_storage_connect:
         response = managed_storage_redirect(
-            "imagegen_connected" if imagegen_private
+            "imagegen_connected" if imagegen_ready
             else "imagegen_connected_needs_restriction"
         )
     elif managed_storage_connect:

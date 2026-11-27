@@ -1,4 +1,4 @@
-"""Private Google Drive storage for Etsy Picked Design PNGs.
+"""Owner-verified Google Drive storage for Etsy Picked Design PNGs.
 
 The VPS never persists new mapped Design image bytes. Uploads are memory-only,
 idempotent by immutable CAM job/asset/SHA, and fail closed when Drive OAuth
@@ -26,6 +26,21 @@ from app.modules.storage.managed_oauth import managed_storage_oauth_status
 from app.providers.google.storage import GoogleDriveAssetStorage
 from .thumbnail_memory_cache import ThumbnailMemoryCache
 from .request_metrics import ETSY_PERFORMANCE
+
+# Explicitly authorized link-viewer exception for this single CAM output root.
+LINK_VIEWER_ROOT_ID = "1JdCzemUBcLhfro5IbOq5jPze7rdDIJMl"
+LINK_VIEWER_POLICY = "CAM_IMAGEGEN_LINK_VIEWER_V1"
+
+
+def root_link_viewer_enabled():
+    return os.getenv("CAM_ETSY_IMAGEGEN_DRIVE_FOLDER_ID", "").strip() == LINK_VIEWER_ROOT_ID
+
+
+def link_viewer_permission(permission):
+    return (isinstance(permission, dict) and permission.get("type") == "anyone"
+            and permission.get("role") == "reader"
+            and permission.get("allowFileDiscovery") is False)
+
 
 _DRIVE_ID = re.compile(r"^[A-Za-z0-9_-]{10,128}$")
 _MAX_PNG = 80 * 1024 * 1024
@@ -66,19 +81,20 @@ def provider_and_folder():
     return provider, folder
 
 
-async def verify_private_drive_destination(provider: GoogleDriveAssetStorage, folder: str) -> None:
-    """Require the intended owner, write permission, and Restricted sharing."""
+async def verify_private_drive_destination(provider: GoogleDriveAssetStorage, folder: str, *, verified_parent: str | None = None) -> str:
+    """Require owner/write access and the scoped storage sharing policy."""
     try:
         token = await provider.get_access_token()
     except StorageProviderError as exc:
         raise HTTPException(503, "ImageGen Drive credentials require reconnection") from exc
-    await verify_imagegen_oauth_token(token, folder)
+    return await verify_imagegen_oauth_token(token, folder, verified_parent=verified_parent, return_sharing_status=True)
 
 
 async def verify_imagegen_oauth_token(
     token: str, folder: str, *, restrict_public_sharing: bool = False,
-    allow_public_sharing: bool = False,
-) -> bool:
+    allow_public_sharing: bool = False, verified_parent: str | None = None,
+    return_sharing_status: bool = False,
+) -> bool | str:
     """Validate a scoped OAuth grant before it is saved or used for uploads.
 
     The Drive folder's public link permissions are never sufficient proof
@@ -97,7 +113,7 @@ async def verify_imagegen_oauth_token(
                 headers=headers,
                 params={"supportsAllDrives": "true",
                         "fields": ("id,mimeType,owners(emailAddress),"
-                                   "permissions(id,type,role),capabilities(canAddChildren)")},
+                                   "parents,permissions(id,type,role,allowFileDiscovery),capabilities(canAddChildren)")},
             )
         if identity_response.status_code != 200:
             raise HTTPException(503, "Cannot verify CAM Google Drive OAuth identity")
@@ -118,12 +134,25 @@ async def verify_imagegen_oauth_token(
                 for item in data.get("owners", []))):
         raise HTTPException(503, "ImageGen Drive folder owner or write access differs")
     permissions = data.get("permissions")
-    if not isinstance(permissions, list):
+    if not isinstance(permissions, list) or any(not isinstance(p, dict) for p in permissions):
         raise HTTPException(503, "Cannot inspect ImageGen Drive folder sharing")
     public = [permission for permission in permissions
               if permission.get("type") in {"anyone", "domain"}]
     if not public:
-        return True
+        return "restricted" if return_sharing_status else True
+    # Only the configured, exact output root (or an explicitly proven child)
+    # may use inherited/public viewer links. Never accept public writes, domain
+    # grants, discoverable sharing, or unknown permission metadata.
+    scoped = root_link_viewer_enabled() and (
+        folder == LINK_VIEWER_ROOT_ID or
+        (verified_parent == LINK_VIEWER_ROOT_ID and data.get("parents") == [LINK_VIEWER_ROOT_ID]))
+    if scoped and len(public) == 1 and link_viewer_permission(public[0]):
+        # Preserve a valid Viewer grant even during OAuth reconnect.
+        return "link_viewer" if return_sharing_status else True
+    if scoped:
+        if allow_public_sharing:
+            return False
+        raise HTTPException(503, "ImageGen Drive sharing must be Restricted or Anyone with the link - Viewer")
     if not restrict_public_sharing:
         if allow_public_sharing:
             return False
@@ -176,7 +205,7 @@ async def verify_imagegen_oauth_token(
         if allow_public_sharing:
             return False
         raise HTTPException(503, "Drive sharing is still public; reconnect after restricting it")
-    return True
+    return "restricted" if return_sharing_status else True
 
 
 async def _body(payload: bytes) -> AsyncIterator[bytes]:

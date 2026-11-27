@@ -82,10 +82,14 @@ def metadata_check(data,p):
     return (public[0]["id"] if public else None), marker
 
 
-async def handoff(p, action, drive, probe):
+async def handoff(p, action, drive, probe, *, inherited_root=False):
     """Only change the selected file; preserve pre-existing grants."""
     async with LOCK:
         existing, marker = metadata_check(await drive.metadata(p.file), p)
+        if inherited_root and action == "revoke":
+            raise ShareError("SMS_VIDEO_ROOT_VIEWER_INHERITED")
+        if inherited_root and not existing:
+            raise ShareError("SMS_VIDEO_ROOT_VIEWER_NOT_INHERITED")
         if action == "revoke":
             if not existing:
                 if marker:
@@ -203,13 +207,14 @@ async def live(p, action):
     from .imagegen_drive import provider_and_folder, verify_private_drive_destination
     try:
         provider, root = provider_and_folder()
-        await verify_private_drive_destination(provider, root)
+        root_sharing = await verify_private_drive_destination(provider, root)
         token = await provider.get_access_token()
         async with httpx.AsyncClient(headers={"Authorization": f"Bearer {token}"},
             timeout=httpx.Timeout(15, connect=5), follow_redirects=False, trust_env=False) as auth:
             async with httpx.AsyncClient(timeout=httpx.Timeout(20, connect=5),
                 follow_redirects=False, trust_env=False) as anon:
-                return await handoff(p, action, Drive(auth), lambda url: probe_view_page(anon, url))
+                return await handoff(p, action, Drive(auth), lambda url: probe_view_page(anon, url),
+                                     inherited_root=root_sharing == "link_viewer")
     except ShareError:
         raise
     except Exception:
