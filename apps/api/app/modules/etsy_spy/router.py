@@ -1659,6 +1659,76 @@ async def save_listing_idea_preflight(
     return view
 
 
+@router.post("/listings/{listing_key}/sms-video-share")
+async def sms_video_share(listing_key: str, request: Request, response: Response,
+                          principal: CurrentPrincipal = Depends(MANAGE),
+                          db: Session = Depends(get_db)):
+    """Confirmed per-file MP4 handoff, not a worker or marketplace operation."""
+    from .sms_video_share import select_proof, live, ShareError, POLICY
+    from app.modules.auth_persistence.model import AuthAuditEventModel
+    from sqlalchemy.exc import DBAPIError
+
+    response.headers["Cache-Control"] = "no-store"
+    if not re.fullmatch(r"[0-9]{5,20}", listing_key):
+        raise HTTPException(422, "Invalid Etsy Listing ID")
+    if (request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json"
+            or request.headers.get("sec-fetch-site", "").lower() == "cross-site"):
+        raise HTTPException(415, "SMS video share requires same-site JSON")
+    raw = bytearray()
+    async for chunk in request.stream():
+        if len(raw) + len(chunk) > 4096:
+            raise HTTPException(413, "SMS video share request too large")
+        raw.extend(chunk)
+    try:
+        body = json.loads(raw)
+    except (ValueError, TypeError, RecursionError):
+        raise HTTPException(422, "Invalid SMS video share request") from None
+    tenant = principal.active_tenant_id
+    if db.get(Picked, (tenant, listing_key)) is None:
+        raise HTTPException(404, "Picked listing not found")
+
+    def locked_proof():
+        job = db.scalar(select(CamMuseJob).where(
+            CamMuseJob.tenant_id == tenant, CamMuseJob.listing_key == listing_key,
+        ).with_for_update(nowait=True))
+        return select_proof(job, tenant, listing_key, body)
+
+    def record(state, proof, code=None):
+        db.add(AuthAuditEventModel(tenant_id=tenant, actor_id=principal.user_id,
+            action="sms_video_share_" + state, detail_json={
+                "policy": POLICY, "listing_key": listing_key, "aspect": proof.aspect,
+                "sha256": proof.digest, "operation": body["action"], "code": code,
+            }))
+        db.commit()
+
+    try:
+        proof = locked_proof()
+        # Persist an attributable intent before the external ACL change. Reacquire
+        # the lock and revalidate the exact receipt after committing that intent.
+        record("attempt", proof)
+        proof = locked_proof()
+        try:
+            result = await live(proof, body["action"])
+        except ShareError as exc:
+            record("failed", proof, exc.code)
+            raise
+        try:
+            record("complete", proof)
+        except Exception:
+            db.rollback()
+            raise HTTPException(502, detail={"code": "SMS_VIDEO_SHARE_AUDIT_REVIEW_REQUIRED"}) from None
+        return result
+    except DBAPIError as exc:
+        state = getattr(exc.orig, "sqlstate", None) or getattr(exc.orig, "pgcode", None)
+        if state == "55P03":
+            raise HTTPException(409, detail={"code": "SMS_VIDEO_BUSY"}) from None
+        raise
+    except ShareError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
+    finally:
+        db.rollback()
+
+
 @router.post("/listings/{listing_key}/tiktok-listing/queue")
 def queue_listing_tiktok_skill(
     listing_key: str,
