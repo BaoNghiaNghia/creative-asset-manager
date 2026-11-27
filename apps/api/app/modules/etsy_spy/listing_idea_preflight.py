@@ -126,6 +126,37 @@ def sms_video_fields(links):
     ]
 
 
+def sms_tiktok_target_video_plan(table_links):
+    """Only the current storage-verified vertical video belongs in TikTok Videos.
+
+    This is a candidate plan, not a prepared link or SMS write receipt.
+    Manual links and folder links remain idea-level references only.
+    """
+    selected = []
+    for item in table_links or []:
+        if (not isinstance(item, dict) or item.get("aspect") != "9:16"
+                or item.get("kind") != "file" or item.get("source") != "cam_video_ugc_table"
+                or item.get("storage_verified") is not True
+                or not SHA.fullmatch(item.get("sha256") or "")):
+            continue
+        try:
+            ident, kind = drive_reference(item["url"])
+            if kind != "file":
+                continue
+            url = canonical_view_url(item["url"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        selected.append({"aspect": "9:16", "file_id": ident, "sha256": item["sha256"],
+                         "view_url": url})
+        break
+    return {"platform": "TiktokShop", "candidates": selected,
+            "candidate_video_urls": [v["view_url"] for v in selected],
+            "expected_target_video_count": len(selected),
+            "prepare_required": bool(selected), "readback_required": bool(selected),
+            "state": "needs_prepare" if selected else "no_verified_vertical_video",
+            "fields_alone_satisfy_target": False}
+
+
 def compose(*, listing_key, source, seo, designs, video_ugc, listing_image_count, saved, table_links=None):
     """Join existing read projections. Operator attestations never become live SMS receipts."""
     saved = saved if isinstance(saved, dict) else {}
@@ -178,8 +209,11 @@ def compose(*, listing_key, source, seo, designs, video_ugc, listing_image_count
     except ValueError:
         manual_links = []
     links = merge_video_links(table_links or [], manual_links)
+    target_plan = sms_tiktok_target_video_plan(table_links)
     if not links:
         warnings.append("google_drive_video_links_missing")
+    if table_links and not target_plan["candidates"]:
+        warnings.append("sms_tiktok_vertical_video_missing")
     if manual_links:
         warnings.append("operator_drive_links_access_and_content_unverified")
     if table_links:
@@ -204,7 +238,10 @@ def compose(*, listing_key, source, seo, designs, video_ugc, listing_image_count
         "sms_video_fields": sms_video_fields(links),
         "sms_video_policy": "table_visible_no_visual_qa_gate",
         "sms_video_transport": "drive_links_only",
-        "sms_video_payload_policy": "idea_fields_only_no_target_video_urls",
+        "sms_video_payload_policy": "target_video_urls_required_when_available",
+        "sms_target_video_plan": target_plan,
+        "sms_target_video_readback_required": target_plan["readback_required"],
+        "sms_server_video_fetch_possible": True,
         "sms_video_share_prepare_required": True,
         "sms_video_upload_requested": False,
         "listing_image_count": listing_image_count, "saved": saved,

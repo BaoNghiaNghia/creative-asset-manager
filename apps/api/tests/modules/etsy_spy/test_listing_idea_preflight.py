@@ -102,6 +102,13 @@ class PreflightTests(unittest.TestCase):
             self.assertEqual(view["video_links"][0]["source"], "cam_video_ugc_table")
             self.assertEqual(view["sms_video_fields"], [{"name":"UGC Video 9:16 (Drive link)",
                                                         "value":links[0]["url"]}])
+            plan = view["sms_target_video_plan"]
+            self.assertEqual(plan["candidate_video_urls"], [links[0]["url"]])
+            self.assertEqual(plan["expected_target_video_count"], 1)
+            self.assertEqual(plan["candidates"][0]["sha256"], row["sha256"])
+            self.assertTrue(plan["prepare_required"])
+            self.assertTrue(plan["readback_required"])
+            self.assertFalse(plan["fields_alone_satisfy_target"])
             self.assertFalse(view["submitted_to_sms"])
             self.assertFalse(view["ready_for_sms_submit"])
 
@@ -137,18 +144,36 @@ class PreflightTests(unittest.TestCase):
             validate_draft({**DRAFT,"template":{**TEMPLATE,"prices":[{"size":"S","price":float("nan")}]}})
 
 
-def test_sms_video_transport_is_fields_only():
+def test_sms_video_transport_requires_target_when_available():
     from app.modules.etsy_spy.listing_idea_preflight import compose
     view = compose(listing_key="4380517795", source={}, seo={}, designs=[],
                    video_ugc={}, listing_image_count=0, saved={})
-    assert view["sms_video_payload_policy"] == "idea_fields_only_no_target_video_urls"
+    assert view["sms_video_payload_policy"] == "target_video_urls_required_when_available"
     assert view["sms_video_upload_requested"] is False
     assert view["sms_video_share_prepare_required"] is True
+    assert view["sms_target_video_plan"]["state"] == "no_verified_vertical_video"
+    assert not view["sms_target_video_plan"]["fields_alone_satisfy_target"]
 
 def test_direct_download_normalized_to_view():
     entries = clean_video_links([{"aspect":"9:16",
         "url":"https://drive.google.com/uc?id=exampleVideo123&export=download&resourcekey=0-exampleResourceKey"}])
     assert entries[0]["url"] == "https://drive.google.com/file/d/exampleVideo123/view?resourcekey=0-exampleResourceKey"
+
+
+def test_tiktok_target_plan_one_vertical_and_no_manual_fallback():
+    from app.modules.etsy_spy.listing_idea_preflight import sms_tiktok_target_video_plan
+    row = {"kind":"file", "aspect":"9:16", "source":"cam_video_ugc_table",
+           "storage_verified":True, "sha256":"a"*64,
+           "url":"https://drive.google.com/file/d/exampleVertical123/view"}
+    horizontal = {**row,"aspect":"16:9","url":"https://drive.google.com/file/d/exampleHorizontal123/view"}
+    manual = {**row,"source":"operator"}
+    folder = {**row,"kind":"folder","url":"https://drive.google.com/drive/folders/exampleFolder123"}
+    unverified = {**row,"storage_verified":False}
+    plan = sms_tiktok_target_video_plan([horizontal, manual, folder, unverified, row, row])
+    assert plan["candidate_video_urls"] == [row["url"]]
+    assert plan["expected_target_video_count"] == 1
+    assert plan["state"] == "needs_prepare"
+    assert sms_tiktok_target_video_plan([horizontal, manual, folder, unverified])["expected_target_video_count"] == 0
 
 
 if __name__ == "__main__":

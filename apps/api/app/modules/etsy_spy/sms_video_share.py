@@ -144,10 +144,16 @@ async def handoff(p, action, drive, probe, *, inherited_root=False):
                 raise ShareError("SMS_VIDEO_SHARE_GRANT_REVIEW_REQUIRED", 502) from None
             raise
         LOG.info("sms_video_share prepared tenant=%s listing=%s aspect=%s new=%s", p.tenant, p.listing, p.aspect, bool(created))
-        # Only idea-level link fields: target video_urls can trigger SMS import.
+        # CAM sends a view URL, not MP4 bytes. SMS may fetch the video itself.
+        # The caller must use the target payload and read back the target count.
         return {"policy": POLICY, "transport": TRANSPORT, "state": "viewer_link_verified",
                 "changed": bool(created), "view_url": view_url,
                 "fields": [{"name": f"UGC Video {p.aspect} (Drive link)", "value": view_url}],
+                "video_urls": [view_url],
+                "sms_target_video_payload": {"video_urls": [view_url]},
+                "sms_target_video_readback_required": True,
+                "sms_server_video_fetch_possible": True,
+                "sms_target_video_expected_count": 1,
                 "sha256": p.digest, "aspect": p.aspect,
                 "cam_managed_permission": bool(created or marker),
                 "viewer_permission_verified": True, "view_page_reachable": True,

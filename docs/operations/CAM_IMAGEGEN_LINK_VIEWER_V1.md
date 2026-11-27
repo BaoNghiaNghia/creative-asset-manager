@@ -14,7 +14,10 @@ Anyone with the link / Viewer on this whole folder, including descendants.
   remain required. Named collaborators are never changed.
 - OAuth reconnect preserves a valid link-viewer grant. Normal workers do not
   create broad permissions.
-- With inherited root Viewer, SMS uses only canonical Drive /view links.
+- With inherited root Viewer, CAM sends canonical Drive /view links to SMS.
+  Use targets[].video_urls for the TikTok Target Videos slot (one 9:16 video),
+  with idea Fields as supplementary references. Verify target videos=1 by
+  SMS readback. CAM does not upload MP4 bytes; SMS may fetch the link itself.
   Individual video grants/revokes are not performed.
 
 ## Explicit production action

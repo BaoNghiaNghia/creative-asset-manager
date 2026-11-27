@@ -96,7 +96,11 @@ class HandoffTests(unittest.IsolatedAsyncioTestCase):
         result = await handoff(P, 'prepare', drive, probe)
         self.assertEqual(result['state'], 'viewer_link_verified')
         self.assertEqual(result['fields'], [{'name':'UGC Video 9:16 (Drive link)','value':P.url}])
-        self.assertNotIn('video_urls',result)
+        self.assertEqual(result['video_urls'], [P.url])
+        self.assertEqual(result['sms_target_video_payload'], {'video_urls':[P.url]})
+        self.assertTrue(result['sms_target_video_readback_required'])
+        self.assertTrue(result['sms_server_video_fetch_possible'])
+        self.assertEqual(result['sms_target_video_expected_count'], 1)
         self.assertFalse(result['sms_upload_requested'])
         self.assertTrue(result['changed'])
         result = await handoff(P, 'prepare', drive, probe)
@@ -116,7 +120,8 @@ class HandoffTests(unittest.IsolatedAsyncioTestCase):
         probe.assert_awaited_once_with(url)
         self.assertEqual(result['view_url'], url)
         self.assertEqual(result['fields'][0]['value'], url)
-        self.assertNotIn('video_urls', result)
+        self.assertEqual(result['video_urls'], [url])
+        self.assertEqual(result['sms_target_video_payload'], {'video_urls':[url]})
 
     async def test_inherited_viewer_does_not_mutate_permissions(self):
         drive = FakeDrive()
