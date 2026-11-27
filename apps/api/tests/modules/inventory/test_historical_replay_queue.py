@@ -352,6 +352,28 @@ def test_auto_discovers_only_prior_day_transient_failures_and_stays_idempotent()
         tmp.cleanup()
 
 
+def test_auto_recovers_previous_codex_lock_failures_once():
+    tmp, engine, sessions = _sessions()
+    try:
+        yesterday = date(2030, 8, 9)
+        today = date(2030, 8, 10)
+        for day in (yesterday, today):
+            _failed_evening(sessions, day, code="inventory_codex_profile_lock_unavailable")
+        queue = HistoricalReplayQueue(sessions, service_factory=lambda: None)
+        moment = datetime(2030, 8, 10, 10, tzinfo=timezone.utc)
+        assert queue.enqueue_failed_evening_days(frozenset({"tenant-a"}), now=moment) == 1
+        active = queue.active_jobs("tenant-a")
+        assert len(active) == 1
+        assert active[0]["business_date"] == yesterday.isoformat()
+        assert queue.enqueue_failed_evening_days(frozenset({"tenant-a"}), now=moment) == 0
+        with sessions.begin() as session:
+            session.get(InventoryJobModel, active[0]["job_id"]).status = "failed"
+        assert queue.enqueue_failed_evening_days(frozenset({"tenant-a"}), now=moment) == 0
+    finally:
+        engine.dispose()
+        tmp.cleanup()
+
+
 def test_auto_recovery_ignores_permanent_failure_and_respects_reset_window():
     tmp, engine, sessions = _sessions()
     try:

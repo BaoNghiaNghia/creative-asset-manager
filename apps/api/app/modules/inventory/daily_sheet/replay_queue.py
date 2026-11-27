@@ -40,6 +40,9 @@ AUTO_RETRYABLE_ERRORS = frozenset({
     "inventory_codex_timeout",
     "inventory_codex_execution_failed",
     "inventory_codex_profile_busy",
+    # A repaired runtime may replay the prior immutable snapshot once.
+    # The gateway still treats unsafe/missing locks as non-retryable.
+    "inventory_codex_profile_lock_unavailable",
     "inventory_codex_runtime_unavailable",
     "inventory_codex_forced_tool_missing",
 })

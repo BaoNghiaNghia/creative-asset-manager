@@ -18,5 +18,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=strict
+# Existing managed Account 01: lock, session and cache; no other write path.
+ReadWritePaths=-/var/lib/creative-asset-manager/codex
 ProtectHome=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
