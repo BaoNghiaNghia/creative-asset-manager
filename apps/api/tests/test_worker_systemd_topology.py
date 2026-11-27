@@ -33,3 +33,23 @@ def test_production_video_workers_are_split_into_heavy_and_delivery_lanes():
     assert 'CAM_BACKEND_MIN_FREE_MIB:-2048' in deploy
     assert 'CAM_BACKEND_RELEASE_HEADROOM_PERCENT:-125' in deploy
     assert "check_disk_headroom" in deploy
+
+def test_inventory_oneshots_can_write_only_the_managed_codex_profile():
+    for name in (
+        "v5j-lifecycle", "replay-queue", "manual-recovery",
+        "v41-reconcile", "v41-snapshot",
+    ):
+        unit = (ROOT / f"deploy/systemd/creative-asset-manager-inventory-{name}.service").read_text()
+        assert "ProtectSystem=strict" in unit
+        assert "ProtectHome=true" in unit
+        assert "NoNewPrivileges=true" in unit
+        paths = [line for line in unit.splitlines() if line.startswith("ReadWritePaths=")]
+        assert paths == ["ReadWritePaths=-/var/lib/creative-asset-manager/codex"]
+
+
+def test_backend_deploy_refuses_sparse_source_before_disk_cleanup():
+    deploy = (ROOT / "scripts/cam-rebuild-backend.sh").read_text()
+    guard = deploy.index('config --bool --get core.sparseCheckout')
+    cleanup = deploy.index('"Running pre-deploy disk cleanup"')
+    assert guard < cleanup
+    assert "Refusing backend deployment from a sparse checkout" in deploy

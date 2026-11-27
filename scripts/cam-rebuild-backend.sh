@@ -1664,6 +1664,13 @@ fi
 progress 15 \
   "Resolving Git commit"
 
+# A sparse checkout omits runtime modules and migration files from rsync.
+# Reject it before cleanup, staging, or any persistent-runtime changes.
+if [[ "$(git -C "$SOURCE_DIR" config --bool --get core.sparseCheckout || true)" == "true" ]]; then
+  die "Refusing backend deployment from a sparse checkout; materialize the complete source tree."
+fi
+
+
 
 #
 # Dirty checkout protection.
