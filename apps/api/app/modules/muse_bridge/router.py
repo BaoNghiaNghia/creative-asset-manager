@@ -70,6 +70,7 @@ from . import receipt_ack as ack_replay
 from . import progress_watch
 from . import latest_artwork
 from . import renderer_canary
+from . import shared_video_policy
 
 
 class MuseObservedRoute(APIRoute):
@@ -604,7 +605,13 @@ def _story_candidate_v33(job) -> dict | None:
         active = job.status == "claimed" and (deadline is None or deadline > _utc())
         scope = receipts.get("videoWorkScope") or {}
         reference_first = not active or (isinstance(scope, dict) and scope.get("referenceFirst") is True)
-        return lite_story_spec(base, reference_first=reference_first)
+        story = lite_story_spec(base, reference_first=reference_first)
+        # Preserve pre-upgrade pins; new claims store the same snapshot for both workers.
+        snapshot = pinned.get("sharedVideoPolicy") if pinned else shared_video_policy.active()
+        if snapshot is not None:
+            story = shared_video_policy.apply_story(
+                story, snapshot, job.listing_key, job.artwork_sha256)
+        return story
     except ValueError:
         return None
 
@@ -2086,6 +2093,7 @@ def muse_worker_shared_config(
                    "imageCentralSchemaReady": False})
     if active_dual and identity.id == "muse-02":
         config["rendererCanaryUpload"] = renderer_canary.contract()
+    config["sharedVideoPolicy"] = shared_video_policy.config()
     return config
 
 
@@ -3011,6 +3019,7 @@ def claim(listing_id: str, payload: ClaimRequest, request: Request,
                     "artworkSha256": row.artwork_sha256,
                     "targetDurationSeconds": LITE_TARGET_SECONDS,
                     "assemblyMode": "one_native_clip_preferred",
+                    "sharedVideoPolicy": shared_video_policy.active(),
                     "heroGenerationPlans": plans,
                 }
                 row.output_receipts = receipts
@@ -4396,6 +4405,34 @@ def _operator(authorization: str | None = Header(default=None)):
                                hashlib.sha256(secret.encode()).digest()):
         raise HTTPException(401, "Unauthorized operator")
     return tenant
+
+
+@router.post("/video-policy/proposals")
+def propose_shared_video_policy(payload: shared_video_policy.ChangeRequest,
+                                request: Request, response: Response,
+                                tenant: str = Depends(_muse)):
+    response.headers["Cache-Control"] = "private, no-store"
+    return shared_video_policy.propose(_muse_identity(request), payload)
+
+
+@router.get("/video-policy/operator")
+def read_shared_video_policy(response: Response, tenant: str = Depends(_operator)):
+    response.headers["Cache-Control"] = "private, no-store"
+    return {"ok": True, **shared_video_policy.registry()}
+
+
+@router.post("/video-policy/operator")
+def publish_shared_video_policy(payload: shared_video_policy.ChangeRequest,
+                                response: Response, tenant: str = Depends(_operator)):
+    response.headers["Cache-Control"] = "private, no-store"
+    return shared_video_policy.publish(payload)
+
+
+@router.post("/video-policy/operator/decision")
+def decide_shared_video_policy(payload: shared_video_policy.DecisionRequest,
+                               response: Response, tenant: str = Depends(_operator)):
+    response.headers["Cache-Control"] = "private, no-store"
+    return shared_video_policy.decide(payload)
 
 
 class FabricSurfaceQaEvidence(BaseModel):
