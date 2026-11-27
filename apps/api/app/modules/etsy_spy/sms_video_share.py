@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 
 POLICY = "CAM_SMS_VIDEO_SHARE_V1"
+TRANSPORT = "drive_view_link_only"
 MARKER = "cam_sms_video_share_permission"
 ID = re.compile(r"[A-Za-z0-9_-]{10,128}")
 PID = re.compile(r"[A-Za-z0-9_-]{3,128}")
@@ -112,11 +113,18 @@ async def handoff(p, action, drive, probe):
                     created = None
                     raise ShareError("SMS_VIDEO_GRANT_RECEIPT_INVALID", 502)
                 await drive.marker(p.file, created)
-            checked, checked_marker = metadata_check(await drive.metadata(p.file), p)
+            fresh = await drive.metadata(p.file)
+            checked, checked_marker = metadata_check(fresh, p)
             if checked != (created or existing) or (created and checked_marker != created):
                 raise ShareError("SMS_VIDEO_GRANT_READBACK_FAILED", 502)
-            if not await probe(p.file):
-                raise ShareError("SMS_VIDEO_ANONYMOUS_DOWNLOAD_FAILED", 502)
+            view_url = p.url
+            resource_key = fresh.get("resourceKey")
+            if resource_key:
+                if not match(ID, resource_key):
+                    raise ShareError("SMS_VIDEO_RESOURCE_KEY_INVALID", 502)
+                view_url += "?resourcekey=" + resource_key
+            if not await probe(view_url):
+                raise ShareError("SMS_VIDEO_VIEW_PAGE_UNAVAILABLE", 502)
         except (Exception, asyncio.CancelledError):
             if created:
                 try:
@@ -132,9 +140,14 @@ async def handoff(p, action, drive, probe):
                 raise ShareError("SMS_VIDEO_SHARE_GRANT_REVIEW_REQUIRED", 502) from None
             raise
         LOG.info("sms_video_share prepared tenant=%s listing=%s aspect=%s new=%s", p.tenant, p.listing, p.aspect, bool(created))
-        return {"policy": POLICY, "state": "download_verified", "changed": bool(created),
-                "video_urls": [p.url], "sha256": p.digest, "aspect": p.aspect,
-                "cam_managed_permission": bool(created or marker)}
+        # Only idea-level link fields: target video_urls can trigger SMS import.
+        return {"policy": POLICY, "transport": TRANSPORT, "state": "viewer_link_verified",
+                "changed": bool(created), "view_url": view_url,
+                "fields": [{"name": f"UGC Video {p.aspect} (Drive link)", "value": view_url}],
+                "sha256": p.digest, "aspect": p.aspect,
+                "cam_managed_permission": bool(created or marker),
+                "viewer_permission_verified": True, "view_page_reachable": True,
+                "sms_upload_requested": False}
 
 
 class Drive:
@@ -153,7 +166,7 @@ class Drive:
 
     async def metadata(self, f):
         return await self.request("GET", f, params={"supportsAllDrives": "true",
-            "fields": "id,trashed,mimeType,parents,appProperties,capabilities(canShare),permissions(id,type,role,allowFileDiscovery)"})
+            "fields": "id,trashed,mimeType,parents,resourceKey,appProperties,capabilities(canShare),permissions(id,type,role,allowFileDiscovery)"})
 
     async def grant(self, f):
         data = await self.request("POST", f, "/permissions",
@@ -171,22 +184,18 @@ class Drive:
                            json={"appProperties": {MARKER: permission}})
 
 
-async def probe_mp4(client, f):
-    """Fixed Google host, no credentials or redirects, bounded magic-byte probe."""
-    if not match(ID, f):
+async def probe_view_page(client, view_url):
+    """Anonymous HEAD only, never fetch media bytes or follow redirects.
+    A reachable HTML page plus verified ACL does not prove playback in SMS.
+    """
+    if not isinstance(view_url, str) or not re.fullmatch(
+            r"https://drive\.google\.com/file/d/[A-Za-z0-9_-]{10,128}/view(?:\?resourcekey=[A-Za-z0-9_-]{10,128})?",
+            view_url):
         return False
-    async with client.stream("GET", "https://drive.usercontent.google.com/download",
-        params={"id": f, "export": "download", "confirm": "t"},
-        headers={"Range": "bytes=0-31", "Accept-Encoding": "identity"}) as r:
-        if (r.status_code not in (200, 206) or r.headers.get("content-type", "").split(";")[0].strip().lower()
-                not in ("video/mp4", "application/octet-stream")):
-            return False
-        header = bytearray()
-        async for chunk in r.aiter_bytes(chunk_size=32):
-            header.extend(chunk)
-            if len(header) >= 12:
-                break
-        return len(header) >= 12 and header[4:8] == b"ftyp"
+    async with client.stream("HEAD", view_url, headers={"Accept": "text/html"},
+                             follow_redirects=False) as r:
+        return (r.status_code == 200 and
+                r.headers.get("content-type", "").split(";")[0].strip().lower() == "text/html")
 
 
 async def live(p, action):
@@ -200,7 +209,7 @@ async def live(p, action):
             timeout=httpx.Timeout(15, connect=5), follow_redirects=False, trust_env=False) as auth:
             async with httpx.AsyncClient(timeout=httpx.Timeout(20, connect=5),
                 follow_redirects=False, trust_env=False) as anon:
-                return await handoff(p, action, Drive(auth), lambda f: probe_mp4(anon, f))
+                return await handoff(p, action, Drive(auth), lambda url: probe_view_page(anon, url))
     except ShareError:
         raise
     except Exception:

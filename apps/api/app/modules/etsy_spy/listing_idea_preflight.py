@@ -42,6 +42,7 @@ def clean_video_links(entries):
         if aspect not in (None, "9:16", "16:9"):
             raise ValueError("invalid_video_aspect")
         ident, kind = drive_reference(url)
+        url = canonical_view_url(url)
         if ident in seen or (aspect and aspect in aspects) or (kind == "folder" and aspect):
             raise ValueError("duplicate_or_invalid_video_link")
         seen.add(ident)
@@ -106,11 +107,21 @@ def merge_video_links(table_links, manual_links):
     return merged
 
 
+def canonical_view_url(url):
+    """Normalize file references to view links; preserve the optional resource key."""
+    ident, kind = drive_reference(url)
+    keys = parse_qs(urlsplit(url).query, keep_blank_values=True).get("resourcekey", [])
+    if keys and (len(keys) != 1 or not DRIVE_ID.fullmatch(keys[0])):
+        raise ValueError("invalid_drive_resource_key")
+    path = f"/file/d/{ident}/view" if kind == "file" else f"/drive/folders/{ident}"
+    return "https://drive.google.com" + path + ("?resourcekey=" + keys[0] if keys else "")
+
+
 def sms_video_fields(links):
     return [
         {"name": ("UGC Video Folder " + str(i + 1) if v["kind"] == "folder"
                   else "UGC Video " + str(v["aspect"] or i + 1) + " (Drive link)"),
-         "value": v["url"]}
+         "value": canonical_view_url(v["url"])}
         for i, v in enumerate(links)
     ]
 
@@ -193,6 +204,9 @@ def compose(*, listing_key, source, seo, designs, video_ugc, listing_image_count
         "sms_video_fields": sms_video_fields(links),
         "sms_video_policy": "table_visible_no_visual_qa_gate",
         "sms_video_transport": "drive_links_only",
+        "sms_video_payload_policy": "idea_fields_only_no_target_video_urls",
+        "sms_video_share_prepare_required": True,
+        "sms_video_upload_requested": False,
         "listing_image_count": listing_image_count, "saved": saved,
         "blockers": blocks, "warnings": warnings,
         "ready_for_sms_payload_review": not blocks, "ready_for_sms_submit": False,

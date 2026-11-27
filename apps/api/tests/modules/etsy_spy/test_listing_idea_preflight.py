@@ -137,5 +137,19 @@ class PreflightTests(unittest.TestCase):
             validate_draft({**DRAFT,"template":{**TEMPLATE,"prices":[{"size":"S","price":float("nan")}]}})
 
 
+def test_sms_video_transport_is_fields_only():
+    from app.modules.etsy_spy.listing_idea_preflight import compose
+    view = compose(listing_key="4380517795", source={}, seo={}, designs=[],
+                   video_ugc={}, listing_image_count=0, saved={})
+    assert view["sms_video_payload_policy"] == "idea_fields_only_no_target_video_urls"
+    assert view["sms_video_upload_requested"] is False
+    assert view["sms_video_share_prepare_required"] is True
+
+def test_direct_download_normalized_to_view():
+    entries = clean_video_links([{"aspect":"9:16",
+        "url":"https://drive.google.com/uc?id=exampleVideo123&export=download&resourcekey=0-exampleResourceKey"}])
+    assert entries[0]["url"] == "https://drive.google.com/file/d/exampleVideo123/view?resourcekey=0-exampleResourceKey"
+
+
 if __name__ == "__main__":
     unittest.main()

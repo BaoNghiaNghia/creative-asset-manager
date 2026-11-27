@@ -43,7 +43,7 @@ def scenario(monkeypatch):
     db.commit()
     principal = SimpleNamespace(user_id="actor-test", active_tenant_id=TENANT,
         effective_permissions=frozenset({"etsy_spy.manage"}), platform_admin=False)
-    mock = AsyncMock(return_value={"state":"download_verified"})
+    mock = AsyncMock(return_value={"state":"viewer_link_verified"})
     monkeypatch.setattr(service, "live", mock)
     app = FastAPI()
     app.include_router(router)
@@ -59,7 +59,7 @@ def test_confirmed_request_audited(scenario):
     client, db, principal, mock = scenario
     r = client.post(URL, json=BODY)
     assert r.status_code == 200, r.text
-    assert r.json()["state"] == "download_verified"
+    assert r.json()["state"] == "viewer_link_verified"
     assert r.headers["cache-control"] == "no-store"
     assert mock.await_count == 1
     assert mock.await_args.args[0].file == FILE
@@ -104,8 +104,8 @@ def test_browser_cross_site_rejected(scenario):
 
 def test_failed_provider_audited(scenario):
     client, db, principal, mock = scenario
-    mock.side_effect = service.ShareError("SMS_VIDEO_ANONYMOUS_DOWNLOAD_FAILED",502)
+    mock.side_effect = service.ShareError("SMS_VIDEO_VIEW_PAGE_UNAVAILABLE",502)
     assert client.post(URL,json=BODY).status_code == 502
     events = db.scalars(select(AuthAuditEventModel).order_by(AuthAuditEventModel.occurred_at)).all()
     assert [e.action for e in events] == ["sms_video_share_attempt","sms_video_share_failed"]
-    assert events[-1].detail_json["code"] == "SMS_VIDEO_ANONYMOUS_DOWNLOAD_FAILED"
+    assert events[-1].detail_json["code"] == "SMS_VIDEO_VIEW_PAGE_UNAVAILABLE"

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import httpx
 from app.modules.etsy_spy.sms_video_share import (
-    MARKER, Proof, ShareError, select_proof, handoff, Drive, probe_mp4,
+    MARKER, Proof, ShareError, select_proof, handoff, Drive, probe_view_page,
 )
 
 P = Proof('test-tenant', '4380517795', '9:16', 'a'*64, 'b'*64,
@@ -94,8 +94,10 @@ class HandoffTests(unittest.IsolatedAsyncioTestCase):
         drive = FakeDrive()
         probe = AsyncMock(return_value=True)
         result = await handoff(P, 'prepare', drive, probe)
-        self.assertEqual(result['state'], 'download_verified')
-        self.assertEqual(result['video_urls'], [P.url])
+        self.assertEqual(result['state'], 'viewer_link_verified')
+        self.assertEqual(result['fields'], [{'name':'UGC Video 9:16 (Drive link)','value':P.url}])
+        self.assertNotIn('video_urls',result)
+        self.assertFalse(result['sms_upload_requested'])
         self.assertTrue(result['changed'])
         result = await handoff(P, 'prepare', drive, probe)
         self.assertFalse(result['changed'])
@@ -105,9 +107,20 @@ class HandoffTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(drive.data['permissions'], [{'type':'user','role':'owner','id':'owner123'}])
         self.assertNotIn(MARKER, drive.data['appProperties'])
 
+    async def test_resource_key_preserved_in_view_field(self):
+        drive = FakeDrive()
+        drive.data['resourceKey'] = '0-exampleResourceKey'
+        probe = AsyncMock(return_value=True)
+        result = await handoff(P, 'prepare', drive, probe)
+        url = P.url + '?resourcekey=0-exampleResourceKey'
+        probe.assert_awaited_once_with(url)
+        self.assertEqual(result['view_url'], url)
+        self.assertEqual(result['fields'][0]['value'], url)
+        self.assertNotIn('video_urls', result)
+
     async def test_probe_failure_rolls_back(self):
         drive = FakeDrive()
-        with self.assertRaisesRegex(ShareError, 'ANONYMOUS_DOWNLOAD_FAILED'):
+        with self.assertRaisesRegex(ShareError, 'VIEW_PAGE_UNAVAILABLE'):
             await handoff(P, 'prepare', drive, AsyncMock(return_value=False))
         self.assertNotIn(PERMISSION, drive.data['permissions'])
         self.assertNotIn(MARKER, drive.data['appProperties'])
@@ -134,7 +147,7 @@ class HandoffTests(unittest.IsolatedAsyncioTestCase):
         drive.data['permissions'].append(dict(PERMISSION))
         with self.assertRaisesRegex(ShareError, 'NOT_CREATED_BY_CAM'):
             await handoff(P, 'revoke', drive, AsyncMock(return_value=True))
-        with self.assertRaisesRegex(ShareError, 'ANONYMOUS_DOWNLOAD_FAILED'):
+        with self.assertRaisesRegex(ShareError, 'VIEW_PAGE_UNAVAILABLE'):
             await handoff(P, 'prepare', drive, AsyncMock(return_value=False))
         self.assertFalse(drive.calls)
         self.assertIn(PERMISSION, drive.data['permissions'])
@@ -172,23 +185,33 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             self.assertEqual(await Drive(client).grant(P.file), 'anyoneWithLink')
 
-    async def test_probe_good_and_bad(self):
-        valid = bytes.fromhex('00000018') + b'ftypisom'
-        for status, content_type, data, expected in [
-            (206,'video/mp4',valid,True),
-            (200,'application/octet-stream',valid,True),
-            (200,'text/html',b'<html>Sign in</html>',False),
-            (200,'video/mp4',b'not an mp4 file',False),
-            (302,'video/mp4',valid,False),
-            (403,'text/html',b'blocked',False),
+    async def test_view_page_head_only(self):
+        for status, content_type, expected in [
+            (200,'text/html; charset=utf-8',True),
+            (200,'video/mp4',False),
+            (200,'application/octet-stream',False),
+            (206,'text/html',False),
+            (302,'text/html',False),
+            (403,'text/html',False),
+            (404,'text/html',False),
         ]:
             with self.subTest(status=status, expected=expected):
                 def handler(req):
-                    self.assertEqual(req.url.host, 'drive.usercontent.google.com')
-                    self.assertEqual(req.url.params['id'],P.file)
-                    self.assertEqual(req.headers['range'],'bytes=0-31')
+                    self.assertEqual(str(req.url),P.url)
+                    self.assertEqual(req.method,'HEAD')
+                    self.assertNotIn('range',req.headers)
                     self.assertNotIn('authorization',req.headers)
                     self.assertNotIn('cookie',req.headers)
-                    return httpx.Response(status,headers={'Content-Type':content_type},content=data)
-                async with httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=False) as client:
-                    self.assertEqual(await probe_mp4(client,P.file),expected)
+                    return httpx.Response(status,headers={'Content-Type':content_type,
+                        'Location':'https://accounts.google.com/'})
+                async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+                    self.assertEqual(await probe_view_page(client,P.url),expected)
+
+    async def test_reject_direct_download_or_foreign_host(self):
+        async def unexpected(req):
+            self.fail('unsafe network request')
+        async with httpx.AsyncClient(transport=httpx.MockTransport(unexpected)) as client:
+            for url in ['https://drive.usercontent.google.com/download?id='+P.file,
+                        'https://example.com/file/d/'+P.file+'/view',
+                        P.url+'?export=download']:
+                self.assertFalse(await probe_view_page(client,url))
