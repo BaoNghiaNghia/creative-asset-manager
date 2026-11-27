@@ -69,6 +69,7 @@ from . import source_qa_recheck as recheck
 from . import receipt_ack as ack_replay
 from . import progress_watch
 from . import latest_artwork
+from . import renderer_canary
 
 
 class MuseObservedRoute(APIRoute):
@@ -2083,7 +2084,27 @@ def muse_worker_shared_config(
                    "imageClaimAllowed": False, "imageRendererAllowed": False,
                    "imageExecutionStatus": "PREPARED_DISABLED",
                    "imageCentralSchemaReady": False})
+    if active_dual and identity.id == "muse-02":
+        config["rendererCanaryUpload"] = renderer_canary.contract()
     return config
+
+
+@router.post("/workers/muse-02/renderer-canary",
+    openapi_extra={"requestBody": {"required": True, "content": {
+        "video/mp4": {"schema": {"type": "string", "format": "binary"}}
+    }}},
+)
+async def upload_muse02_renderer_canary(
+    request: Request, response: Response,
+    x_cam_canary_run_id: str | None = Header(default=None),
+    x_cam_canary_sha256: str | None = Header(default=None),
+    tenant: str = Depends(_muse),
+):
+    """Transfer the one approved native canary, without authorizing production."""
+    response.headers["Cache-Control"] = "private, no-store"
+    return await renderer_canary.ingest(
+        request, tenant, _muse_identity(request),
+        x_cam_canary_run_id, x_cam_canary_sha256)
 
 
 @router.get("/openapi.json", include_in_schema=False)
