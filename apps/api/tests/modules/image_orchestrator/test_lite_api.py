@@ -52,7 +52,9 @@ def auth(name):
 
 
 @pytest.fixture
-def env(monkeypatch):
+def env(monkeypatch,tmp_path):
+    monkeypatch.setenv("CAM_MUSE_IMAGE_LITE_STAGE_DIR",str(tmp_path/"stage"))
+    monkeypatch.setattr(a.lite_p0.files,"MIN_FREE_BYTES",0)
     if os.environ.get("CAM_LITE_TEST_ISOLATED")=="1":
         port=int(os.environ["CAM_P2C_TEST_PORT"])
         assert port!=5432 and 1024<=port<=65535
@@ -135,7 +137,8 @@ def env(monkeypatch):
     payload={"listingId":LISTING,"plan":plan,"workerId":"muse-image-01",
              **{k:v for k,v in RUNNER.items() if k!="videoJobsEnabled"},
              "independentImageResourceEvidenceSha256":"d"*64,
-             "sourceVisualReviewSha256":"e"*64,"placementEvidenceSha256":"f"*64}
+             "sourceVisualReviewSha256":"e"*64,"placementEvidenceSha256":"f"*64,
+             "nativeCapabilityEvidenceSha256":"6"*64,"nativeOutputSize":2000}
     with TestClient(app) as client:
         yield client,engine,payload,art,out,writes
     engine.dispose()
@@ -206,6 +209,8 @@ def test_one_shot_native_qa_drive_and_video_unchanged(env):
         "reviewEvidenceSha256":"9"*64,"width":2000,"height":2000,
         "checks":{k:True for k in a.QA_CHECKS}}
     post(env,f"/operator/commands/{cid}/qa","muse",qa,401)
+    post(env,f"/operator/commands/{cid}/qa","operator",qa,409)
+    proof=stage_native(env,cid,g,env[4]);assert proof["previewOnly"] is False
     qr=post(env,f"/operator/commands/{cid}/qa","operator",qa).json()["qaReceiptId"]
     post(env,f"/operator/commands/{cid}/stop","operator")
     headers={**auth("muse"),"Content-Type":"image/png","X-CAM-Epoch":str(g["epoch"]),
@@ -297,3 +302,104 @@ def test_lite_token_independent_of_video_roster(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         a.lite_identity(request,"Bearer "+"v"*64,None,None)
     assert exc.value.status_code==401
+
+def stage_native(env,cid,g,raw,attempt="attempt-01",expected=200):
+    r=env[0].put(PREFIX+f"/commands/{cid}/stage",headers={**auth("muse"),"Content-Type":"image/png",
+        "X-CAM-Epoch":str(g["epoch"]),"X-CAM-Image-Lease":g["lease"],
+        "X-CAM-Attempt-Id":attempt,"X-CAM-Image-Sha256":sha(raw)},content=raw)
+    assert r.status_code==expected,r.text
+    return r.json()
+
+
+def test_p0_preview_reject_retry_no_gallery_or_video_mutation(env):
+    cid=prepare(env);enable(env,cid);g=claim(env,cid);start(env,cid,g)
+    raw=png(1600);sh=sha(raw)
+    with Session(env[1]) as db:
+        j=db.get(Job,cid);a.set_payload(j,expiresAt=0);db.commit()
+    proof=stage_native(env,cid,g,raw)
+    assert proof["previewOnly"] and not proof["galleryWritten"]
+    assert stage_native(env,cid,g,raw)["stageReceiptId"]==proof["stageReceiptId"]
+    route=PREFIX+f"/operator/commands/{cid}/stage?attemptId=attempt-01&imageSha256={sh}"
+    assert env[0].get(route,headers=auth("muse")).status_code==401
+    assert env[0].get(route,headers=auth("operator")).content==raw
+    qa={"epoch":g["epoch"],"attemptId":"attempt-01","imageSha256":sh,
+        "reviewEvidenceSha256":"9"*64,"width":1600,"height":1600,
+        "checks":{k:True for k in a.QA_CHECKS}}
+    post(env,f"/operator/commands/{cid}/qa","operator",qa,409)
+    reject={k:qa[k] for k in ("epoch","attemptId","imageSha256","reviewEvidenceSha256")}
+    reject["reasons"]=["NATIVE_PUBLICATION_SIZE_NOT_MET","FAIL_TEXTURE_DRIFT"]
+    post(env,f"/operator/commands/{cid}/qa-reject","muse",reject,401)
+    receipt=post(env,f"/operator/commands/{cid}/qa-reject","operator",reject).json()
+    assert receipt["status"]=="rejected"
+    retry={"rejectionReceiptId":receipt["rejectionReceiptId"],"workflowSha256":"7"*64,
+           "nativeCapabilityEvidenceSha256":"8"*64,"nativeOutputSize":2000}
+    post(env,f"/operator/commands/{cid}/retry","operator",{**retry,"nativeOutputSize":1600},422)
+    fence(env,cid)
+    r=post(env,f"/operator/commands/{cid}/retry","operator",retry).json()
+    assert r["imageClaimAllowed"] is False and r["attemptCount"]==1 and r["claimEpoch"]==1
+    post(env,f"/commands/{cid}/start","muse",{**lease(g),"attemptId":"attempt-01"},409)
+    post(env,f"/commands/{cid}/runner-ready","muse",{**RUNNER,"workflowSha256":"7"*64})
+    post(env,f"/operator/commands/{cid}/enable","operator")
+    g2=claim(env,cid);assert g2["epoch"]==2 and g2["planSha256"]==g["planSha256"]
+    post(env,f"/commands/{cid}/artwork","muse",lease(g2))
+    post(env,f"/commands/{cid}/start","muse",{**lease(g2),"attemptId":"attempt-01"},409)
+    assert post(env,f"/commands/{cid}/start","muse",{**lease(g2),"attemptId":"attempt-02"}).json()["sendAllowed"]
+    status=env[0].get(PREFIX+f"/commands/{cid}/qa-status?attemptId=attempt-01&imageSha256={sh}",headers=auth("muse")).json()
+    assert status["status"]=="rejected" and status["rejectionReceiptId"]==receipt["rejectionReceiptId"]
+    with Session(env[1]) as db:
+        j=db.get(Job,cid);assert j.attempt_count==2 and len(j.payload_json["attemptHistory"])==1
+        assert db.scalar(select(EtsySpyListingImage)) is None
+        v=db.scalar(select(CamMuseCommand));assert (v.status,v.attempts,v.details)==("claimed",2,{"video":"unchanged"})
+    assert env[5]==[]
+
+
+def test_p0_legacy_started_recovery_and_release(env):
+    cid=prepare(env);enable(env,cid);g=claim(env,cid);start(env,cid,g)
+    with Session(env[1]) as db:
+        j=db.get(Job,cid)
+        d=dict(j.payload_json)
+        for field in ("nativeOutputSize","nativeCapabilityEvidenceSha256"):
+            d.pop(field,None)
+        j.payload_json=d
+        a.set_payload(j,expiresAt=0)
+        db.commit()
+    raw=png(1600);sh=sha(raw)
+    stage=stage_native(env,cid,g,raw)
+    assert stage["previewOnly"] and not stage["galleryWritten"]
+    stage_native(env,cid,g,png(1800),expected=409)
+    reject={"epoch":g["epoch"],"attemptId":"attempt-01","imageSha256":sh,
+            "reviewEvidenceSha256":"9"*64,"reasons":["NATIVE_PUBLICATION_SIZE_NOT_MET"]}
+    receipt=post(env,f"/operator/commands/{cid}/qa-reject","operator",reject).json()
+    assert post(env,f"/operator/commands/{cid}/qa-reject","operator",reject).json()==receipt
+    assert post(env,f"/operator/commands/{cid}/release-rejected","operator",
+                {"rejectionReceiptId":receipt["rejectionReceiptId"]}).json()["legacyReservationRequired"] is False
+    with Session(env[1]) as db:
+        assert db.get(Job,cid).payload_json["phase"]=="rejected_released"
+        assert not a.reservation_blocks_legacy(db,TENANT,LISTING)
+        assert db.scalar(select(EtsySpyListingImage)) is None
+        assert db.scalar(select(CamMuseCommand)).status=="claimed"
+    assert env[5]==[]
+
+
+@pytest.mark.skipif(os.environ.get("CAM_LITE_TEST_ISOLATED")!="1",reason="real PostgreSQL only")
+def test_p0_concurrent_retry_postgres(env):
+    cid=prepare(env);enable(env,cid);g=claim(env,cid);start(env,cid,g)
+    raw=png(1600);stage_native(env,cid,g,raw)
+    receipt=post(env,f"/operator/commands/{cid}/qa-reject","operator",
+        {"epoch":g["epoch"],"attemptId":"attempt-01","imageSha256":sha(raw),
+         "reviewEvidenceSha256":"9"*64,"reasons":["NATIVE_PUBLICATION_SIZE_NOT_MET"]}).json()
+    retry={"rejectionReceiptId":receipt["rejectionReceiptId"],"workflowSha256":"7"*64,
+           "nativeCapabilityEvidenceSha256":"8"*64,"nativeOutputSize":2000}
+    fence(env,cid)
+    def compete(_):
+        return env[0].post(PREFIX+f"/operator/commands/{cid}/retry",
+                          headers=auth("operator"),json=retry).status_code
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results=list(executor.map(compete,range(2)))
+    assert sorted(results)==[200,409],results
+    with Session(env[1]) as db:
+        j=db.get(Job,cid);assert j.status=="pending" and j.attempt_count==1
+        assert j.payload_json["epoch"]==1 and len(j.payload_json["attemptHistory"])==1
+        assert not j.payload_json["runAllowed"]
+        assert db.scalar(select(EtsySpyListingImage)) is None
+        assert db.scalar(select(CamMuseCommand)).status=="claimed"

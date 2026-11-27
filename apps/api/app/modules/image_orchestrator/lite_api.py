@@ -197,7 +197,8 @@ def ready(db, job, identity, t):
             and identity.kind=="muse" and d.get("workerId")==identity.worker
             and d.get("operatorAttestedImageResource") is True
             and fence_verified(db,job,t) and d.get("cooldownUntilEpoch",0)<=t
-            and runner_ready(d,t))
+            and runner_ready(d,t) and lite_p0.capability(d)
+            and job.attempt_count<lite_p0.MAX_ATTEMPTS and d["epoch"]<3)
 
 
 def runner_ready(d,t):
@@ -217,7 +218,11 @@ def descriptor(job):
         "placementLockSha256":d["plan"]["placementLock"]["lock_sha256"],
         "planSha256":d["planSha256"],"status":d["phase"],
         "imageOnly":True,"runnerId":d["runnerId"],"workflowSha256":d["workflowSha256"],
-        "resourceId":d["resourceId"]}
+        "resourceId":d["resourceId"],
+        "nativeOutputSize":d.get("nativeOutputSize"),
+        "nativeCapabilityEvidenceSha256":d.get("nativeCapabilityEvidenceSha256"),
+        "claimEpoch":d["epoch"],"attemptCount":job.attempt_count,
+        "lastRejectionReceiptId":((d.get("attemptHistory") or [{}])[-1].get("rejection") or {}).get("rejectionReceiptId")}
 
 
 def muse(identity):
@@ -250,6 +255,8 @@ class Prepare(Strict):
     independentImageResourceEvidenceSha256: str=Field(pattern=SHA)
     sourceVisualReviewSha256: str=Field(pattern=SHA)
     placementEvidenceSha256: str=Field(pattern=SHA)
+    nativeCapabilityEvidenceSha256: str=Field(pattern=SHA)
+    nativeOutputSize: int=Field(ge=2000,le=4000,strict=True)
 
 
 class Fence(Strict):
@@ -308,6 +315,7 @@ def work(response:Response,identity:Identity,db:Db):
             "status":"PILOT_READY" if len(rows)==1 and len(items)==1 else "PREPARED_DISABLED",
             "items":items if len(rows)==1 else [],"videoQueueTouched":False,
             "activeImageCommands":len(rows),
+            "qaProtocol":lite_p0.QA_PROTOCOL,"stageRequired":True,"minNativePixels":lite_p0.MIN_NATIVE,
             "prepared":[descriptor(j) for j in rows if identity.kind=="muse" and
                         j.payload_json.get("workerId")==identity.worker]}
 
@@ -334,7 +342,9 @@ def prepare(body:Prepare,tenant:Operator,db:Db):
              "runnerId":body.runnerId,"workflowSha256":body.workflowSha256,"resourceId":body.resourceId,
              "independentImageResourceEvidenceSha256":body.independentImageResourceEvidenceSha256,
              "sourceVisualReviewSha256":body.sourceVisualReviewSha256,
-             "placementEvidenceSha256":body.placementEvidenceSha256}
+             "placementEvidenceSha256":body.placementEvidenceSha256,
+             "nativeCapabilityEvidenceSha256":body.nativeCapabilityEvidenceSha256,
+             "nativeOutputSize":body.nativeOutputSize}
         admission.validate_plan(plan,pack_view(payload,tenant))
     except (p.Conflict,KeyError,ValueError,TypeError):
         fail("image_plan_invalid",422)
@@ -396,7 +406,9 @@ def runner_heartbeat(cid:str,body:RunnerHeartbeat,identity:Identity,db:Db):
 @router.post("/operator/commands/{cid}/cancel")
 def cancel(cid:str,tenant:Operator,db:Db):
     lock_tenant(db,tenant);job=get_job(db,tenant,cid,lock=True)
-    check(job.status=="pending" and job.attempt_count==0,"image_reconciliation_required")
+    check(job.status=="pending" and job.payload_json["phase"]=="prepared" and
+          len(job.payload_json.get("attemptHistory",[]))==job.attempt_count,
+          "image_reconciliation_required")
     set_payload(job,phase="cancelled",runAllowed=False)
     job.status="failed";job.completed_at=datetime.now(timezone.utc);db.commit()
     return {**descriptor(job),"legacyReservationRequired":False}
@@ -405,7 +417,7 @@ def cancel(cid:str,tenant:Operator,db:Db):
 @router.post("/commands/{cid}/cooldown")
 def cooldown(cid:str,body:Cooldown,identity:Identity,db:Db):
     lock_tenant(db,identity.tenant);job=get_job(db,identity.tenant,cid,lock=True)
-    own(job,identity,body,phases=("claimed","started","qa_pass","upload_pending"))
+    own(job,identity,body,phases=("claimed","started","awaiting_qa","qa_pass","upload_pending"))
     until=now()+body.retryAfterSeconds
     d=job.payload_json
     if d["phase"]=="claimed":
@@ -426,7 +438,8 @@ def enable(cid:str,tenant:Operator,db:Db):
     check(image_worker_configured() or db.info.get("muse_image_lite_test") is True,
           "image_worker_credential_not_configured",503)
     check(job.status=="pending" and d["phase"]=="prepared" and fence_verified(db,job,now()) and
-          runner_ready(d,now()) and d.get("cooldownUntilEpoch",0)<=now(),
+          runner_ready(d,now()) and d.get("cooldownUntilEpoch",0)<=now() and lite_p0.capability(d)
+          and job.attempt_count<lite_p0.MAX_ATTEMPTS and d["epoch"]<3,
           "verified_extension_reservation_required")
     current_asset(db,job);no_gallery(db,job)
     set_payload(job,runAllowed=True);db.commit()
@@ -482,7 +495,7 @@ async def artwork(cid:str,body:Lease,identity:Identity,db:Db):
 @router.post("/commands/{cid}/heartbeat")
 def heartbeat(cid:str,body:Lease,identity:Identity,db:Db):
     lock_tenant(db,identity.tenant);job=get_job(db,identity.tenant,cid,lock=True)
-    own(job,identity,body,phases=("claimed","started","qa_pass","upload_pending"))
+    own(job,identity,body,phases=("claimed","started","awaiting_qa","qa_pass","upload_pending"))
     t=now()+LEASE_TTL
     job.lease_expires_at=datetime.fromtimestamp(t,timezone.utc)
     set_payload(job,expiresAt=t);db.commit()
@@ -499,9 +512,12 @@ def start(cid:str,body:Start,identity:Identity,db:Db):
         check(d.get("attemptId")==body.attemptId,"image_attempt_mismatch")
         return {"sendAllowed":False,"originalSendPreserved":True}
     check(d["runAllowed"] is True and fence_verified(db,job,now()) and runner_ready(d,now())
-          and d.get("originalServedSha256")==d["plan"]["artworkSha256"],"image_start_not_allowed")
+          and lite_p0.capability(d) and d.get("originalServedSha256")==d["plan"]["artworkSha256"],"image_start_not_allowed")
     current_asset(db,job);no_gallery(db,job)
-    job.attempt_count=1
+    check(job.attempt_count<lite_p0.MAX_ATTEMPTS and
+          body.attemptId not in [x["rejection"]["attemptId"] for x in d.get("attemptHistory",[])],
+          "image_pilot_retry_limit")
+    job.attempt_count+=1
     set_payload(job,phase="started",attemptId=body.attemptId)
     db.commit()
     return {"sendAllowed":True,"role":1,"attemptId":body.attemptId,"maxOutputs":1}
@@ -510,16 +526,18 @@ def start(cid:str,body:Start,identity:Identity,db:Db):
 @router.post("/operator/commands/{cid}/qa")
 def qa(cid:str,body:Qa,tenant:Operator,db:Db):
     lock_tenant(db,tenant);job=get_job(db,tenant,cid,lock=True);d=job.payload_json
-    check(job.status=="processing" and d["phase"] in ("started","qa_pass")
+    check(job.status=="processing" and d["phase"] in ("awaiting_qa","qa_pass")
           and body.epoch==d["epoch"] and body.attemptId==d["attemptId"],"image_attempt_mismatch")
     check(set(body.checks)==QA_CHECKS and all(v is True for v in body.checks.values())
           and body.width==body.height,"image_qa_not_accepted")
+    stage,_=lite_p0.require_stage(job,body.imageSha256,body.width,body.height)
+    check(body.width>=lite_p0.MIN_NATIVE and not stage["previewOnly"],"image_native_publication_size_not_met")
     current_asset(db,job)
     receipt=p.canonical_sha([job.id,d["epoch"],d["attemptId"],body.imageSha256,
-                             body.reviewEvidenceSha256,d["planSha256"],body.width,body.height])
+                             body.reviewEvidenceSha256,d["planSha256"],body.width,body.height,stage["stageReceiptId"]])
     proof={"receiptId":receipt,"imageSha256":body.imageSha256,"width":body.width,
            "height":body.height,"reviewEvidenceSha256":body.reviewEvidenceSha256,
-           "checks":body.checks}
+           "checks":body.checks,"stageReceiptId":stage["stageReceiptId"]}
     check(d.get("qa") in (None,proof),"immutable_image_qa")
     set_payload(job,phase="qa_pass",qa=proof);db.commit()
     return {"qaReceiptId":receipt,"status":"pass","imageSha256":body.imageSha256}
@@ -530,11 +548,15 @@ def qa_status(cid:str,response:Response,identity:Identity,db:Db,
               attemptId:Annotated[str,Query(pattern=ATTEMPT)],
               imageSha256:Annotated[str,Query(pattern=SHA)]):
     private(response);muse(identity);job=get_job(db,identity.tenant,cid);d=job.payload_json
+    check(d["workerId"]==identity.worker,"image_attempt_not_found",404)
+    rejected=lite_p0.rejection_status(job,attemptId,imageSha256)
+    if rejected is not None:return rejected
     check(job.claimed_by==identity.worker and d.get("attemptId")==attemptId,"image_attempt_not_found",404)
     proof=d.get("qa")
     ok=isinstance(proof,dict) and proof["imageSha256"]==imageSha256
     return {"status":"pass" if ok else "pending",
-            "qaReceiptId":proof["receiptId"] if ok else None,"imageSha256":imageSha256}
+            "qaReceiptId":proof["receiptId"] if ok else None,"imageSha256":imageSha256,
+            "stageReceiptId":proof.get("stageReceiptId") if ok else None}
 
 
 def inspect_png(data, sha):
@@ -571,9 +593,12 @@ async def upload(cid:str,request:Request,identity:Identity,db:Db,
         check(len(data)+len(chunk)<=MAX_BYTES,"image_png_too_large",413)
         data.extend(chunk)
     width,height=inspect_png(data,sha)
+    check(width>=lite_p0.MIN_NATIVE,"image_native_publication_size_not_met",422)
     lock_tenant(db,identity.tenant);job=get_job(db,identity.tenant,cid,lock=True)
     own(job,identity,body,phases=("qa_pass","upload_pending"))
     d=job.payload_json;proof=d["qa"]
+    staged,_=lite_p0.require_stage(job,sha,width,height)
+    check(proof.get("stageReceiptId")==staged["stageReceiptId"],"image_qa_stage_receipt_mismatch")
     check(proof["receiptId"]==qa_receipt and proof["imageSha256"]==sha
           and (proof["width"],proof["height"])==(width,height),"image_qa_receipt_mismatch")
     # A lost/uncertain storage call must be reconciled by operator, not replayed.
@@ -612,7 +637,7 @@ async def upload(cid:str,request:Request,identity:Identity,db:Db,
         drive_folder_id=remote["drive_folder_id"],drive_thumbnail_folder_id=remote["drive_thumbnail_folder_id"],
         native_width=width,native_height=height,source_job_id=job.id))
     receipt={"imageSha256":sha,"width":width,"height":height,"storageVerified":True,
-             "qaReceiptId":qa_receipt,"publicationReady":width>=2000,"previewOnly":width<2000,
+             "qaReceiptId":qa_receipt,"publicationReady":True,"previewOnly":False,
              "galleryPackId":gallery_id,"role":1}
     set_payload(job,phase="complete",receipt=receipt,runAllowed=False,leaseHash=None)
     job.status="completed";job.completed_at=datetime.now(timezone.utc);job.lease_expires_at=None
@@ -628,6 +653,9 @@ def status(cid:str,response:Response,identity:Identity,db:Db):
           "image_command_not_found",404)
     return {**descriptor(job),"receipt":d.get("receipt"),
             "reconciliationRequired":job.status=="processing" and
-                (d["phase"]=="upload_pending" or d.get("expiresAt",0)<=now()),
+                (d["phase"]=="upload_pending" or (d.get("expiresAt") or 0)<=now()),
             "legacyReservationRequired":job.status in ("pending","processing"),
             "videoQueueTouched":False}
+
+# Register isolated image QA staging/recovery routes only after definitions.
+from . import lite_p0
