@@ -370,13 +370,33 @@ def image_status(response: Response, identity: Identity, db: Database,
             receipt=item["receipt"]
             entry={"status":item["status"],"attemptCount":item["attempts"],
                    "attempts":item["attempts"],"storageVerified":False,
-                   "qaStatus":None,"lastOutcome":row.failure_code}
+                   "attemptId":row.attempt_id,"qaStatus":None,"lastOutcome":row.failure_code,
+                   "retryAllowed":item["status"]=="pending" and row.attempts<p.MAX_ROLE_ATTEMPTS}
             if receipt is not None:
                 entry.update(receipt)
                 entry["qaStatus"]="pass"
                 entry["storageReceiptId"]=storage_receipt_id(pack,row)
             mapped[str(row.role)]=entry
-        payload.update(roles=mapped,batchWave2Allowed=payload["wave2Allowed"],
+        from .model import ImageCommand
+        commands=list(db.scalars(select(ImageCommand).where(
+            ImageCommand.tenant_id==identity.tenant,ImageCommand.pack_id==packId)))
+        wave_commands={str(cmd.wave):{"commandId":cmd.command_id,"status":cmd.status,
+            "epoch":cmd.claim_epoch} for cmd in commands}
+        active_batch=None
+        if active is not None:
+            journal=lease.get("adaptive_batches") or {}
+            bid=journal.get("active")
+            info=(journal.get("batches") or {}).get(bid)
+            if info is not None:
+                active_batch={"batchId":bid,"manifestSha256":info["sha"],
+                    "epoch":pack.epoch,"wave":lease.get("wave"),
+                    "calls":[{"callId":v["callId"],"role":v["role"],
+                        "attemptId":v["attempt"],"generationMethod":v["method"]}
+                        for v in info["calls"].values()]}
+        payload.update(roles=mapped,waveCommands=wave_commands,activeBatch=active_batch,
+            reconciliationRequired=any(r["status"] in
+                ("dispatch_uncertain","upload_pending","reconcile_required") for r in roles),
+            batchWave2Allowed=payload["wave2Allowed"],
             packProgress=f"{len(verified)}/13",
             currentWave=2 if wave1 else 1,
             barrier=barrier_snapshot(identity.tenant,packId,pack.owner,wave1,batch.release_decision))

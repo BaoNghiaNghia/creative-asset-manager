@@ -168,3 +168,56 @@ class RuntimeV61Tests(unittest.TestCase):
             self.assertEqual(r.status,"pending")
             self.assertEqual(r.failure_code,"independent_qa_rejected")
             self.assertEqual(db.get(ImageQAApproval,(fixture.TENANT,self.rid)).verdict,"hold")
+
+    def local_reject(self,record=None,**overrides):
+        f=self.f
+        rec={**RECORD,"artworkFidelity":"fail"} if record is None else record
+        payload={"imageLease":self.a["imageLease"],"epoch":self.c["epoch"],
+            "batchId":self.m["batchId"],"attemptId":self.attempt,
+            "candidateSha256":hashlib.sha256(fixture.png()).hexdigest(),
+            "qaRecordSha256":q.record_hash(rec,1),"qaRecord":rec,
+            "reason":"qa_failed_fidelity",**overrides}
+        return f.job("1/reject-local",payload)
+
+    def test_local_rejection_is_fenced_idempotent_and_consumes_attempt(self):
+        f=self.f
+        self.assertEqual(self.local_reject(imageLease=self.c["lease"]).status_code,409)
+        self.assertEqual(self.local_reject(record=RECORD).status_code,409)
+        self.assertEqual(self.local_reject(qaRecordSha256="a"*64).status_code,409)
+        r=self.local_reject()
+        self.assertEqual(r.status_code,200,r.text)
+        result=r.json()
+        self.assertEqual(result["status"],"local_rejection_recorded")
+        self.assertEqual(result["attemptId"],self.attempt)
+        self.assertEqual(result["roleStatus"],"pending")
+        self.assertEqual(result["attemptCount"],1)
+        self.assertTrue(result["retryAllowed"])
+        self.assertEqual(self.local_reject().json(),result)
+        self.assertEqual(self.local_reject(candidateSha256="b"*64).status_code,409)
+        self.assertEqual(self.submit().status_code,409)
+        self.assertEqual(self.upload().status_code,409)
+        self.assertEqual(f.writes,0)
+        with Session(f.engine) as db:
+            row=db.get(ImageRole,(fixture.TENANT,f.pack.pack_id,1))
+            self.assertEqual(row.status,"pending")
+            self.assertEqual(row.attempts,1)
+            self.assertEqual(row.failure_code,"local_qa_failed_fidelity")
+            journal=db.get(q.ImageQARecordSubmission,(fixture.TENANT,self.rid))
+            self.assertEqual(journal.record_sha256,result["rejectionSha256"])
+            self.assertEqual(journal.record["localRejection"]["candidateSha256"],result["candidateSha256"])
+            self.assertIsNone(db.get(ImageQAApproval,(fixture.TENANT,self.rid)))
+        # Only after the server transition is it permissible to reserve a new attempt.
+        m=manifest(f.pack.listing,roles=(1,),bid=30)
+        m["calls"][0]["callId"]="a"*32
+        body={"lease":self.c["lease"],"epoch":self.c["epoch"],
+              "batchManifest":m,"manifestSha256":wire.manifest_sha256(m)}
+        self.assertEqual(f.job("batch-claim",body).status_code,200)
+
+    def test_local_reject_cannot_replace_submitted_review(self):
+        self.assertEqual(self.submit().status_code,200)
+        r=self.local_reject()
+        self.assertEqual(r.status_code,409,r.text)
+        with Session(self.f.engine) as db:
+            row=db.get(ImageRole,(fixture.TENANT,self.f.pack.pack_id,1))
+            self.assertEqual(row.status,"dispatch_uncertain")
+            self.assertEqual(db.get(q.ImageQARecordSubmission,(fixture.TENANT,self.rid)).record,RECORD)

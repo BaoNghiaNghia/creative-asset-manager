@@ -64,7 +64,8 @@ def require_submission(db, pack, role, attempt, epoch, receipt_id, sha, batch_id
 def receive(svc, sc, ts, *, role, epoch, token, attempt, batch_id, sha, record):
     """Call only within the existing fenced command transition."""
     from .adaptive_v61 import qa_reservation, require_upload_binding
-    p.require(p.valid_sha(sha) and record_hash(record,role)==sha,"qa_record_sha_mismatch")
+    p.require(p.valid_sha(sha) and record_hash(record,role)==sha and
+              "localRejection" not in record,"qa_record_sha_mismatch")
     row,resource,_=svc._lock_existing(sc)
     def apply(pack,_):
         cmd=svc._command(sc);svc._fence(cmd,resource,epoch,ts)
@@ -102,3 +103,72 @@ def storage_receipt_id(pack, row):
               and isinstance(row.attempt_id,str),"storage_receipt_unverified")
     return p.canonical_sha(["CAM_IMAGE_STORAGE_RECEIPT_V1",pack.tenant_id,
                             pack.pack_id,row.role,row.attempt_id,row.receipt_state])
+
+def reject_local(svc,sc,ts,*,role,epoch,token,attempt,batch_id,candidate_sha,qa_sha,qa_record,reason):
+    """Irrevocably discard a specific worker candidate, not an outage.
+
+    The authenticated owner may decline to submit its own PNG. This is
+    not independent visual QA or proof of renderer failure. Journal the
+    exact negative QA record and candidate digest; allow another attempt
+    only if the current start already consumed one and no upload/review
+    has been prepared. Replays are immutable, with no attempt refund.
+    """
+    import math
+    from .adaptive_v61 import qa_reservation,require_upload_binding
+    from .model import ImageUploadIntent,ImageQAApproval
+    p.require(p.valid_sha(candidate_sha) and p.valid_sha(qa_sha)
+              and record_hash(qa_record,role)==qa_sha
+              and "localRejection" not in qa_record,"local_rejection_evidence_invalid")
+    strings=("artworkFidelity","readability","inkContrast")
+    bools=("garmentCorrect","roleCorrect","printScaleConsistent")
+    gap=qa_record.get("collarGapApproxMm")
+    defects=qa_record.get("majorDefects")
+    p.require(all(qa_record.get(k) in ("pass","fail") for k in strings)
+        and all(type(qa_record.get(k)) is bool for k in bools)
+        and type(gap) in (int,float) and math.isfinite(gap)
+        and isinstance(defects,list),"local_rejection_evidence_invalid")
+    failed=any(qa_record[k]=="fail" for k in strings) or any(
+        not qa_record[k] for k in bools) or not 120<=gap<=180 or bool(defects)
+    p.require(failed and reason==("qa_failed_fidelity" if
+        qa_record["artworkFidelity"]=="fail" else "qa_failed_other"),
+        "local_rejection_not_a_negative_qa")
+    envelope={"role":role,"localRejection":{"candidateSha256":candidate_sha,
+        "qaRecordSha256":qa_sha,"reason":reason,"record":qa_record}}
+    envelope_sha=record_hash(envelope,role)
+    row,resource,_=svc._lock_existing(sc)
+    def apply(pack,_):
+        cmd=svc._command(sc);svc._fence(cmd,resource,epoch,ts)
+        lease=p.authorized(pack,svc.worker,epoch,token,ts)
+        p.require(cmd.image_granted and role in p.WAVES[lease.wave] and
+                  lease.adaptive_batches,"local_rejection_attempt_not_active")
+        rid=qa_reservation(pack,role,attempt,row.plan_sha256)
+        require_upload_binding(pack,lease,role=role,attempt=attempt,batch_id=batch_id,
+            output_index=0,method="native_imagegen",qa_id=rid,qa_record_sha=qa_sha,
+            plan_sha=row.plan_sha256)
+        rr=pack.roles[role]
+        p.require(rr.attempt_id==attempt and rr.attempts>=1 and
+            svc.db.get(ImageUploadIntent,(svc.tenant,sc.pack_id,role,attempt)) is None and
+            svc.db.get(ImageQAApproval,(svc.tenant,rid)) is None,
+            "local_rejection_upload_or_approval_exists")
+        old=svc.db.get(ImageQARecordSubmission,(svc.tenant,rid))
+        if old is not None:
+            require_submission(svc.db,row,role,attempt,epoch,rid,envelope_sha,batch_id)
+            p.require(rr.status in ("pending","hold") and
+                      rr.failure_code=="local_"+reason,"local_rejection_state_conflict")
+        else:
+            p.require(rr.status=="dispatch_uncertain","local_rejection_attempt_not_active")
+            # This explicitly abandons the candidate; timeout alone may never
+            # consume a new attempt. There is no prepared storage to reconcile.
+            svc.db.add(ImageQARecordSubmission(tenant_id=svc.tenant,receipt_id=rid,
+                pack_id=sc.pack_id,role=role,attempt_id=attempt,epoch=epoch,
+                worker_id=svc.worker,plan_sha256=row.plan_sha256,batch_id=batch_id,
+                record_sha256=envelope_sha,record=envelope,received_at=ts))
+            p.confirmed_failure(pack,role,attempt,"local_"+reason,terminal=False,
+                                proof_of_no_usable_result=True)
+            svc.db.flush()
+        return {"status":"local_rejection_recorded","role":role,"attemptId":attempt,
+            "batchId":batch_id,"candidateSha256":candidate_sha,"qaRecordSha256":qa_sha,
+            "rejectionSha256":envelope_sha,"roleStatus":rr.status,
+            "attemptCount":rr.attempts,"retryAllowed":rr.status=="pending" and
+            rr.attempts<p.MAX_ROLE_ATTEMPTS,"storageWritePerformed":False}
+    return svc._transition(sc,row,apply)

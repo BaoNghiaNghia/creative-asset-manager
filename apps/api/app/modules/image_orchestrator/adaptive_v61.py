@@ -24,10 +24,11 @@ from .write_api import (Backend, CommandQuery, ListingPath, PackHeader, SkuHeade
 PROTOCOL = "CAM_MUSE_IMAGE_ADAPTIVE_BATCH_V6_1"
 BUNDLE_SHA256 = "22133be6ce727ed001d266926a78344594f7fe093d11cb5139970a6a8364791a"
 REGISTRY = {
-    # Execution report 2026-11-28: candidate pins are reported by Muse.
-    # The updated ZIP itself has not yet been independently inspected by CAM.
-    "bundlePinEvidence": "MUSE_REPORTED_MANIFEST_20261128",
-    "bundleBytesVerifiedByCAM": False,
+    # Exact uploaded 200956-byte ZIP inspected by CAM, CRC valid, 53 entries,
+    # 51/51 manifest payloads and external manifest match. No runtime proof implied.
+    "bundlePinEvidence": "CAM_VERIFIED_ZIP_MANIFEST_20261128",
+    "bundleBytesVerifiedByCAM": True,
+    "localRejectionProtocol": "CAM_IMAGE_LOCAL_REJECT_V1",
     "bundleReportedBytes": 200956,
     "adaptiveBatchPolicy": PROTOCOL, "batchPlannerVersion": PROTOCOL,
     "batchPlannerSha256": "f722928c8ad62edb62cc5812fb964eb8b3627a34e7c1ff23a50acb5af179ee4c",
@@ -265,3 +266,27 @@ async def qa_record(listing_id:ListingPath,role:RolePath,commandId:CommandQuery,
     return perform(db,lambda:receive(service(db,identity,backend),
         scope(commandId,pack,sku,listing_id),now(),role=int(role),epoch=epoch,
         token=check_token(token),attempt=attempt,batch_id=batch_id,sha=sha,record=record))
+
+class LocalRejectBody(BaseModel):
+    model_config=ConfigDict(extra="forbid")
+    imageLease:SecretStr
+    epoch:int=Field(ge=1,strict=True)
+    batchId:str=Field(pattern=r"^[a-f0-9]{32}$")
+    attemptId:str=Field(pattern=r"^[a-f0-9]{32}$")
+    candidateSha256:str=Field(pattern=r"^[a-f0-9]{64}$")
+    qaRecordSha256:str=Field(pattern=r"^[a-f0-9]{64}$")
+    qaRecord:dict
+    reason:Literal["qa_failed_fidelity","qa_failed_other"]
+
+
+@router.post("/jobs/{listing_id}/images/{role}/reject-local")
+def reject_local(listing_id:ListingPath,role:RolePath,commandId:CommandQuery,
+                pack:PackHeader,sku:SkuHeader,body:LocalRejectBody,response:Response,
+                identity:Identity,db:Database,backend:Backend):
+    private(response)
+    from .qa_submission import reject_local as transition
+    return perform(db,lambda:transition(service(db,identity,backend),
+        scope(commandId,pack,sku,listing_id),now(),role=int(role),
+        epoch=body.epoch,token=check_token(body.imageLease.get_secret_value()),
+        attempt=body.attemptId,batch_id=body.batchId,candidate_sha=body.candidateSha256,
+        qa_sha=body.qaRecordSha256,qa_record=body.qaRecord,reason=body.reason))
