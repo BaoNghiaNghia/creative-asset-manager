@@ -309,6 +309,7 @@ from .story_lite import (
     LITE_POLICY, LITE_OUTPUT, LITE_SOURCE, LITE_TARGET_SECONDS,
     LITE_DURATION_BOUNDS, lite_story_spec, worker_policy as lite_worker_policy,
     PRINT_SCALE_POLICY, apply_hero_print_scale,
+    HERO_REALISM_POLICY, apply_hero_realism,
 )
 
 
@@ -630,6 +631,21 @@ def _story_candidate_v33(job) -> dict | None:
             saved = _verified_video_ratios(job)
             story = apply_hero_print_scale(
                 story, [ratio for ratio in compact_ratios if ratio not in saved])
+        # Do not silently change a live contract that predates the realism fix.
+        # Discovery previews the new policy; claim pins it for recovery/failover.
+        if active:
+            realism_ratios = (scope.get("heroRealismAspects", [])
+                              if isinstance(scope, dict)
+                              and scope.get("heroRealismPolicyVersion") == HERO_REALISM_POLICY
+                              else [])
+        elif job.status in ("pending", "claimed"):
+            realism_ratios = _job_required_aspects(job)
+        else:
+            realism_ratios = []
+        if reference_first and realism_ratios:
+            saved = _verified_video_ratios(job)
+            story = apply_hero_realism(
+                story, [ratio for ratio in realism_ratios if ratio not in saved])
         return story
     except ValueError:
         return None
@@ -3164,6 +3180,9 @@ def claim(listing_id: str, payload: ClaimRequest, request: Request,
         receipts["videoWorkScope"]["heroPrintScalePolicyVersion"] = PRINT_SCALE_POLICY
         receipts["videoWorkScope"]["heroPrintScaleAspects"] = [
             ratio for ratio in required if ratio not in _verified_video_ratios(row)]
+        receipts["videoWorkScope"]["heroRealismPolicyVersion"] = HERO_REALISM_POLICY
+        receipts["videoWorkScope"]["heroRealismAspects"] = list(
+            receipts["videoWorkScope"]["heroPrintScaleAspects"])
     if _muse_dual_enabled():
         receipts["museWorkerOwner"] = _muse_identity(request)
     row.output_receipts = receipts

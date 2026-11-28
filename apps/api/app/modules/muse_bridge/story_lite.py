@@ -56,6 +56,94 @@ def apply_hero_print_scale(story: dict, ratios) -> dict:
     return story
 
 
+# Keep the size policy stable for already pinned leases. This independent,
+# versioned source-preparation instruction is adopted only on a new Lite lease.
+HERO_REALISM_POLICY = "CAM_VIDEO_HERO_REALISM_V1"
+
+
+def hero_realism_policy() -> dict:
+    return {
+        "version": HERO_REALISM_POLICY,
+        "scope": "authorized_missing_story_lite_aspect_on_new_lease",
+        "heroEditScope": "ink_only_if_reference_suitable_otherwise_rebuild_coherent_photo",
+        "preservePersonAndCameraDuringPrintResize": True,
+        "preservePrintScalePolicy": PRINT_SCALE_POLICY,
+        "framing": "full_head_to_mid_thigh_or_knees_with_headroom_and_trousers",
+        "camera": "natural_eye_to_chest_level_normal_lens_perspective",
+        "environment": "credible_everyday_scene_with_consistent_scale_depth_light_and_shadows",
+        "motion": "animate_person_only_lock_camera_background_and_anatomy",
+        "sourceCheck": [
+            "plausible adult head neck shoulders torso and limb proportions",
+            "person and environment share coherent perspective lighting and scale",
+            "full print shirt hem and meaningful trouser area visible without face enlargement",
+            "current exact artwork and compact ink box remain readable",
+        ],
+        "rejectMaterialDefects": [
+            "oversized head or face pasted onto mismatched body",
+            "compressed torso or distorted shoulders neck or limbs",
+            "implausible scene scale perspective or lighting with cutout appearance",
+            "camera zoom crop drift anatomy or background changes during motion",
+        ],
+        "preserveSavedVideos": True,
+        "additionalServerQaGate": False,
+        "heroInstructions": (
+            "Prioritize one coherent candid adult photograph over a close-up portrait. "
+            "For a suitable reference, reduce ONLY the ink box once as required by the "
+            "compact print policy; keep the same head, neck, shoulders, torso, limbs, "
+            "garment fit, camera distance, framing, perspective and background. Never "
+            "shrink the body or move the camera to make the print look smaller. If the "
+            "reference already has distorted anatomy, cutout lighting or implausible "
+            "perspective, prepare a coherent new on-body photo, not a pasted face or "
+            "head replacement. A face reference guides appearance, never head size. "
+            "Use a natural eye-to-chest-level viewpoint, normal-lens perspective "
+            "(approximately 50 mm equivalent), enough camera distance and headroom. "
+            "Frame the full head through mid-thighs or knees with visible trousers "
+            "and full shirt hem; the head must not dominate the frame. Maintain natural "
+            "individual adult proportions, believable neck and shoulders, real fabric "
+            "drape and realistic human-scale surroundings. Use a simple authentic "
+            "everyday setting with consistent depth, contact shadows and lighting on "
+            "person and scene; avoid staged symmetric streets, impossible perspective "
+            "and artificial cutout/composite appearance. Preserve exact artwork, "
+            "contrast and the 150 mm top-ink target. Check the reference once before "
+            "rendering; do not animate an unsuitable source."
+        ),
+        "motionInstructions": (
+            "Animate only the person in the exact approved hero. Keep head-to-body "
+            "proportions, garment fit, print size, camera distance, perspective, "
+            "framing, background and lighting unchanged. No zoom, body compression, "
+            "face enlargement, morphing or newly invented scene details."
+        ),
+        "qaInstructions": (
+            "Use the existing lightweight source and sampled-frame visual check. "
+            "Reject material anatomical distortion, implausible spatial scale or "
+            "lighting, and camera/background drift, even if the print is readable. "
+            "Natural body variation, expressions and blinking are not failures. "
+            "Reuse a banked native take only if visually suitable; one correction "
+            "within the existing budget, otherwise defer using the existing protocol. "
+            "No new geometry proof, measurement quota, renderer call or upload gate."
+        ),
+    }
+
+
+def apply_hero_realism(story: dict, ratios) -> dict:
+    policy = hero_realism_policy()
+    for ratio in ratios:
+        plan = story["aspectPlans"].get(ratio)
+        if not isinstance(plan, dict) or "referenceImagePrompt" not in plan:
+            continue
+        if plan.get("heroRealismPolicy", {}).get("version") == HERO_REALISM_POLICY:
+            continue
+        plan["heroRealismPolicy"] = policy
+        # Resolve the original upper-thigh framing suggestion in the new scoped
+        # reference only. The older base prompt remains byte-stable.
+        plan["referenceImagePrompt"] = plan["referenceImagePrompt"].replace(
+            "Frame head through upper thighs", "Frame full head through mid-thighs or knees", 1
+        ) + " " + policy["heroInstructions"]
+        plan["prompt"] += " " + policy["motionInstructions"]
+    story["narrativePrompt"] = story["aspectPlans"]["9:16"]["prompt"]
+    return story
+
+
 # Keep motion low-complexity and grounded in the existing source.
 # Never require a prop, another person, a location change or a hand action.
 THEME_CONTEXT = {
@@ -229,13 +317,17 @@ def worker_policy() -> dict:
         "referenceImagePromptField": "aspectPlans[].referenceImagePrompt",
         "referenceSelectionAdvisory": True,
         "heroPrintScalePolicy": hero_print_scale_policy(),
+        "heroRealismPolicy": hero_realism_policy(),
         "instructions": (
             "For a command whose videoJobClaim.creativePolicy matches this policy, "
             "POST its exact claim body. For new Lite work, reuse a visually suitable "
             "approved hero bound to the current artwork SHA and requested aspect. "
             "Check its print, garment, adult character, trousers and framing once "
             "before video generation. Follow the compact print-size guidance when "
-            "the live aspect plan carries heroPrintScalePolicy. Do not apply a newer "
+            "the live aspect plan carries heroPrintScalePolicy. When the aspect also "
+            "carries heroRealismPolicy, follow its ink-only edit, coherent anatomy, "
+            "framing and environment guidance, including the existing visual check. "
+            "Do not apply a newer "
             "policy to an already active lease lacking that marker. If unsuitable, "
             "use the separate referenceImagePrompt "
             "to prepare a corrected source, or defer if unavailable. This is source "

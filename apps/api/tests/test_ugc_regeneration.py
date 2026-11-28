@@ -272,7 +272,12 @@ def test_compact_print_only_updates_missing_hero_not_saved_receipts(setup, monke
     assert policy["oversizedReferenceLinearScalePercent"]==80
     assert policy["firstInkBelowLowerCollarTargetMm"]==150
     assert policy["physicalCalibrationVerified"] is False
-    assert plan["prompt"]==old["aspectPlans"]["16:9"]["prompt"]
+    realism=plan["heroRealismPolicy"]
+    assert realism==worker_policy()["heroRealismPolicy"]
+    assert realism["version"]=="CAM_VIDEO_HERO_REALISM_V1"
+    assert plan["prompt"]==old["aspectPlans"]["16:9"]["prompt"]+" "+realism["motionInstructions"]
+    assert "reduce ONLY the ink box once" in plan["referenceImagePrompt"]
+    assert "mid-thighs or knees" in plan["referenceImagePrompt"]
     assert "35-40%" in plan["referenceImagePrompt"]
     assert "Never repeatedly shrink" in plan["referenceImagePrompt"]
     assert job.output_receipts==before
@@ -298,6 +303,16 @@ def test_compact_print_respects_old_and_new_active_lease_scope(setup):
     assert story["aspectPlans"]["9:16"]==old["aspectPlans"]["9:16"]
     assert story["aspectPlans"]["16:9"]["heroPrintScalePolicy"]["version"]==PRINT_SCALE_POLICY
     assert story["aspectPlans"]["16:9"]["prompt"]==old["aspectPlans"]["16:9"]["prompt"]
+    assert all("heroRealismPolicy" not in p for p in story["aspectPlans"].values())
+    job.output_receipts={**job.output_receipts,
+        "videoWorkScope":{**job.output_receipts["videoWorkScope"],
+            "heroRealismPolicyVersion":"CAM_VIDEO_HERO_REALISM_V1",
+            "heroRealismAspects":["16:9"]}}
+    new=muse._story_candidate_v33(job)
+    assert new["aspectPlans"]["9:16"]==old["aspectPlans"]["9:16"]
+    assert new["aspectPlans"]["16:9"]["heroPrintScalePolicy"]==story["aspectPlans"]["16:9"]["heroPrintScalePolicy"]
+    assert new["aspectPlans"]["16:9"]["heroRealismPolicy"]["additionalServerQaGate"] is False
+    assert "Animate only the person" in new["aspectPlans"]["16:9"]["prompt"]
     remote.assert_not_awaited()
 
 
@@ -306,5 +321,6 @@ def test_compact_print_preserves_completed_story(setup):
     pin_lite(db,job)
     story=muse._story_candidate_v33(job)
     assert all("heroPrintScalePolicy" not in p for p in story["aspectPlans"].values())
+    assert all("heroRealismPolicy" not in p for p in story["aspectPlans"].values())
     assert muse._verified_video_ratios(job)==set(RATIOS)
     remote.assert_not_awaited()

@@ -252,6 +252,8 @@ class AtomicClaimTests(TestCase):
         claim=command.json()["videoJobClaim"]
         before=claim["storySpecV33"]["aspectPlans"]["9:16"]
         self.assertIn("referenceImagePrompt",before)
+        self.assertEqual(before["heroRealismPolicy"]["version"],"CAM_VIDEO_HERO_REALISM_V1")
+        self.assertEqual(before["heroPrintScalePolicy"]["oversizedReferenceLinearScalePercent"],80)
         self.assertEqual(claim["body"]["storyOutputContract"],m.LITE_OUTPUT)
         response=self.video_claim(claim["body"])
         self.assert_video_response(response)
@@ -262,7 +264,10 @@ class AtomicClaimTests(TestCase):
         self.assertFalse(video["heroUploadRequired"])
         with Session(self.engine) as db:
             row=db.get(J,(TENANT,LID))
-            self.assertTrue(row.output_receipts["videoWorkScope"]["referenceFirst"])
+            scope=row.output_receipts["videoWorkScope"]
+            self.assertTrue(scope["referenceFirst"])
+            self.assertEqual(scope["heroRealismPolicyVersion"],"CAM_VIDEO_HERO_REALISM_V1")
+            self.assertEqual(scope["heroRealismAspects"],["9:16"])
         recovered=self.client.get(PREFIX+"/jobs/"+LID+"/story-contract?aspect=vertical",
                                   headers=self.headers())
         self.assertEqual(recovered.status_code,200,recovered.text)
