@@ -150,3 +150,62 @@ def test_readback_permission_tenant_and_payload(scenario):
     assert client.post(REPORT,json=data).status_code==404
     assert client.get(AUDIT).json()["items"]==[]
     assert db.scalars(select(AuthAuditEventModel)).all()==[]
+
+def test_stage_is_tenant_scoped_manage_only_and_excludes_recorded(scenario, tmp_path, monkeypatch):
+    from app.modules.etsy_spy import sms_sync_stage as stage
+    import json
+    client, db, principal = scenario
+    monkeypatch.setattr(stage, "ROOT", tmp_path)
+    candidate = client.get(PREFLIGHT).json()["sms_sync_v2"]["candidate_id"]
+    data = payload(candidate)
+    stage.stage_path(TENANT).write_text(json.dumps({
+        "schema": stage.SCHEMA, "tenant_id": TENANT, "shop": SHOP,
+        "observed_at": "2026-11-28T03:08:21Z", "receipts": [data],
+        "held": [{"etsy_id":"4321886411","state":"SMS_DAILY_LIMIT"}],
+        "quota":{"state":"SMS_DAILY_LIMIT","limit":20,"reset_at":None,
+                 "observed_at":"2026-11-28T03:08:21Z"}
+    }))
+    result = client.get(BASE + "/sms-sync-stage")
+    assert result.status_code == 200 and result.headers["cache-control"] == "private, no-store"
+    body = result.json()
+    assert body["sms_observed_count"] == 1 and body["pending_count"] == 1
+    assert body["recorded_count"] == 0 and body["held_count"] == 1
+    assert body["receipts"] == [data] and body["live_sms_verified_by_cam"] is False
+    assert db.scalars(select(AuthAuditEventModel)).all() == []
+    principal.effective_permissions = frozenset({"etsy_spy.read"})
+    assert client.get(BASE + "/sms-sync-stage").status_code == 403
+    principal.effective_permissions = frozenset({"etsy_spy.read","etsy_spy.manage"})
+    principal.active_tenant_id = "other-tenant"
+    assert client.get(BASE + "/sms-sync-stage").json()["state"] == "not_prepared"
+    principal.active_tenant_id = TENANT
+    assert client.post(REPORT,json=data).status_code == 200
+    body = client.get(BASE + "/sms-sync-stage").json()
+    assert body["recorded_count"] == 1 and body["pending_count"] == 0
+    assert body["receipts"] == []
+    saved = db.get(EtsySpyPicked,(TENANT,KEY))
+    old = dict(saved.listing_idea_draft[RECEIPT_KEY])
+    old["idea_code"] = "I999"
+    saved.listing_idea_draft = {RECEIPT_KEY:old}
+    db.commit()
+    body = client.get(BASE + "/sms-sync-stage").json()
+    assert body["review_count"] == 1 and body["receipts"] == []
+
+
+def test_invalid_stage_fails_closed(scenario, tmp_path, monkeypatch):
+    from app.modules.etsy_spy import sms_sync_stage as stage
+    import json
+    client, db, principal = scenario
+    monkeypatch.setattr(stage,"ROOT",tmp_path)
+    candidate = client.get(PREFLIGHT).json()["sms_sync_v2"]["candidate_id"]
+    data = payload(candidate)
+    doc = {"schema":stage.SCHEMA,"tenant_id":TENANT,"shop":SHOP,
+           "observed_at":"2026-11-28T03:08:21Z","receipts":[data],
+           "held":[],"quota":{"state":"UNKNOWN"}}
+    for bad in [{"tenant_id":"other-tenant"},{"receipts":[data,data]},
+                {"receipts":[{**data,"vertical_field_url":"https://evil.test/file"}]},
+                {"receipts":[{**data,"reference_images":True}]},
+                {"held":[{"etsy_id":KEY,"state":"SMS_DAILY_LIMIT"}]},
+                {"quota":{"state":"SMS_DAILY_LIMIT","limit":20,"reset_at":"2026-11-29T00:00:00Z"}}]:
+        stage.stage_path(TENANT).write_text(json.dumps(doc | bad))
+        assert client.get(BASE+"/sms-sync-stage").status_code==503
+    assert db.scalars(select(AuthAuditEventModel)).all()==[]

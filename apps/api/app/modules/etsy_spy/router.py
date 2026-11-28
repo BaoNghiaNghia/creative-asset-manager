@@ -1701,6 +1701,25 @@ def listing_media_audit(response: Response, after: str | None = Query(None),
             "next_after": picked_rows[limit - 1].listing_key if len(picked_rows) > limit else None}
 
 
+@router.get("/sms-sync-stage")
+def sms_sync_stage(response: Response, principal: CurrentPrincipal = Depends(MANAGE),
+                   db: Session = Depends(get_db)):
+    """Read operator evidence for this tenant only; no SMS, Drive or CAM writes."""
+    from .sms_sync_stage import load_stage, project_stage
+    response.headers["Cache-Control"] = "private, no-store"
+    tenant = principal.active_tenant_id
+    try:
+        stage = load_stage(tenant)
+    except (OSError, ValueError, TypeError, RecursionError):
+        raise HTTPException(503, "SMS stage unavailable") from None
+    if stage is None:
+        return project_stage(None, {})
+    keys = [row["etsy_id"] for row in stage["receipts"]]
+    records = db.execute(select(Picked.listing_key, Picked.listing_idea_draft).where(
+        Picked.tenant_id == tenant, Picked.listing_key.in_(keys))).all()
+    return project_stage(stage, dict(records))
+
+
 @router.post("/listings/{listing_key}/sms-sync-readback")
 async def report_sms_sync_readback(listing_key: str, request: Request, response: Response,
                                    principal: CurrentPrincipal = Depends(MANAGE),
