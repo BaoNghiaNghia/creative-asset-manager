@@ -127,6 +127,9 @@ def skill_registry(response: Response, identity: Identity, db: Database):
     return {**_registry(), **candidate, **_gate(identity, db),
             **({"protocol":candidate["protocol"]} if candidate else {}),
             "skillProtocol":p.PROTOCOL,
+            "registryAudience":"dedicated_image_worker" if candidate else "legacy_worker",
+            "nativeOutputAspectRatio":"1:1",
+            "nativeOutputMinimumSquarePx":p.PILOT_MIN_NATIVE,
             "registryStatus": "candidate",
             "paletteVerified": False,
             "printBoxAuthority": "CAM_PRINT_BOX_SINGLE_AUTHORITY_V1",
@@ -168,9 +171,11 @@ async def image_runtime_preflight(response: Response,identity: Identity,db: Data
                                   artworkSha256: Annotated[str,Query(pattern=r"^[a-f0-9]{64}$")]):
     _no_cache(response)
     _require_candidate_reader(db,identity)
-    from .live_preflight import preflight
+    from .live_preflight import preflight,PreflightIncomplete
     try:
         return await preflight(db,identity.tenant,listing_id,artworkSha256)
+    except PreflightIncomplete as exc:
+        raise HTTPException(503,exc.detail,headers={"Cache-Control":"private, no-store"}) from None
     except HTTPException:
         raise
     except p.Conflict as exc:

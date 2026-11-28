@@ -89,6 +89,22 @@ class ReadApiTests(unittest.TestCase):
         self.assertEqual(data["nativePilotMinimumPx"],1600)
         self.assertEqual(data["publicationMinimumPx"],2000)
 
+    def test_dedicated_registry_has_v61_pins_even_before_activation(self):
+        from app.modules.image_orchestrator.adaptive_v61 import REGISTRY,BUNDLE_SHA256,PROTOCOL
+        self.principal=ImageIdentity(TENANT,"muse-image-01","muse")
+        r=self.client.get(PREFIX+"/skill-registry")
+        self.assertEqual(r.status_code,200)
+        data=r.json()
+        self.assertEqual(data["workerId"],"muse-image-01")
+        self.assertEqual(data["registryAudience"],"dedicated_image_worker")
+        self.assertEqual(data["protocol"],PROTOCOL)
+        self.assertEqual(data["batchPlannerSha256"],REGISTRY["batchPlannerSha256"])
+        self.assertEqual(data["bundleSha256"],BUNDLE_SHA256)
+        self.assertEqual(data["nativeOutputAspectRatio"],"1:1")
+        self.assertEqual(data["nativeOutputMinimumSquarePx"],1600)
+        self.assertFalse(data["imageClaimAllowed"])
+        self.assertFalse(data["rendererAllowed"])
+
     def test_disabled_discovery_not_queue_empty(self):
         r=self.client.get(PREFIX+"/image-commands")
         self.assertEqual(r.status_code,200)
