@@ -126,6 +126,33 @@ def skill_registry(response: Response, identity: Identity, db: Database):
             "leaseSeconds": p.LEASE_SECONDS, "heartbeatSeconds": p.HEARTBEAT_SECONDS}
 
 
+def _require_candidate_reader(db,identity):
+    if identity.kind!="muse" or identity.worker!="muse-image-01":
+        raise HTTPException(403,"dedicated_image_worker_required")
+    if not schema_evidence(db)["centralSchemaReady"]:
+        raise HTTPException(503,"image_central_schema_unverified")
+
+
+@router.get("/image-candidates")
+def image_candidates(response: Response, identity: Identity, db: Database,
+                     after: Annotated[str,Query(pattern=r"^([0-9]{5,20})?$")]="",
+                     limit: Annotated[int,Query(ge=1,le=100)]=50):
+    _no_cache(response)
+    _require_candidate_reader(db,identity)
+    from .candidate_discovery import discover
+    return discover(db,identity.tenant,after,limit)
+
+
+@router.get("/jobs/{listing_id}/image-source-proof")
+async def image_source_proof(response: Response,identity: Identity,db: Database,
+                            listing_id: ListingId,
+                            artworkSha256: Annotated[str,Query(pattern=r"^[a-f0-9]{64}$")]):
+    _no_cache(response)
+    _require_candidate_reader(db,identity)
+    from .candidate_discovery import verify_original
+    return await verify_original(db,identity.tenant,listing_id,artworkSha256)
+
+
 @router.get("/image-commands")
 def image_commands(response: Response, identity: Identity, db: Database,
                    limit: Annotated[int, Query(ge=1, le=20)] = 20):
