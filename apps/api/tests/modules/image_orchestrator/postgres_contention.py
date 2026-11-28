@@ -45,15 +45,15 @@ def migrate():
         assert not inspect(conn).get_table_names(), "test database must be empty"
         assert conn.scalar(text("SHOW server_version_num")).isdigit()
         root=next(x for x in Path(__file__).resolve().parents
-                  if (x/"database/migrations/versions/0217_cam_image_orchestrator.py").is_file())
-        for filename in ("0217_cam_image_orchestrator.py","0218_cam_image_commands.py","0219_cam_image_approvals.py"):
+                  if (x/"database/migrations/versions/0218_cam_image_orchestrator.py").is_file())
+        for filename in ("0218_cam_image_orchestrator.py","0219_cam_image_commands.py","0220_cam_image_approvals.py","0221_cam_image_qa_record_submissions.py"):
             spec=importlib.util.spec_from_file_location(filename,root/"database/migrations/versions"/filename)
             mod=importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
             with Operations.context(MigrationContext.configure(conn)):
                 mod.upgrade()
-        assert len(inspect(conn).get_table_names())==10
-    print("PostgreSQL disposable database: migrations 0217 -> 0219 applied",flush=True)
+        assert len(inspect(conn).get_table_names())==11
+    print("PostgreSQL disposable database: migrations 0218 -> 0221 applied",flush=True)
 
 
 class ContentionTests(unittest.TestCase):

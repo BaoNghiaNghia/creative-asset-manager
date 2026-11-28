@@ -13,8 +13,8 @@ from sqlalchemy.engine import URL
 from alembic.config import Config
 from alembic import command
 
-SOURCE = "0216_etsy_listing_idea_draft"
-TARGET = "0219_cam_image_approvals"
+SOURCE = "0217_listing_image_sms_color"
+TARGET = "0221_cam_image_qa_records"
 DB = "cam_p2c_isolated"
 USER = "cam_p2c_test"
 EXPECTED = {
@@ -22,6 +22,7 @@ EXPECTED = {
     "cam_image_roles", "cam_image_commands", "cam_image_capability_states",
     "cam_image_upload_intents", "cam_render_resources",
     "cam_image_plan_approvals", "cam_image_qa_approvals",
+    "cam_image_qa_record_submissions",
 }
 
 def schema(conn):

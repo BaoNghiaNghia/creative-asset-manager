@@ -1,13 +1,13 @@
 """Separate trusted image plan and saved-PNG review evidence.
 
-Revision ID: 0219_cam_image_approvals
-Revises: 0218_cam_image_commands
+Revision ID: 0220_cam_image_approvals
+Revises: 0219_cam_image_commands
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision="0219_cam_image_approvals"
-down_revision="0218_cam_image_commands"
+revision="0220_cam_image_approvals"
+down_revision="0219_cam_image_commands"
 branch_labels=None
 depends_on=None
 

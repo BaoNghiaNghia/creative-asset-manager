@@ -17,8 +17,8 @@ HOST = "127.0.0.1"
 PORT = 55432
 DB = "cam_restore_rehearsal_p2d_20261126"
 ROLE = "cam_rehearsal_user"
-SOURCE = "0216_etsy_listing_idea_draft"
-TARGET = "0219_cam_image_approvals"
+SOURCE = "0217_listing_image_sms_color"
+TARGET = "0221_cam_image_qa_records"
 ROOT = Path(__file__).resolve().parents[2]
 PROTECTED = frozenset({
     "tenants", "processing_jobs", "etsy_spy_picked",
@@ -31,6 +31,7 @@ NEW = frozenset({
     "cam_image_roles", "cam_image_commands", "cam_image_capability_states",
     "cam_image_upload_intents", "cam_render_resources",
     "cam_image_plan_approvals", "cam_image_qa_approvals",
+    "cam_image_qa_record_submissions",
 })
 
 

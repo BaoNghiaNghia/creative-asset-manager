@@ -1,13 +1,13 @@
 """Persist exact V6.1 QA submissions independently of trusted approval.
 
-Revision ID: 0220_cam_image_qa_records
-Revises: 0219_cam_image_approvals
+Revision ID: 0221_cam_image_qa_records
+Revises: 0220_cam_image_approvals
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision="0220_cam_image_qa_records"
-down_revision="0219_cam_image_approvals"
+revision="0221_cam_image_qa_records"
+down_revision="0220_cam_image_approvals"
 branch_labels=None
 depends_on=None
 

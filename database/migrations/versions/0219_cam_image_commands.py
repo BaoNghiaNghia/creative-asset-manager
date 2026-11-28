@@ -1,13 +1,13 @@
 """Independent image commands, capability policy and upload intent journal.
 
-Revision ID: 0218_cam_image_commands
-Revises: 0217_cam_image_orchestrator
+Revision ID: 0219_cam_image_commands
+Revises: 0218_cam_image_orchestrator
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0218_cam_image_commands"
-down_revision = "0217_cam_image_orchestrator"
+revision = "0219_cam_image_commands"
+down_revision = "0218_cam_image_orchestrator"
 branch_labels = None
 depends_on = None
 

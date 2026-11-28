@@ -1,15 +1,15 @@
 """Add isolated CAM image state and shared renderer fence.
 
-Revision ID: 0217_cam_image_orchestrator
-Revises: 0216_etsy_listing_idea_draft
+Revision ID: 0218_cam_image_orchestrator
+Revises: 0217_listing_image_sms_color
 
 Additive only. No existing image or video data is altered.
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0217_cam_image_orchestrator"
-down_revision = "0216_etsy_listing_idea_draft"
+revision = "0218_cam_image_orchestrator"
+down_revision = "0217_listing_image_sms_color"
 branch_labels = None
 depends_on = None
 

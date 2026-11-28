@@ -212,9 +212,9 @@ class MigrationTests(unittest.TestCase):
         from alembic.migration import MigrationContext
         from alembic.operations import Operations
         root=Path(__file__).resolve()
-        migration=next((x/"database/migrations/versions/0217_cam_image_orchestrator.py"
+        migration=next((x/"database/migrations/versions/0218_cam_image_orchestrator.py"
                         for x in root.parents
-                        if (x/"database/migrations/versions/0217_cam_image_orchestrator.py").is_file()),None)
+                        if (x/"database/migrations/versions/0218_cam_image_orchestrator.py").is_file()),None)
         self.assertIsNotNone(migration)
         spec=importlib.util.spec_from_file_location("p1_migration",migration)
         mod=importlib.util.module_from_spec(spec)
@@ -223,16 +223,21 @@ class MigrationTests(unittest.TestCase):
         with db.begin() as connection, Operations.context(MigrationContext.configure(connection)):
             mod.upgrade()
             from app.modules.image_orchestrator.model import ImageCommand, ImageCapabilityState, ImageUploadIntent
-            m2spec=importlib.util.spec_from_file_location('p2_migration', migration.with_name('0218_cam_image_commands.py'))
+            m2spec=importlib.util.spec_from_file_location('p2_migration', migration.with_name('0219_cam_image_commands.py'))
             mod2=importlib.util.module_from_spec(m2spec)
             m2spec.loader.exec_module(mod2)
             mod2.upgrade()
             from app.modules.image_orchestrator.model import ImagePlanApproval,ImageQAApproval
-            m3spec=importlib.util.spec_from_file_location('p3_migration',migration.with_name('0219_cam_image_approvals.py'))
+            m3spec=importlib.util.spec_from_file_location('p3_migration',migration.with_name('0220_cam_image_approvals.py'))
             mod3=importlib.util.module_from_spec(m3spec)
             m3spec.loader.exec_module(mod3)
             mod3.upgrade()
-            tables=TABLES+[ImageCommand.__table__,ImageCapabilityState.__table__,ImageUploadIntent.__table__,ImagePlanApproval.__table__,ImageQAApproval.__table__]
+            from app.modules.image_orchestrator.qa_submission import ImageQARecordSubmission
+            m4spec=importlib.util.spec_from_file_location('p4_migration',migration.with_name('0221_cam_image_qa_record_submissions.py'))
+            mod4=importlib.util.module_from_spec(m4spec)
+            m4spec.loader.exec_module(mod4)
+            mod4.upgrade()
+            tables=TABLES+[ImageQARecordSubmission.__table__,ImageCommand.__table__,ImageCapabilityState.__table__,ImageUploadIntent.__table__,ImagePlanApproval.__table__,ImageQAApproval.__table__]
             inspector=inspect(connection)
             self.assertEqual(set(inspector.get_table_names()),{t.name for t in tables})
             for table in tables:
@@ -240,6 +245,7 @@ class MigrationTests(unittest.TestCase):
                                  {c.name for c in table.columns})
                 self.assertEqual(set(inspector.get_pk_constraint(table.name)["constrained_columns"]),
                                  {c.name for c in table.primary_key.columns})
+            mod4.downgrade()
             mod3.downgrade()
             connection.execute(ImageCapabilityState.__table__.insert().values(tenant_id=TENANT,worker_id='test',skill_sha256=p.SKILL_SHA256,resource_id='test'))
             with self.assertRaisesRegex(RuntimeError,'Refusing'):
