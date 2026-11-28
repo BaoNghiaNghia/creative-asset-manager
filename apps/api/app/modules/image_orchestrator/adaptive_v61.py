@@ -22,19 +22,21 @@ from .write_api import (Backend, CommandQuery, ListingPath, PackHeader, SkuHeade
                         perform, service, scope, now, private, check_token)
 
 PROTOCOL = "CAM_MUSE_IMAGE_ADAPTIVE_BATCH_V6_1"
-BUNDLE_SHA256 = "5095e32e2e84f201fc9a81a569b6c91d841bf8d3abe5ab93a2e0d1b1fb33501e"
+BUNDLE_SHA256 = "a6f9720fa88426d2af9f69d434cc3634fef8051f864161c0ecb3bd3aa33dd950"
 REGISTRY = {
-    # Exact uploaded 226905-byte recovery ZIP inspected by CAM, CRC valid,
+    # Exact uploaded 230951-byte command-claim ZIP inspected by CAM, CRC valid,
     # 55 entries, 53/53 manifest payloads and external manifest match.
     "bundlePinEvidence": "CAM_VERIFIED_ZIP_MANIFEST_20261128",
     "bundleBytesVerifiedByCAM": True,
     "localRejectionProtocol": "CAM_IMAGE_LOCAL_REJECT_V1",
-    "bundleReportedBytes": 226905,
-    "recoveryStateSha256": "e599598da0fd95ab94ac838fab8291215af2bff0e1ac9349c58d40a9968a9c24",
+    "bundleReportedBytes": 230951,
+    "bundleManifestSha256": "9959176449ecf2fda82b38bbf4203bef6256785201be9b2febeb4270963a355c",
+    "bundleRegistrySha256": "dee1a39c8cb4e5f87fe0975cde92cd60f5ec3b68cd56a16b76b9251798fed2e7",
+    "recoveryStateSha256": "3ad88a83ee0c6729263244e9307a3618e7e780f6391540ebe6d74862005cfd69",
     "previewCanaryStoragePolicy": "CENTRAL_RECEIPTS_ONLY_NO_GALLERY_V1",
     "adaptiveBatchPolicy": PROTOCOL, "batchPlannerVersion": PROTOCOL,
     "batchPlannerSha256": "c43aee9c096c9fce9dd2a7be2d6cbc66f1eb812de0fb3680ab38144ada61d16c",
-    "packRunnerSha256": "e35d253e9dc042a4d0d8860e4775120418e51ee4cc175bcb4e166d7749d63b42",
+    "packRunnerSha256": "b401021cb5a22da487ae6b77bf5b29798ab05747fd915ebc72a01c3ab1f8dd6f",
     "nativeRunnerVersion": "CAM_MUSE_IMAGE_NATIVE_V1",
     "nativeRunnerSha256": "432602ca6b582294cdb804e7cfaeac7e9f30d57754e673c0259ce4ff3dc77de5",
     "nativePromptTemplateSha256": "455ee7cdc86e6bcbe62e4a68baad566908b98082bfce486f178c1303269db8df",
