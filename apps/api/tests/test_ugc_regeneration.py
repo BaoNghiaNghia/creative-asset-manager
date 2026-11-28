@@ -249,3 +249,62 @@ def test_tenant_scope(setup):
         asyncio.run(regen.regenerate(db,"wrong-tenant",LID,SHAS))
     assert exc.value.status_code==404
     remote.assert_not_awaited()
+
+
+def test_compact_print_only_updates_missing_hero_not_saved_receipts(setup, monkeypatch):
+    monkeypatch.setattr(muse, "smart_queue_enabled", lambda: True)
+    from copy import deepcopy
+    from app.modules.muse_bridge.story_lite import PRINT_SCALE_POLICY, worker_policy
+    db,job,remote=setup
+    pin_lite(db,job)
+    old=muse._story_candidate_v33(job)
+    job.status="pending"
+    job.output_receipts={**job.output_receipts,
+        "drive_uploads":{"9:16":job.output_receipts["drive_uploads"]["9:16"]}}
+    before=deepcopy(job.output_receipts)
+    story=muse._story_candidate_v33(job)
+    assert story["aspectPlans"]["9:16"]==old["aspectPlans"]["9:16"]
+    plan=story["aspectPlans"]["16:9"]
+    policy=plan["heroPrintScalePolicy"]
+    assert policy==worker_policy()["heroPrintScalePolicy"]
+    assert policy["version"]==PRINT_SCALE_POLICY
+    assert policy["targetWidthPercentOfShirtFront"]==[35,40]
+    assert policy["oversizedReferenceLinearScalePercent"]==80
+    assert policy["firstInkBelowLowerCollarTargetMm"]==150
+    assert policy["physicalCalibrationVerified"] is False
+    assert plan["prompt"]==old["aspectPlans"]["16:9"]["prompt"]
+    assert "35-40%" in plan["referenceImagePrompt"]
+    assert "Never repeatedly shrink" in plan["referenceImagePrompt"]
+    assert job.output_receipts==before
+    remote.assert_not_awaited()
+
+
+def test_compact_print_respects_old_and_new_active_lease_scope(setup):
+    from datetime import timedelta
+    from app.modules.muse_bridge.story_lite import PRINT_SCALE_POLICY
+    db,job,remote=setup
+    pin_lite(db,job)
+    job.status="claimed"
+    job.lease_expires_at=muse._utc()+timedelta(minutes=10)
+    job.output_receipts={**job.output_receipts,"drive_uploads":{},
+        "videoWorkScope":{"referenceFirst":True,"requiredVideoAspectRatios":["16:9"]}}
+    old=muse._story_candidate_v33(job)
+    assert all("heroPrintScalePolicy" not in p for p in old["aspectPlans"].values())
+    job.output_receipts={**job.output_receipts,
+        "videoWorkScope":{**job.output_receipts["videoWorkScope"],
+            "heroPrintScalePolicyVersion":PRINT_SCALE_POLICY,
+            "heroPrintScaleAspects":["16:9"]}}
+    story=muse._story_candidate_v33(job)
+    assert story["aspectPlans"]["9:16"]==old["aspectPlans"]["9:16"]
+    assert story["aspectPlans"]["16:9"]["heroPrintScalePolicy"]["version"]==PRINT_SCALE_POLICY
+    assert story["aspectPlans"]["16:9"]["prompt"]==old["aspectPlans"]["16:9"]["prompt"]
+    remote.assert_not_awaited()
+
+
+def test_compact_print_preserves_completed_story(setup):
+    db,job,remote=setup
+    pin_lite(db,job)
+    story=muse._story_candidate_v33(job)
+    assert all("heroPrintScalePolicy" not in p for p in story["aspectPlans"].values())
+    assert muse._verified_video_ratios(job)==set(RATIOS)
+    remote.assert_not_awaited()

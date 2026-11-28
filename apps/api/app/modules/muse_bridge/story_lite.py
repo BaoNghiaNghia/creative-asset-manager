@@ -10,6 +10,52 @@ LITE_SOURCE = "CAM_STORY_CHARACTER_SOURCE_V1"
 LITE_TARGET_SECONDS = 6
 LITE_DURATION_BOUNDS = (5.0, 12.5)
 
+# Video hero preparation only. A visual size target, not a millimeter proof,
+# a change to the Native Master, or an additional server-side upload gate.
+PRINT_SCALE_POLICY = "CAM_VIDEO_COMPACT_PRINT_V1"
+
+def hero_print_scale_policy() -> dict:
+    return {
+        "version": PRINT_SCALE_POLICY,
+        "scope": "new_or_unsuitable_hero_for_authorized_missing_story_lite_aspect",
+        "targetWidthPercentOfShirtFront": [35, 40],
+        "maxHeightPercentOfCollarToHem": 40,
+        "oversizedReferenceLinearScalePercent": 80,
+        "firstInkBelowLowerCollarTargetMm": 150,
+        "preserveArtworkAspectRatio": True,
+        "physicalCalibrationVerified": False,
+        "preserveSavedVideos": True,
+        "preserveBankedValidNativeMp4": True,
+        "instructions": (
+            "For a newly needed hero only, use a compact natural front-center print. "
+            "Aim for ink width 35-40% of the shirt body width at chest level, "
+            "excluding sleeves; cap ink height at about 40% of collar-to-hem length. "
+            "If a reference is oversized, reduce its ink dimensions to approximately "
+            "80% once, or further as needed to fit the target. Never repeatedly shrink. "
+            "Do not enlarge an intentionally smaller print or exceed an approved "
+            "smaller print box. Preserve the exact Native Master ink, aspect ratio, "
+            "layout, distress and colors. Top ink approximately 150 mm below the "
+            "lower collar rib. Leave generous side and hem clearance. Maintain "
+            "readable contrast and realistic fabric integration; no flat overlay. "
+            "Use visual estimates, not claimed calibrated measurements. Reuse an "
+            "existing suitable hero or valid banked native take. Never re-render "
+            "a saved video or interrupt an active lease to apply this policy."
+        ),
+    }
+
+
+def apply_hero_print_scale(story: dict, ratios) -> dict:
+    """Append the compact visual instruction to selected missing hero plans."""
+    policy = hero_print_scale_policy()
+    for ratio in ratios:
+        plan = story["aspectPlans"].get(ratio)
+        if not isinstance(plan, dict) or "referenceImagePrompt" not in plan:
+            continue
+        plan["heroPrintScalePolicy"] = policy
+        plan["referenceImagePrompt"] += " " + policy["instructions"]
+    return story
+
+
 # Keep motion low-complexity and grounded in the existing source.
 # Never require a prop, another person, a location change or a hand action.
 THEME_CONTEXT = {
@@ -182,12 +228,16 @@ def worker_policy() -> dict:
         "contentQaAfterUpload": "pending_review_not_pass",
         "referenceImagePromptField": "aspectPlans[].referenceImagePrompt",
         "referenceSelectionAdvisory": True,
+        "heroPrintScalePolicy": hero_print_scale_policy(),
         "instructions": (
             "For a command whose videoJobClaim.creativePolicy matches this policy, "
             "POST its exact claim body. For new Lite work, reuse a visually suitable "
             "approved hero bound to the current artwork SHA and requested aspect. "
             "Check its print, garment, adult character, trousers and framing once "
-            "before video generation. If unsuitable, use the separate referenceImagePrompt "
+            "before video generation. Follow the compact print-size guidance when "
+            "the live aspect plan carries heroPrintScalePolicy. Do not apply a newer "
+            "policy to an already active lease lacking that marker. If unsuitable, "
+            "use the separate referenceImagePrompt "
             "to prepare a corrected source, or defer if unavailable. This is source "
             "preparation, not a new CAM proof or QA gate. Send only the aspect motion "
             "prompt and exact hero to the renderer; do not append listing titles, "

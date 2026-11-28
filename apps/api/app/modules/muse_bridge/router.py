@@ -308,6 +308,7 @@ class SyncRequest(BaseModel):
 from .story_lite import (
     LITE_POLICY, LITE_OUTPUT, LITE_SOURCE, LITE_TARGET_SECONDS,
     LITE_DURATION_BOUNDS, lite_story_spec, worker_policy as lite_worker_policy,
+    PRINT_SCALE_POLICY, apply_hero_print_scale,
 )
 
 
@@ -614,6 +615,21 @@ def _story_candidate_v33(job) -> dict | None:
         if receipts.get("heroRepairByAspect"):
             from .regeneration import apply_hero_repairs
             story = apply_hero_repairs(story, job)
+        # Compact print is a prospective, aspect-scoped hero preparation
+        # instruction. Old active leases remain exactly as contracted.
+        if active:
+            compact_ratios = (scope.get("heroPrintScaleAspects", [])
+                              if isinstance(scope, dict)
+                              and scope.get("heroPrintScalePolicyVersion") == PRINT_SCALE_POLICY
+                              else [])
+        elif job.status in ("pending", "claimed"):
+            compact_ratios = _job_required_aspects(job)
+        else:
+            compact_ratios = []
+        if reference_first and compact_ratios:
+            saved = _verified_video_ratios(job)
+            story = apply_hero_print_scale(
+                story, [ratio for ratio in compact_ratios if ratio not in saved])
         return story
     except ValueError:
         return None
@@ -3145,6 +3161,9 @@ def claim(listing_id: str, payload: ClaimRequest, request: Request,
         receipts["videoWorkScope"]["commandClaimAttempt"] = existing.attempts
     if _story_lite_pin(_pinned_story_v33(row)):
         receipts["videoWorkScope"]["referenceFirst"] = True
+        receipts["videoWorkScope"]["heroPrintScalePolicyVersion"] = PRINT_SCALE_POLICY
+        receipts["videoWorkScope"]["heroPrintScaleAspects"] = [
+            ratio for ratio in required if ratio not in _verified_video_ratios(row)]
     if _muse_dual_enabled():
         receipts["museWorkerOwner"] = _muse_identity(request)
     row.output_receipts = receipts
