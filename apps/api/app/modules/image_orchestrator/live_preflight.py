@@ -6,6 +6,9 @@ import hashlib
 import io
 import logging
 import re
+import math
+from datetime import datetime,timezone
+from collections import Counter
 from PIL import Image
 from pydantic import BaseModel,ConfigDict,StrictBool
 from sqlalchemy import select
@@ -40,9 +43,36 @@ def failure_metadata(exc):
         code="upstream_http_error"
     if code is None:
         code="internal_runtime_error"
-    return {"failureCode":code,
+    result={"failureCode":code,
         "failureType":type(exc).__name__,
         "upstreamStatus":status if type(status) is int and 400<=status<=599 else None}
+    if isinstance(exc,AiProviderError):
+        result["retryable"]=exc.retryable is True
+        retry=getattr(exc,"earliest_retry_at",None)
+        if isinstance(retry,datetime) and retry.tzinfo is not None and retry.utcoffset() is not None:
+            result["retryAtUtc"]=retry.astimezone(timezone.utc).isoformat()
+        from app.providers.ai.gemini import GeminiPoolTemporarilyUnavailable
+        if isinstance(exc,GeminiPoolTemporarilyUnavailable):
+            reasons={"project_rpd_exhausted","rpd_exhausted","rpm_exhausted",
+                     "tpm_exhausted","cooldown","in_flight","blocked"}
+            result["poolReasonCounts"]=dict(Counter(
+                entry.reason if entry.reason in reasons else "other"
+                for entry in exc.reasons_by_model.values()))
+    return result
+
+
+def retry_headers(detail):
+    headers={"Cache-Control":"private, no-store"}
+    value=detail.get("retryAtUtc")
+    if isinstance(value,str):
+        try:
+            until=datetime.fromisoformat(value)
+            if until.tzinfo is not None and until.utcoffset() is not None:
+                seconds=math.ceil((until-datetime.now(timezone.utc)).total_seconds())
+                headers["Retry-After"]=str(max(1,seconds))
+        except (ValueError,TypeError,OverflowError):
+            pass
+    return headers
 
 
 class PreflightIncomplete(RuntimeError):

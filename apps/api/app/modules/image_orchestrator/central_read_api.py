@@ -171,11 +171,11 @@ async def image_runtime_preflight(response: Response,identity: Identity,db: Data
                                   artworkSha256: Annotated[str,Query(pattern=r"^[a-f0-9]{64}$")]):
     _no_cache(response)
     _require_candidate_reader(db,identity)
-    from .live_preflight import preflight,PreflightIncomplete
+    from .live_preflight import preflight,PreflightIncomplete,retry_headers
     try:
         return await preflight(db,identity.tenant,listing_id,artworkSha256)
     except PreflightIncomplete as exc:
-        raise HTTPException(503,exc.detail,headers={"Cache-Control":"private, no-store"}) from None
+        raise HTTPException(503,exc.detail,headers=retry_headers(exc.detail)) from None
     except HTTPException:
         raise
     except p.Conflict as exc:

@@ -22,19 +22,24 @@ from .write_api import (Backend, CommandQuery, ListingPath, PackHeader, SkuHeade
                         perform, service, scope, now, private, check_token)
 
 PROTOCOL = "CAM_MUSE_IMAGE_ADAPTIVE_BATCH_V6_1"
-BUNDLE_SHA256 = "3e597b830f29f4fec6762f4d9f6ebd1d251baffa5b608a186297b5ab65c9fb88"
+BUNDLE_SHA256 = "22133be6ce727ed001d266926a78344594f7fe093d11cb5139970a6a8364791a"
 REGISTRY = {
+    # Execution report 2026-11-28: candidate pins are reported by Muse.
+    # The updated ZIP itself has not yet been independently inspected by CAM.
+    "bundlePinEvidence": "MUSE_REPORTED_MANIFEST_20261128",
+    "bundleBytesVerifiedByCAM": False,
+    "bundleReportedBytes": 200956,
     "adaptiveBatchPolicy": PROTOCOL, "batchPlannerVersion": PROTOCOL,
     "batchPlannerSha256": "f722928c8ad62edb62cc5812fb964eb8b3627a34e7c1ff23a50acb5af179ee4c",
-    "packRunnerSha256": "16bc0b2e77e1601fca248ac2d27923323c316e5d884c0180ad2ca4862dd565e6",
+    "packRunnerSha256": "fc362f49dd388431da90eb705a65cc093c7e57f15f6b3f25326ff473cee30919",
     "nativeRunnerVersion": "CAM_MUSE_IMAGE_NATIVE_V1",
-    "nativeRunnerSha256": "2599fd34b34d25c6dbee7d8991d805b6dd1a169b897e059621035f4bb2395b6a",
+    "nativeRunnerSha256": "84c3ab466572f3a16682ff73a4e3ce69fe048a3144efff10fd3e5a9309d524b1",
     "nativePromptTemplateSha256": "455ee7cdc86e6bcbe62e4a68baad566908b98082bfce486f178c1303269db8df",
     "clientSha256": "1b4f3c73c8343929e8f057adaa49b31e404deaf6aa559b89d40ac65aef09d1ff",
     "transportSha256": "27a2b9c2f53a1213c575107bae1b8709206d36290d10eef89ea362bf0a1fce9f",
     "rendererSha256": "6eabb012c418565f5ed2684d6e61c31a347c655eae287349e240317982cb4281",
     "qaSha256": "a577a715313b094c2a25dd75b38b7195f43068de4a234579d66c35343c2117a8",
-    "outboxSha256": "2d5d3390f5a1d9341bade3955faa580a1de4421d7b974fbab2351d1bbcca2c92",
+    "outboxSha256": "3fe5d400be9c84b427bed16d621b853f5905ed1f3e0c8f5729422f1f7da7bd4d",
     "maxBatchRoles": 13, "multiOutputSupported": False,
     "multiOutputEvidenceSha256": None, "nativeMinimumPx": 1600,
     "publicationMinimumPx": 2000, "claimEnabled": False,

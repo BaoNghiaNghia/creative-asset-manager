@@ -250,10 +250,16 @@ async def upload(listing_id: ListingPath,role: RolePath,commandId: CommandQuery,
         if ctx is not None:
             try:
                 verdict,evidence=await backend.review(ctx,png)
-            except Exception:
+            except Exception as exc:
                 # No false QA approval or storage write on provider timeout.
                 # Preserve the attempt for the same-PNG reconciliation.
-                raise HTTPException(503,"image_independent_review_unavailable") from None
+                # Publish a bounded retry hint from the existing quota authority;
+                # do not change provider capacity or consume another attempt.
+                from .live_preflight import failure_metadata,retry_headers
+                detail=failure_metadata(exc)
+                headers=retry_headers(detail)
+                raise HTTPException(503,"image_independent_review_unavailable",
+                                    headers=headers) from None
             committed=perform(db,lambda:fenced_review((ctx,verdict,evidence)))
             if committed is not None and committed!="pass":
                 raise HTTPException(409,"image_independent_qa_rejected")

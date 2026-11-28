@@ -89,3 +89,26 @@ def test_malformed_model_response_is_not_approval(setup):
     assert err.value.detail["failedStage"]=="reviewer_response"
     assert err.value.detail["failureCode"]=="reviewer_response_schema_invalid"
     assert not err.value.detail["proof"]["sourceVisualQaVerified"]
+
+def test_quota_deferral_exposes_actual_provider_retry_without_secret(setup):
+    from datetime import datetime,timezone,timedelta
+    from app.providers.ai.gemini import GeminiPoolTemporarilyUnavailable,GeminiModelUnavailable
+    at=datetime.now(timezone.utc)+timedelta(minutes=10)
+    setup[2].analyze_single.side_effect=GeminiPoolTemporarilyUnavailable(
+        attempted_models=[],reasons_by_model={
+            "fixture-model-1":GeminiModelUnavailable("fixture-model-1","project_rpd_exhausted",at),
+            "fixture-model-2":GeminiModelUnavailable("fixture-model-2","rpd_exhausted",at)},
+        earliest_retry_at=at)
+    with pytest.raises(f.PreflightIncomplete) as err:
+        execute(setup)
+    d=err.value.detail
+    assert d["retryAtUtc"]==at.isoformat()
+    assert d["retryable"] is True
+    assert d["poolReasonCounts"]=={"project_rpd_exhausted":1,"rpd_exhausted":1}
+    assert d["proof"]["driveDestinationVerified"]
+    assert not d["proof"]["sourceVisualQaVerified"]
+    assert "fixture-model" not in repr(d)
+    headers=f.retry_headers(d)
+    assert 590<=int(headers["Retry-After"])<=600
+    assert headers["Cache-Control"]=="private, no-store"
+    assert "Retry-After" not in f.retry_headers({"retryAtUtc":"not-a-time"})
