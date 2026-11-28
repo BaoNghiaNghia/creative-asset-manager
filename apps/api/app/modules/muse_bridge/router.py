@@ -72,6 +72,7 @@ from . import latest_artwork
 from . import renderer_canary
 from . import shared_video_policy
 from . import banked_video_repair
+from . import execution_policy
 
 
 class MuseObservedRoute(APIRoute):
@@ -312,6 +313,7 @@ from .story_lite import (
     PRINT_SCALE_POLICY, apply_hero_print_scale,
     HERO_REALISM_POLICY, apply_hero_realism,
     HEAD_PROPORTION_QA_POLICY, apply_head_proportion_qa,
+    SAFE_FRAMING_POLICY, apply_safe_framing,
 )
 
 
@@ -660,6 +662,18 @@ def _story_candidate_v33(job) -> dict | None:
         if reference_first and head_qa_ratios:
             story = apply_head_proportion_qa(story, [
                 ratio for ratio in head_qa_ratios if ratio not in _verified_video_ratios(job)])
+        if active:
+            safe_ratios = (scope.get("safeFramingAspects", [])
+                           if isinstance(scope, dict)
+                           and scope.get("safeFramingPolicyVersion") == SAFE_FRAMING_POLICY
+                           else [])
+        elif job.status in ("pending", "claimed"):
+            safe_ratios = head_qa_ratios
+        else:
+            safe_ratios = []
+        if reference_first and safe_ratios:
+            story = apply_safe_framing(story, [
+                ratio for ratio in safe_ratios if ratio not in _verified_video_ratios(job)])
         return story
     except ValueError:
         return None
@@ -1957,6 +1971,7 @@ def muse_worker_shared_config(
     config["storyLiteEnabled"] = _story_lite_enabled()
     config["storyLitePolicy"] = lite_worker_policy() if _story_lite_enabled() else None
     config["bankedVideoReplacementPolicy"] = banked_video_repair.config()
+    config["executionOptimizationPolicy"] = execution_policy.config()
     if _story_lite_enabled():
         config.update({
             "newVideoClaimRequiresStoryAndPlacementAck": False,
@@ -3200,6 +3215,9 @@ def claim(listing_id: str, payload: ClaimRequest, request: Request,
             receipts["videoWorkScope"]["heroPrintScaleAspects"])
         receipts["videoWorkScope"]["headProportionQaPolicyVersion"] = HEAD_PROPORTION_QA_POLICY
         receipts["videoWorkScope"]["headProportionQaAspects"] = list(
+            receipts["videoWorkScope"]["heroPrintScaleAspects"])
+        receipts["videoWorkScope"]["safeFramingPolicyVersion"] = SAFE_FRAMING_POLICY
+        receipts["videoWorkScope"]["safeFramingAspects"] = list(
             receipts["videoWorkScope"]["heroPrintScaleAspects"])
     if _muse_dual_enabled():
         receipts["museWorkerOwner"] = _muse_identity(request)
@@ -4852,6 +4870,7 @@ class CommandAck(BaseModel):
     result: TaskResult | None = None
     rendererHttpStatus: Literal[502, 503, 504] | None = None
     rendererErrorStage: Literal["generate_video"] | None = None
+    failureCategory: execution_policy.FailureCategory | None = None
 
 
 def _safe_external_link(value: str) -> bool:
@@ -6234,13 +6253,26 @@ def complete_muse_command(command_id: str, payload: CommandAck,
     completed_phase = cmd.phase
     retry_marker = None
     transient_status = None
+    if payload.failureCategory is not None:
+        if payload.outcome != "failed" or cmd.phase != "create_video":
+            raise HTTPException(422, "Failure category requires failed video command completion")
+        if payload.failureCategory == "provider_transient":
+            if (payload.rendererHttpStatus not in _RENDERER_TRANSIENT_HTTP_STATUSES
+                    or payload.rendererErrorStage != "generate_video"):
+                raise HTTPException(422, "Provider transient requires actual generate_video HTTP status")
+        elif payload.rendererHttpStatus is not None or payload.rendererErrorStage is not None:
+            raise HTTPException(422, "Non-provider failure cannot carry renderer transient status")
     if payload.outcome == "failed" and cmd.phase == "create_video":
-        transient_status = (
-            payload.rendererHttpStatus
-            if payload.rendererErrorStage == "generate_video" and payload.rendererHttpStatus
-            and not any(code in payload.notes.upper() for code in _RENDERER_HARD_BLOCKERS)
-            else _reported_renderer_transient_status(payload.notes)
-        )
+        if payload.failureCategory is None:
+            transient_status = (
+                payload.rendererHttpStatus
+                if payload.rendererErrorStage == "generate_video" and payload.rendererHttpStatus
+                and not any(code in payload.notes.upper() for code in _RENDERER_HARD_BLOCKERS)
+                else _reported_renderer_transient_status(payload.notes)
+            )
+        elif (payload.failureCategory == "provider_transient"
+              and not any(code in payload.notes.upper() for code in _RENDERER_HARD_BLOCKERS)):
+            transient_status = payload.rendererHttpStatus
     if payload.outcome == "failed":
         cmd.status = "failed"
         cmd.finished_at = _utc()
@@ -6335,6 +6367,9 @@ def complete_muse_command(command_id: str, payload: CommandAck,
             job is not None and (job.output_receipts or {}).get("camLinked")
         ),
         "renderRetry": retry_marker,
+        **({"failureCategory": payload.failureCategory,
+            "failureClassificationPolicy": execution_policy.POLICY}
+           if payload.failureCategory is not None else {}),
         **({"lastRendererTransientFailure": {
             "httpStatus": transient_status, "atUtc": _utc().isoformat(),
             "providerStatusIndependentlyVerified": False,

@@ -254,6 +254,7 @@ class AtomicClaimTests(TestCase):
         self.assertIn("referenceImagePrompt",before)
         self.assertEqual(before["heroRealismPolicy"]["version"],"CAM_VIDEO_HERO_REALISM_V1")
         self.assertEqual(before["headProportionQaPolicy"]["version"],"CAM_HEAD_PROPORTION_QA_ENFORCEMENT_V1")
+        self.assertEqual(before["safeFramingPolicy"]["version"],"CAM_VIDEO_SAFE_FRAMING_V1")
         self.assertEqual(before["heroPrintScalePolicy"]["oversizedReferenceLinearScalePercent"],80)
         self.assertEqual(claim["body"]["storyOutputContract"],m.LITE_OUTPUT)
         response=self.video_claim(claim["body"])
@@ -271,10 +272,65 @@ class AtomicClaimTests(TestCase):
             self.assertEqual(scope["heroRealismAspects"],["9:16"])
             self.assertEqual(scope["headProportionQaPolicyVersion"],"CAM_HEAD_PROPORTION_QA_ENFORCEMENT_V1")
             self.assertEqual(scope["headProportionQaAspects"],["9:16"])
+            self.assertEqual(scope["safeFramingPolicyVersion"],"CAM_VIDEO_SAFE_FRAMING_V1")
+            self.assertEqual(scope["safeFramingAspects"],["9:16"])
         recovered=self.client.get(PREFIX+"/jobs/"+LID+"/story-contract?aspect=vertical",
                                   headers=self.headers())
         self.assertEqual(recovered.status_code,200,recovered.text)
         self.assertEqual(recovered.json()["storySpecV33"]["aspectPlans"],{"9:16":after})
+
+    def _failed_video_completion(self, fields):
+        command=self.command_claim()
+        self.assertEqual(command.status_code,200,command.text)
+        self.assert_video_response(self.video_claim(command.json()["videoJobClaim"]["body"]))
+        payload={"lease":command.json()["lease"],"outcome":"failed",**fields}
+        return self.client.post(PREFIX+"/commands/"+CID+"/complete",json=payload,headers=self.headers())
+
+    def test_explicit_visual_qa_not_provider_transient_even_with_legacy_status_words(self):
+        response=self._failed_video_completion({"failureCategory":"listing_visual_qa",
+            "notes":"Visual QA failed: camera crop; unrelated CAM renderer status HTTP 503 was historical."})
+        self.assertEqual(response.status_code,200,response.text)
+        with Session(self.engine) as db:
+            cmd=db.get(C,(TENANT,CID)); job=db.get(J,(TENANT,LID))
+            self.assertEqual(cmd.status,"failed")
+            self.assertEqual(cmd.details["failureCategory"],"listing_visual_qa")
+            self.assertNotIn("lastRendererTransientFailure",cmd.details)
+            self.assertNotIn("automationRenderRetry",job.output_receipts)
+            self.assertEqual(job.status,"pending")
+            self.assertEqual(job.attempts,1)
+            self.assertIsNone(job.lease_hash)
+
+    def test_explicit_provider_transient_keeps_retry_and_circuit_evidence(self):
+        response=self._failed_video_completion({"failureCategory":"provider_transient",
+            "rendererHttpStatus":503,"rendererErrorStage":"generate_video",
+            "notes":"Actual media.generate_video HTTP 503 unavailable."})
+        self.assertEqual(response.status_code,200,response.text)
+        with Session(self.engine) as db:
+            cmd=db.get(C,(TENANT,CID)); job=db.get(J,(TENANT,LID))
+            self.assertEqual(cmd.status,"pending")
+            self.assertEqual(cmd.details["lastRendererTransientFailure"]["httpStatus"],503)
+            self.assertEqual(job.output_receipts["automationRenderRetry"]["retryDelaySeconds"],180)
+            self.assertEqual(job.attempts,1)
+
+    def test_nonprovider_status_conflict_is_rejected_without_releasing_lease(self):
+        response=self._failed_video_completion({"failureCategory":"cam_transport",
+            "rendererHttpStatus":503,"rendererErrorStage":"generate_video",
+            "notes":"Conflicting CAM transport and renderer status."})
+        self.assertEqual(response.status_code,422,response.text)
+        with Session(self.engine) as db:
+            self.assertEqual(db.get(C,(TENANT,CID)).status,"claimed")
+            self.assertEqual(db.get(J,(TENANT,LID)).status,"claimed")
+
+    def test_explicit_provider_category_does_not_override_capability_hold(self):
+        response=self._failed_video_completion({"failureCategory":"provider_transient",
+            "rendererHttpStatus":503,"rendererErrorStage":"generate_video",
+            "notes":"RENDERER_CAPABILITY_BLOCKED; manual review required."})
+        self.assertEqual(response.status_code,200,response.text)
+        with Session(self.engine) as db:
+            cmd=db.get(C,(TENANT,CID)); job=db.get(J,(TENANT,LID))
+            self.assertEqual(cmd.status,"failed")
+            self.assertNotIn("lastRendererTransientFailure",cmd.details)
+            self.assertEqual(job.output_receipts["videoCapabilityHold"]["code"],"RENDERER_CAPABILITY_BLOCKED")
 
     def test_actual_two_step_story_lite_claim(self):
         body=self.claimed_command_body()

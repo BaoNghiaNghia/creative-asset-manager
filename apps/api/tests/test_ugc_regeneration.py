@@ -277,7 +277,18 @@ def test_compact_print_only_updates_missing_hero_not_saved_receipts(setup, monke
     assert realism["version"]=="CAM_VIDEO_HERO_REALISM_V1"
     assert plan["headProportionQaPolicy"]==worker_policy()["headProportionQaPolicy"]
     assert "headProportionQaPolicy" not in story["aspectPlans"]["9:16"]
-    assert plan["prompt"]==old["aspectPlans"]["16:9"]["prompt"]+" "+realism["motionInstructions"]
+    safe=plan["safeFramingPolicy"]
+    assert safe==worker_policy()["safeFramingPolicy"]
+    assert safe["version"]=="CAM_VIDEO_SAFE_FRAMING_V1"
+    assert safe["topHeadroomPercentAdvisory"]==[8,12]
+    assert safe["bottomClearancePercentAdvisory"]==[6,10]
+    assert safe["measurementRequired"] is False
+    assert safe["additionalServerQaGate"] is False
+    assert plan["referenceImagePrompt"].startswith(safe["heroInstructions"])
+    assert realism["motionInstructions"] in plan["prompt"]
+    assert plan["prompt"].endswith(safe["motionInstructions"])
+    assert "medium framing" not in plan["cameraDirection"]
+    assert "safeFramingPolicy" not in story["aspectPlans"]["9:16"]
     assert "reduce ONLY the ink box once" in plan["referenceImagePrompt"]
     assert "mid-thighs or knees" in plan["referenceImagePrompt"]
     assert "35-40%" in plan["referenceImagePrompt"]
@@ -316,6 +327,17 @@ def test_compact_print_respects_old_and_new_active_lease_scope(setup):
     assert new["aspectPlans"]["16:9"]["heroRealismPolicy"]["additionalServerQaGate"] is False
     assert "Animate only the person" in new["aspectPlans"]["16:9"]["prompt"]
     assert all("headProportionQaPolicy" not in p for p in new["aspectPlans"].values())
+    assert all("safeFramingPolicy" not in p for p in new["aspectPlans"].values())
+    job.output_receipts={**job.output_receipts,"videoWorkScope":{
+        **job.output_receipts["videoWorkScope"],
+        "headProportionQaPolicyVersion":"CAM_HEAD_PROPORTION_QA_ENFORCEMENT_V1",
+        "headProportionQaAspects":["16:9"],
+        "safeFramingPolicyVersion":"CAM_VIDEO_SAFE_FRAMING_V1",
+        "safeFramingAspects":["16:9"]}}
+    safe=muse._story_candidate_v33(job)
+    assert safe["aspectPlans"]["9:16"]==old["aspectPlans"]["9:16"]
+    assert safe["aspectPlans"]["16:9"]["safeFramingPolicy"]["version"]=="CAM_VIDEO_SAFE_FRAMING_V1"
+    assert safe["aspectPlans"]["16:9"]["heroPrintScalePolicy"]==new["aspectPlans"]["16:9"]["heroPrintScalePolicy"]
     remote.assert_not_awaited()
 
 

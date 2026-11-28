@@ -194,6 +194,73 @@ def apply_head_proportion_qa(story: dict, ratios) -> dict:
     return story
 
 
+SAFE_FRAMING_POLICY = "CAM_VIDEO_SAFE_FRAMING_V1"
+
+
+def safe_framing_policy() -> dict:
+    return {
+        "version": SAFE_FRAMING_POLICY,
+        "scope": "newly_claimed_missing_story_lite_aspects",
+        "topHeadroomPercentAdvisory": [8, 12],
+        "bottomClearancePercentAdvisory": [6, 10],
+        "measurementRequired": False,
+        "additionalServerQaGate": False,
+        "heroInstructions": (
+            "Compose a full-head-to-mid-thighs or knees lifestyle portrait in "
+            "the exact requested output ratio. Show the crown and hair completely "
+            "with roughly 8-12% frame-height headroom, and leave about 6-10% "
+            "clearance below the intended thigh/knee framing boundary. Include "
+            "the entire shirt hem, trousers and natural shoulders. Use normal "
+            "lens perspective, about 50 mm equivalent; step the camera back "
+            "rather than using a distorting wide-angle lens or compressing the "
+            "person. These are visual composition suggestions, not measurement "
+            "gates. Keep the approved compact ink box unchanged and readable. "
+            "Reuse a suitable SHA-bound hero; if a new hero is needed, compose "
+            "the safe frame from the start. Never animate a head-cropped hero "
+            "or repeat an integrity-refused edit."
+        ),
+        "motionInstructions": (
+            "Use the exact hero composition as the fixed first and last frame "
+            "framing reference. Keep full head, shirt hem and visible trousers "
+            "throughout, without zoom, push-in, pan, reframing or scale drift. "
+            "Natural gaze, small gestures and posture changes stay within the "
+            "existing camera plane. Do not step toward the camera. Preserve "
+            "anatomy, print size, artwork, background and lighting."
+        ),
+        "horizontalMotion": (
+            "For 16:9, favor a small natural in-place weight shift, gaze or "
+            "relaxed posture change. No forward step or large body turn."
+        ),
+        "preserveApprovedHero": True,
+        "preserveSavedVideo": True,
+    }
+
+
+def apply_safe_framing(story: dict, ratios) -> dict:
+    policy = safe_framing_policy()
+    for ratio in ratios:
+        plan = story["aspectPlans"].get(ratio)
+        if not isinstance(plan, dict) or "referenceImagePrompt" not in plan:
+            continue
+        if plan.get("safeFramingPolicy", {}).get("version") == SAFE_FRAMING_POLICY:
+            continue
+        plan["safeFramingPolicy"] = policy
+        # Put composition first so casting and ink instructions cannot lead to
+        # a tight portrait. Existing locked plans are never rewritten.
+        plan["referenceImagePrompt"] = (
+            policy["heroInstructions"] + " " + plan["referenceImagePrompt"])
+        plan["cameraDirection"] = "fixed full-head-to-mid-thighs-or-knees framing matching the hero"
+        if ratio == "16:9":
+            # Resolve the shared small-step advisory for wide-frame takes.
+            plan["prompt"] = plan["prompt"].replace(
+                "If suitable for the existing scene, take one small natural step; otherwise settle naturally.",
+                "Prefer a small natural in-place posture shift.")
+            plan["prompt"] += " " + policy["horizontalMotion"]
+        plan["prompt"] += " " + policy["motionInstructions"]
+    story["narrativePrompt"] = story["aspectPlans"]["9:16"]["prompt"]
+    return story
+
+
 # Keep motion low-complexity and grounded in the existing source.
 # Never require a prop, another person, a location change or a hand action.
 THEME_CONTEXT = {
@@ -369,6 +436,7 @@ def worker_policy() -> dict:
         "heroPrintScalePolicy": hero_print_scale_policy(),
         "heroRealismPolicy": hero_realism_policy(),
         "headProportionQaPolicy": head_proportion_qa_policy(),
+        "safeFramingPolicy": safe_framing_policy(),
         "instructions": (
             "For a command whose videoJobClaim.creativePolicy matches this policy, "
             "POST its exact claim body. For new Lite work, reuse a visually suitable "
@@ -380,6 +448,8 @@ def worker_policy() -> dict:
             "framing and environment guidance, including the existing visual check. "
             "Follow headProportionQaPolicy on new aspect plans: compare hero, "
             "early and near-final frames using the existing visual review. "
+            "For a new aspect carrying safeFramingPolicy, compose crop clearance "
+            "from the start and keep the exact hero composition in motion. "
             "Do not apply a newer "
             "policy to an already active lease lacking that marker. If unsuitable, "
             "use the separate referenceImagePrompt "
