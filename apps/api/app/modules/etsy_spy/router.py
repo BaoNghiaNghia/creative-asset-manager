@@ -44,7 +44,7 @@ from .auto_later_keywords import (keywords_for_tenant, batch_auto_later_labels,
                                   title_occasion_sql, other_occasion_sql)
 from .groups import (CATEGORY_GROUPS, GROUP_LABELS, GROUP_RANKS, OTHER_GROUP_KEY,
                      category_rank_expression)
-from .extraction import (EXTRACTION_JOB_TYPE, create_extraction_on_pick, create_extraction_retry, latest_extraction_job, cancel_pending_extractions, extraction_enabled)
+from .extraction import (EXTRACTION_JOB_TYPE, create_extraction_on_pick, create_extraction_retry, latest_extraction_job, cancel_pending_extractions, extraction_enabled, eligible_extraction_enabled, extraction_job_allowed, lock_extraction_queue)
 from .design_artifacts import project_design_assets, MAX_DESIGNS_PER_JOB
 from .tiktok_skill import (
     JOB_TYPE as TIKTOK_LISTING_JOB_TYPE,
@@ -661,8 +661,8 @@ def _listings_query(
         "pageTitle": func.lower(root.title), "tm": status,
     }
     column = cols.get(sort, root.observed_at)
-    if pick_state == "picked":
-        # These four headers are real, tenant-scoped server-side sorts. A
+    if pick_state in {"picked", "eligible"}:
+        # These headers are real, tenant-scoped server-side sorts. A
         # browser-only sort would silently misorder all pages after the first.
         # Correlate on the one canonical Picked listing row, using existing
         # processing-job and saved-image indexes without joining extra rows.
@@ -1032,10 +1032,10 @@ def listings(
                 "sentAt": sms.sent_at if sms.status == "sent" else None,
                 "updatedAt": sms.updated_at,
             }
-    # One batched query, never one extraction lookup per Picked row.
+    # One batched query for both extraction-capable listing views.
     extraction_by_key: dict[str, dict] = {}
     designs_by_key: dict[str, list[dict]] = {}
-    if pick_state == "picked" and rows:
+    if pick_state in {"picked", "eligible"} and rows:
         ids = {listing.listing_key for listing, _ in rows}
         jobs = db.scalars(select(ProcessingJobModel).where(
             ProcessingJobModel.tenant_id == tenant,
@@ -1066,7 +1066,8 @@ def listings(
             qa = result.get("qa") if isinstance(result.get("qa"), dict) else {}
             candidate = detail.get("review_candidate") if isinstance(detail.get("review_candidate"), dict) else {}
             extraction_by_key[job.entity_id] = {
-                "job_id": job.id, "status": result.get("status") or
+                "job_id": job.id, "source_scope": detail.get("source_scope", "picked"),
+                "status": result.get("status") or
                     ("cancelled" if job.cancellation_requested else job.status),
                 "engine": result.get("engine") or "fast_then_ai",
                 "manual_qa_required": True,
@@ -1109,13 +1110,17 @@ def listings(
                        auto_later_keyword=auto_by_key.get(listing.listing_key)),
          **({"tiktokListing": tiktok_by_key.get(listing.listing_key, {"status": "not_queued", "draft_only": True}),
              "smsPush": sms_by_key.get(listing.listing_key),
-             "designs": designs_by_key.get(listing.listing_key, []),
              "listingImages": listing_image_badges.get(listing.listing_key, []),
              "videoUgc": video_ugc_by_key.get(listing.listing_key,
                  {"status": "not_queued", "count": 0, "videos": []}),
+            }
+            if pick_state == "picked" else {}),
+         **({"designs": designs_by_key.get(listing.listing_key, []),
              "extraction": extraction_by_key.get(listing.listing_key,
-              {"status": "source_missing" if extraction_enabled() else "disabled", "manual_qa_required": True})}
-            if pick_state == "picked" else {})}
+                {"status": ("not_queued" if eligible_extraction_enabled() else "disabled")
+                 if pick_state == "eligible" else ("source_missing" if extraction_enabled() else "disabled"),
+                 "manual_qa_required": True})}
+            if pick_state in {"picked", "eligible"} else {})}
         for listing, tmcheck in rows
     ], total, page, page_size, freshness(db, tenant))
 
@@ -1254,6 +1259,7 @@ async def set_listing_pick(
     if not isinstance(payload, dict) or not isinstance(payload.get("picked"), bool):
         raise HTTPException(422, "picked must be true or false")
     tenant = principal.active_tenant_id
+    lock_extraction_queue(db, tenant)
     target = db.get(Picked, (tenant, listing_key))
     extraction_job = None
     if payload["picked"]:
@@ -1498,9 +1504,15 @@ def listing_extraction_status(
     if not re.fullmatch(r"[0-9]{5,20}", listing_key):
         raise HTTPException(422, "Invalid Etsy Listing ID")
     tenant = principal.active_tenant_id
-    if db.get(Picked, (tenant, listing_key)) is None:
-        return {"listingKey": listing_key, "status": "not_picked", "job_id": None}
     job = latest_extraction_job(db, tenant, listing_key)
+    if db.get(Picked, (tenant, listing_key)) is None:
+        if job is not None and not extraction_job_allowed(db, tenant, job):
+            return {"listingKey": listing_key, "status": "not_picked", "job_id": None}
+        if job is None:
+            current = db.scalar(select(Listing.listing_key).where(
+                *_listing_state_conditions(tenant, "eligible"), Listing.listing_key == listing_key).limit(1))
+            return {"listingKey": listing_key, "status": ("not_queued" if eligible_extraction_enabled() else "disabled")
+                    if current else "not_picked", "job_id": None}
     if job is None:
         return {"listingKey": listing_key, "status": "source_missing" if extraction_enabled() else "disabled",
                 "job_id": None}

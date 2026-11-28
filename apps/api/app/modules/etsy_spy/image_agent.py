@@ -46,7 +46,11 @@ from app.modules.agent_harness.idle_attestation import (
 )
 from app.modules.authorization.principal import CurrentPrincipal, require_permission
 from app.modules.processing.model import ProcessingJobModel
-from .extraction import EXTRACTION_JOB_TYPE, EXTRACTION_ENGINE, extraction_enabled
+from .extraction import (
+    EXTRACTION_JOB_TYPE, EXTRACTION_ENGINE, extraction_enabled,
+    extraction_access_condition, extraction_job_allowed, enqueue_next_eligible,
+    eligible_available_count, eligible_extraction_enabled,
+)
 from .model import EtsySpyAgent, EtsySpyPicked, utcnow
 from .service import (
     IMAGE_AGENT_NAME_PREFIX, authenticate_agent, create_agent, text,
@@ -263,6 +267,7 @@ def _task(job: ProcessingJobModel, agent: EtsySpyAgent) -> dict:
             "id": job.id, "listing_key": job.entity_id, "tenant_id": agent.tenant_id,
             "attempt_count": job.attempt_count,
             "engine": "auto", "source": payload.get("source"),
+            "source_scope": payload.get("source_scope", "picked"),
             "rights_status": "unverified",
             "manual_qa_required": True,
             **({"execution_mode": "orchestrator_v1"}
@@ -555,23 +560,25 @@ def read_agent_extraction_queue(
         func.count().filter(job.status == "processing"),
         func.count().filter((job.status == "processing") & manual),
         func.count().filter((job.status == "processing") & (job.lease_expires_at <= now)),
+        func.count().filter(waiting & eligible & (job.payload_json["source_scope"].as_string() == "eligible")),
     ).where(
         job.tenant_id == agent.tenant_id,
         job.job_type == EXTRACTION_JOB_TYPE,
         job.provider_key == EXTRACTION_ENGINE,
         job.entity_type == "etsy_listing",
         job.cancellation_requested.is_(False),
-        select(EtsySpyPicked.listing_key).where(
-            EtsySpyPicked.tenant_id == agent.tenant_id,
-            EtsySpyPicked.listing_key == job.entity_id,
-        ).exists(),
+        extraction_access_condition(agent.tenant_id),
     )).one()
-    ready, delayed, retries, exhausted, processing, processing_retry, expired = map(int, rows)
+    ready, delayed, retries, exhausted, processing, processing_retry, expired, eligible_waiting = map(int, rows)
     return {"protocol": "cam-extraction-queue-v1", "complete": True,
             "ready": ready, "delayed": delayed, "waiting": ready + delayed,
             "manual_retry": retries, "exhausted": exhausted,
             "processing": processing, "manual_retry_processing": processing_retry,
-            "expired_processing": expired, "observed_at": now.isoformat()}
+            "expired_processing": expired,
+            "eligible_waiting": eligible_waiting,
+            "eligible_available": eligible_available_count(db, agent.tenant_id),
+            "eligible_enabled": eligible_extraction_enabled(),
+            "observed_at": now.isoformat()}
 
 
 @image_router.post("/{agent_id}/claim")
@@ -616,6 +623,7 @@ def claim_image_job(
         ProcessingJobModel.claimed_by == worker,
         ProcessingJobModel.status == "processing",
         ProcessingJobModel.cancellation_requested.is_(False),
+        extraction_access_condition(agent.tenant_id),
     ).order_by(ProcessingJobModel.claimed_at.desc(),
                ProcessingJobModel.id.desc()).limit(2)))
     if len(owned) > 1:
@@ -666,10 +674,7 @@ def claim_image_job(
             ProcessingJobModel.lease_expires_at <= now,
             ProcessingJobModel.cancellation_requested.is_(False),
             ProcessingJobModel.attempt_count < ProcessingJobModel.max_attempts,
-            select(EtsySpyPicked.listing_key).where(
-                EtsySpyPicked.tenant_id == agent.tenant_id,
-                EtsySpyPicked.listing_key == ProcessingJobModel.entity_id,
-            ).exists(),
+            extraction_access_condition(agent.tenant_id),
         ).with_for_update(skip_locked=True).limit(1))
         if job is None:
             return {"task": None, "pause_reason": "existing_lease_not_reclaimable"}
@@ -692,14 +697,13 @@ def claim_image_job(
                 ),
                 ProcessingJobModel.cancellation_requested.is_(False),
                 ProcessingJobModel.attempt_count < ProcessingJobModel.max_attempts,
-                select(EtsySpyPicked.listing_key).where(
-                    EtsySpyPicked.tenant_id == agent.tenant_id,
-                    EtsySpyPicked.listing_key == ProcessingJobModel.entity_id,
-                ).exists(),
+                extraction_access_condition(agent.tenant_id),
             )
             .order_by(desc(ProcessingJobModel.priority), ProcessingJobModel.created_at)
             .with_for_update(skip_locked=True).limit(1)
         )
+    if job is None and previous is None:
+        job = enqueue_next_eligible(db, agent.tenant_id)
     if job is None:
         agent.last_seen_at = utcnow()
         db.commit()
@@ -845,8 +849,8 @@ async def attest_image_job_heartbeat(
         presented_session=x_cam_executor_session,
     ):
         raise HTTPException(409, "Executor session does not own this lease")
-    if db.get(EtsySpyPicked, (agent.tenant_id, job.entity_id)) is None:
-        raise HTTPException(409, "Image job is no longer picked")
+    if not extraction_job_allowed(db, agent.tenant_id, job):
+        raise HTTPException(409, "Image job is no longer Picked or Eligible")
 
     clock = utcnow()
     try:
@@ -915,9 +919,7 @@ async def check_and_renew_image_job(
         presented_session=x_cam_executor_session,
     ):
         raise HTTPException(409, "Executor session does not own this lease")
-    if job.cancellation_requested or db.get(
-        EtsySpyPicked, (agent.tenant_id, job.entity_id)
-    ) is None:
+    if job.cancellation_requested or not extraction_job_allowed(db, agent.tenant_id, job):
         return {"status": "cancelled", "job_id": job.id}
     if job.status == "completed":
         result = (job.payload_json or {}).get("result") or {}
@@ -998,7 +1000,8 @@ async def submit_image_result(
                     "output_sha256": previous.get("output_sha256")}
         raise HTTPException(409, "A different result was already accepted")
     if (job.claimed_by != "etsy-image:" + agent.id or
-        job.status != "processing" or job.cancellation_requested):
+        job.status != "processing" or job.cancellation_requested or
+        not extraction_job_allowed(db, agent.tenant_id, job)):
         raise HTTPException(409, "Job is not owned or has been cancelled")
     lease_deadline = job.lease_expires_at
     if lease_deadline is not None and lease_deadline.tzinfo is None:
@@ -1132,7 +1135,7 @@ async def submit_review_candidate(
     if (job.status != "completed" or original.get("status") != "needs_ai" or
         job.claimed_by != "etsy-image:" + agent.id or
         job.cancellation_requested or
-        db.get(EtsySpyPicked, (agent.tenant_id, job.entity_id)) is None):
+        not extraction_job_allowed(db, agent.tenant_id, job)):
         raise HTTPException(409, "Original needs_ai job is not available for review")
     if data.get("method") != CANDIDATE_METHOD:
         raise HTTPException(422, "Unsupported local review candidate method")
@@ -1206,7 +1209,7 @@ def read_review_candidate(
     job = db.get(ProcessingJobModel, job_id)
     if (job is None or job.tenant_id != tenant or
         job.job_type != EXTRACTION_JOB_TYPE or job.cancellation_requested or
-        db.get(EtsySpyPicked, (tenant, job.entity_id)) is None):
+        not extraction_job_allowed(db, tenant, job)):
         raise HTTPException(404, "Review candidate not found")
     payload = job.payload_json if isinstance(job.payload_json, dict) else {}
     original = payload.get("result") if isinstance(payload.get("result"), dict) else {}
@@ -1247,7 +1250,7 @@ def _checked_design_media(
     job = db.get(ProcessingJobModel, job_id)
     if (job is None or job.tenant_id != tenant or job.job_type != EXTRACTION_JOB_TYPE
         or job.cancellation_requested or
-        db.get(EtsySpyPicked, (tenant, job.entity_id)) is None):
+        not extraction_job_allowed(db, tenant, job)):
         raise HTTPException(404, "Design not found")
     source, digest = _design_media(job, asset_id)
     if not source.is_file() or hashlib.sha256(source.read_bytes()).hexdigest() != digest:
@@ -1279,7 +1282,7 @@ async def upload_design_mapping(
         raise HTTPException(404, "Extraction job not found")
     if (job.status != "completed" or job.cancellation_requested or
         job.claimed_by != "etsy-image:" + agent.id or
-        db.get(EtsySpyPicked, (agent.tenant_id, job.entity_id)) is None):
+        not extraction_job_allowed(db, agent.tenant_id, job)):
         raise HTTPException(409, "Job is not available for position mapping")
     payload = job.payload_json if isinstance(job.payload_json, dict) else {}
     result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
@@ -1343,7 +1346,7 @@ async def upload_design_mapping(
     if (job is None or job.tenant_id != tenant_id or
         job.status != "completed" or job.cancellation_requested or
         job.claimed_by != "etsy-image:" + agent.id or
-        db.get(EtsySpyPicked, (tenant_id, job.entity_id)) is None):
+        not extraction_job_allowed(db, tenant_id, job)):
         raise HTTPException(409, "Picked job changed during Drive upload")
     payload = job.payload_json if isinstance(job.payload_json, dict) else {}
     result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
@@ -1380,7 +1383,7 @@ def _private_drive_design(job_id: str, asset_id: str, tenant: str, db: Session):
     job = db.get(ProcessingJobModel, job_id)
     if (job is None or job.tenant_id != tenant or
         job.job_type != EXTRACTION_JOB_TYPE or job.cancellation_requested or
-        db.get(EtsySpyPicked, (tenant, job.entity_id)) is None):
+        not extraction_job_allowed(db, tenant, job)):
         raise HTTPException(404, "Design not found")
     payload = job.payload_json if isinstance(job.payload_json, dict) else {}
     rows = payload.get("design_assets") if isinstance(payload.get("design_assets"), list) else []
@@ -1499,6 +1502,9 @@ def review_image_asset(
     job = db.get(ProcessingJobModel, job_id)
     if (job is None or job.tenant_id != principal.active_tenant_id or
         job.job_type != EXTRACTION_JOB_TYPE):
+        raise HTTPException(404, "Image not found")
+    if ((job.payload_json or {}).get("source_scope") == "eligible" and
+        (job.cancellation_requested or not extraction_job_allowed(db, principal.active_tenant_id, job))):
         raise HTTPException(404, "Image not found")
     result = (job.payload_json or {}).get("result") or {}
     if not isinstance(result, dict) or result.get("status") != "needs_review":

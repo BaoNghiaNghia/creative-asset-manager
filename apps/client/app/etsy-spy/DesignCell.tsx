@@ -215,6 +215,16 @@ export function DesignCell({ item, onPreviewStart, canRetry = false, onRetryQueu
 
   // No job, QA or waiting-state text belongs in the Picked Design cell.
   if (designs.length === 0) {
+    if (!item.picked) {
+      const status = item.extraction?.status;
+      const label = status === "processing" ? "Đang tách design"
+        : status === "pending" || status === "retry" ? "Chờ tách"
+        : status === "failed" ? "Tách lỗi"
+        : status === "disabled" ? "Tạm dừng"
+        : status === "needs_ai" ? "Đang chờ xử lý"
+        : "Chưa tách";
+      return <span className="etsy-muted" title={label}>{label}</span>;
+    }
     return <span className="etsy-design-empty" aria-label="Chưa có ảnh thiết kế" />;
   }
 

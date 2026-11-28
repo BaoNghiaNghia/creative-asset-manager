@@ -10,13 +10,13 @@ from datetime import datetime, timezone
 from uuid import uuid4
 import os
 
-from sqlalchemy import select
+from sqlalchemy import select, func, or_, and_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.domain.processing.types import JOB_TYPES
 from app.modules.processing.model import ProcessingJobModel
-from .model import EtsySpyListing
+from .model import EtsySpyListing, EtsySpyPicked
 from .service import verified_image_url
 
 EXTRACTION_JOB_TYPE = "etsy_design_extract"
@@ -36,8 +36,91 @@ def extraction_enabled() -> bool:
     )
 
 
+ELIGIBLE_SOURCE = "eligible"
+
+
+def eligible_extraction_enabled() -> bool:
+    """Independent rollout flag; existing Picked processing remains intact."""
+    return extraction_enabled() and os.getenv("CAM_ETSY_ELIGIBLE_EXTRACTION_ENABLED", "1") == "1"
+
+
+def lock_extraction_queue(db: Session, tenant: str) -> None:
+    """Use the SAME transaction lock as Image Agent claims and Pick creation."""
+    if db.get_bind().dialect.name == "postgresql":
+        digest = sha256(("cam:image-claim:v1:" + tenant).encode()).digest()
+        db.scalar(select(func.pg_advisory_xact_lock(int.from_bytes(digest[:8], "big", signed=True))))
+
+
+def eligible_listing_conditions(tenant: str):
+    # Import lazily to avoid the router/extraction module cycle. Keep discovery,
+    # season routing, blacklist and demand filters identical to Eligible UI.
+    from .router import _listing_state_conditions
+    return _listing_state_conditions(tenant, "eligible")
+
+
+def extraction_access_condition(tenant: str, job=ProcessingJobModel):
+    picked = select(EtsySpyPicked.listing_key).where(
+        EtsySpyPicked.tenant_id == tenant, EtsySpyPicked.listing_key == job.entity_id
+    ).correlate(job).exists()
+    eligible = select(EtsySpyListing.listing_key).where(
+        *eligible_listing_conditions(tenant), EtsySpyListing.listing_key == job.entity_id
+    ).correlate(job).exists()
+    return or_(picked, and_(
+        or_(eligible_extraction_enabled(), job.payload_json["source_scope"].as_string() == ELIGIBLE_SOURCE),
+        eligible,
+    ))
+
+
+def extraction_job_allowed(db: Session, tenant: str, job: ProcessingJobModel) -> bool:
+    if job.tenant_id != tenant or job.job_type != EXTRACTION_JOB_TYPE:
+        return False
+    return db.scalar(select(ProcessingJobModel.id).where(
+        ProcessingJobModel.id == job.id,
+        ProcessingJobModel.tenant_id == tenant,
+        extraction_access_condition(tenant),
+    )) is not None
+
+
+def missing_eligible_query(tenant: str):
+    existing = select(ProcessingJobModel.id).where(
+        ProcessingJobModel.tenant_id == tenant,
+        ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
+        ProcessingJobModel.entity_type == "etsy_listing",
+        ProcessingJobModel.entity_id == EtsySpyListing.listing_key,
+        ProcessingJobModel.cancellation_requested.is_(False),
+    ).correlate(EtsySpyListing).exists()
+    return select(EtsySpyListing).where(*eligible_listing_conditions(tenant), ~existing)
+
+
+def eligible_available_count(db: Session, tenant: str) -> int:
+    if not eligible_extraction_enabled():
+        return 0
+    q = missing_eligible_query(tenant).with_only_columns(EtsySpyListing.listing_key).distinct()
+    return int(db.scalar(select(func.count()).select_from(q.subquery())) or 0)
+
+
+def enqueue_next_eligible(db: Session, tenant: str) -> ProcessingJobModel | None:
+    """Lazy bounded refill after the normal Picked queue is empty. No Pick side effects."""
+    if not eligible_extraction_enabled():
+        return None
+    lock_extraction_queue(db, tenant)
+    rows = db.scalars(missing_eligible_query(tenant).order_by(
+        EtsySpyListing.demand_score.desc().nulls_last(),
+        EtsySpyListing.observed_at.desc().nulls_last(),
+        EtsySpyListing.listing_key,
+    ).limit(500)).all()
+    for listing in rows:
+        meta = listing.metadata_json if isinstance(listing.metadata_json, dict) else {}
+        source_url = verified_image_url(meta.get("fullImageUrl")) or verified_image_url(meta.get("thumbnailUrl"))
+        if not source_url:
+            continue
+        return create_extraction_on_pick(db, tenant, listing, datetime.now(timezone.utc), source_scope=ELIGIBLE_SOURCE)
+    return None
+
+
 def create_extraction_on_pick(
     db: Session, tenant_id: str, listing: EtsySpyListing, picked_at: datetime,
+    *, source_scope: str = "picked",
 ) -> ProcessingJobModel | None:
     """Create one immutable source-version task in the caller's Pick transaction.
 
@@ -52,6 +135,22 @@ def create_extraction_on_pick(
     if not source_url:
         return None
     source_revision = sha256(source_url.encode("utf-8")).hexdigest()
+    lock_extraction_queue(db, tenant_id)
+    # A design already queued/saved from Eligible survives Pick. An in-flight
+    # job cannot be duplicated even if a newer Scout observation arrives.
+    existing = db.scalar(select(ProcessingJobModel).where(
+        ProcessingJobModel.tenant_id == tenant_id,
+        ProcessingJobModel.job_type == EXTRACTION_JOB_TYPE,
+        ProcessingJobModel.entity_id == listing.listing_key,
+        ProcessingJobModel.cancellation_requested.is_(False),
+        ProcessingJobModel.payload_json["source_scope"].as_string() == ELIGIBLE_SOURCE,
+        or_(ProcessingJobModel.status.in_(("pending", "retry", "processing")),
+            ProcessingJobModel.payload_json["source_url_sha256"].as_string() == source_revision),
+    ).order_by(ProcessingJobModel.created_at.desc()).limit(1))
+    if existing is not None:
+        if source_scope == "picked" and existing.status in ("pending", "retry"):
+            existing.priority = max(existing.priority, 20)
+        return existing
     # Pick after Unpick starts a *new* generation. Reusing a cancelled
     # processing row would otherwise make the old worker's lease valid again.
     # Canonicalize SQLite-naive picked_at and PostgreSQL-aware picked_at to UTC.
@@ -74,6 +173,7 @@ def create_extraction_on_pick(
         "source": {"type": "etsy_cdn", "url": source_url},
         "source_url_sha256": source_revision,
         "pick_generation": generation,
+        "source_scope": source_scope,
         "engine": "auto",
         "fallback": "ai_review",
         "rights_status": "unverified",
@@ -89,7 +189,7 @@ def create_extraction_on_pick(
         payload_json=payload,
         provider_key=EXTRACTION_ENGINE,
         provider_scope="external",
-        priority=20,
+        priority=10 if source_scope == ELIGIBLE_SOURCE else 20,
         max_attempts=3,
         status="pending",
     )
@@ -132,6 +232,7 @@ def create_extraction_retry(
         "source": {"type": "etsy_cdn", "url": source_url},
         "source_url_sha256": source_hash,
         "pick_generation": uuid4().hex[:24],
+        "source_scope": source_job.payload_json.get("source_scope", "picked"),
         "engine": "auto",
         "fallback": "ai_review",
         "rights_status": "unverified",
@@ -173,4 +274,9 @@ def cancel_pending_extractions(db: Session, tenant_id: str, listing_key: str) ->
         ProcessingJobModel.entity_id == listing_key,
         ProcessingJobModel.status.in_(("pending", "retry", "processing")),
     )):
+        # Eligible-origin jobs remain useful if the user simply unpicks them.
+        if (eligible_extraction_enabled() and
+            (job.payload_json or {}).get("source_scope") == ELIGIBLE_SOURCE and
+            extraction_job_allowed(db, tenant_id, job)):
+            continue
         job.cancellation_requested = True

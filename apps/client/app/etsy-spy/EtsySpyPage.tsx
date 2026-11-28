@@ -299,13 +299,13 @@ function ReviewAssessmentBadge({ audit, itemReviews, cartLowerBound, inCarts }: 
 }
 
 function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDisabled, selected,
-  onSelect, onListingQueued, optimizerEnabled, onInspect, isInspected }: {
+  onSelect, onListingQueued, optimizerEnabled, onInspect, isInspected, showDesign }: {
   item: Listing; canPick: boolean; busy: boolean;
   onPick: (item: Listing) => void; onLater: (item: Listing) => void;
   selectable: boolean; selectDisabled: boolean; selected: boolean;
   onSelect: (listingKey: string, checked: boolean) => void;
   onListingQueued: () => void; optimizerEnabled: boolean;
-  onInspect: (item: Listing) => void; isInspected: boolean;
+  onInspect: (item: Listing) => void; isInspected: boolean; showDesign: boolean;
 }) {
   const [imagePreview, setImagePreview] = useState<{
     left: number; bottom: number; width: number; maxHeight: number; imageMaxHeight: number;
@@ -391,14 +391,14 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
               : item.smsPush?.status === "needs_source" ? "SMS thiếu nguồn"
               : "SMS chưa đồng bộ"}
           </span>}
-          {item.picked && item.extraction?.status === "needs_review" && item.extraction.job_id &&
+          {showDesign && item.extraction?.status === "needs_review" && item.extraction.job_id &&
             <a className="etsy-extraction-open"
               href={"/api/v1/etsy-spy/image-agents/assets/" + encodeURIComponent(item.extraction.job_id)}
               target="_blank" rel="noopener noreferrer"
               title="Open transparent PNG for manual artwork and rights review">
               View PNG
             </a>}
-          {item.picked && item.extraction?.status === "needs_ai" &&
+          {showDesign && item.extraction?.status === "needs_ai" &&
             item.extraction?.candidate_ready && item.extraction.job_id && <>
               <a className="etsy-extraction-open etsy-extraction-candidate"
                 href={"/api/v1/etsy-spy/image-agents/candidates/" + encodeURIComponent(item.extraction.job_id)}
@@ -414,8 +414,8 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
         </div>
       </div>
     </td>
-    {item.picked && <td className="etsy-design-cell"><DesignCell item={item}
-      canRetry={canPick} onRetryQueued={onListingQueued}
+    {showDesign && <td className="etsy-design-cell"><DesignCell item={item}
+      canRetry={canPick && item.picked} onRetryQueued={onListingQueued}
       onPreviewStart={() => setImagePreview(null)} /></td>}
     {item.picked && <TikTokListingCell item={item} canManage={canPick}
       optimizerEnabled={optimizerEnabled} onQueued={onListingQueued} />}
@@ -854,7 +854,7 @@ export function EtsySpyPage() {
   // The existing Picked-only background poll adapts to active job status.
   // Do not trigger a full-page refresh for active jobs: that duplicates data
   // requests and unnecessarily rerenders the summary, filters and open viewers.
-  const pickedPollDelay = isPickedSelection && rows
+  const pickedPollDelay = (isPickedSelection || options.pickState === "eligible") && rows
     ? pickedPollInterval(rows.items as Listing[]) : 30_000;
 
   // Date and theme counts must belong to the currently selected product
@@ -964,7 +964,7 @@ export function EtsySpyPage() {
   useEffect(() => {
     // SMS receipts change without changing Scout inventory/day counts.
     // Refresh only the visible Picked page, without clearing rows or scroll.
-    if (options.tab !== "products" || options.pickState !== "picked" ||
+    if (options.tab !== "products" || options.pickState === "later" ||
         options.blacklistView || options.winKeywordsView) return;
     let disposed = false;
     let polling = false;
@@ -1187,7 +1187,9 @@ export function EtsySpyPage() {
          { id: "tiktokListing", text: "TikTok SEO" },
          { id: "listingImage", text: "Media" },
          { id: "videoUgc", text: "Video UGC" }, ...SORTS.products.slice(1)]
-      : SORTS.products;
+      : options.pickState === "eligible"
+        ? [SORTS.products[0], { id: "design", text: "Design" }, ...SORTS.products.slice(1)]
+        : SORTS.products;
     if (options.tab === "keywords") return SORTS.keywords;
     return SORTS.logs;
   }, [options.tab, options.pickState]);
@@ -1516,8 +1518,8 @@ export function EtsySpyPage() {
                 <option value="badge">Badge Etsy</option>
                 <option value="pageTitle">Tên sản phẩm</option>
                 <option value="keywordSms">Keyword SMS · A–Z</option>
+                {options.pickState !== "later" && <option value="design">Design · job hoàn tất</option>}
                 {options.pickState === "picked" && <>
-                  <option value="design">Design · job hoàn tất</option>
                   <option value="tiktokListing">TikTok SEO · trạng thái</option>
                   <option value="listingImage">Media · số ảnh</option>
                   <option value="videoUgc">Video UGC · số video đã lưu</option>
@@ -1720,7 +1722,7 @@ export function EtsySpyPage() {
           </tr></thead><tbody>
             {activeTab === "products" ? (rows.items as Listing[]).map(item =>
               <ProductRow key={item.listingKey}
-                item={item} canPick={canManage}
+                item={item} canPick={canManage} showDesign={options.pickState !== "later"}
                 busy={pickBusyKey !== null || laterBusyKey !== null || bulkBusy || tiktokSelectedBusy}
                 selectable={selectable}
                 selectDisabled={isPickedSelection && (!tiktokOverview?.enabled ||

@@ -42,7 +42,10 @@ TABLES = (
 
 
 @pytest.fixture
-def scenario():
+def scenario(monkeypatch):
+    # Historical Picked-only contract tests explicitly exercise the rollback mode.
+    # Eligible behavior is covered below with the feature enabled.
+    monkeypatch.setenv("CAM_ETSY_ELIGIBLE_EXTRACTION_ENABLED", "0")
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine, tables=[model.__table__ for model in TABLES])
     session = Session(engine)
@@ -3630,3 +3633,86 @@ def test_expired_fenced_attempt_reclaims_with_new_session_and_token(
     assert client.post(root + "/check-job", headers=base, json={
         "job_id": job.id, "lease_token": second["lease_token"],
     }).status_code == 409
+
+def test_eligible_extraction_claim_preserves_pick_identity(scenario, monkeypatch, tmp_path):
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    monkeypatch.setenv("CAM_ETSY_ELIGIBLE_EXTRACTION_ENABLED", "1")
+    monkeypatch.delenv("CAM_ETSY_IMAGE_ORCHESTRATOR_ENABLED", raising=False)
+    client, db, principal = scenario
+    scout, headers = pair(client, db)
+    payload = batch("eligible-extraction")
+    payload["records"]["listings"][0]["fullImageUrl"] = "https://i.etsystatic.com/123/il_fullxfull.art.jpg"
+    assert sync(client, scout, headers, payload).status_code == 200
+    base = "/api/v1/etsy-spy/listings/1234567890"
+    paired = client.post("/api/v1/etsy-spy/image-agents", json={"name": "Eligible extraction"}).json()
+    path = "/api/v1/etsy-spy/image-agents/" + paired["agent_id"]
+    auth = {"Authorization": "Bearer " + paired["token"]}
+    assert client.get(base + "/extraction").json()["status"] == "not_queued"
+    q = client.get(path + "/extraction-queue", headers=auth).json()
+    assert q["eligible_enabled"] is True and q["eligible_available"] == 1
+    assert q["waiting"] == 0
+    claim_response = client.post(path + "/claim", headers=auth)
+    assert claim_response.status_code == 200, claim_response.text
+    claim = claim_response.json()
+    job_id = claim["task"]["id"]
+    assert claim["task"]["source_scope"] == "eligible"
+    assert db.query(EtsySpyPicked).count() == 0
+    assert db.query(ProcessingJobModel).filter_by(job_type="etsy_design_extract").count() == 1
+    eligible = client.get("/api/v1/etsy-spy/listings?pick_state=eligible").json()["items"][0]
+    assert eligible["extraction"]["job_id"] == job_id
+    assert eligible["extraction"]["status"] == "processing"
+    assert not eligible["picked"] and eligible["designs"] == []
+    assert "tiktokListing" not in eligible and "videoUgc" not in eligible
+    assert client.get(base + "/extraction").json()["job_id"] == job_id
+    assert client.post(path + "/check-job", headers=auth, json={
+        "job_id": job_id, "lease_token": claim["lease_token"]}).json()["status"] == "processing"
+    assert client.put(base + "/pick", json={"picked": True}).status_code == 200
+    assert client.get(base + "/extraction").json()["job_id"] == job_id
+    assert db.query(ProcessingJobModel).filter_by(job_type="etsy_design_extract").count() == 1
+    assert client.put(base + "/pick", json={"picked": False}).status_code == 200
+    db.refresh(db.get(ProcessingJobModel, job_id))
+    assert db.get(ProcessingJobModel, job_id).cancellation_requested is False
+    result = client.post(path + "/result", headers=auth, json={
+        "job_id": job_id, "lease_token": claim["lease_token"], "status": "needs_ai", "engine": "ai_review"})
+    assert result.status_code == 200, result.text
+    assert client.get(base + "/extraction").json()["status"] == "needs_ai"
+    assert client.post(path + "/claim", headers=auth).json()["task"] is None
+    principal.active_tenant_id = "other-tenant"
+    assert client.get(base + "/extraction").json()["status"] == "not_picked"
+
+
+def test_eligible_extraction_excludes_stale_and_preserves_picked_priority(scenario, monkeypatch, tmp_path):
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_WORKER_ENABLED", "1")
+    monkeypatch.setenv("CAM_ETSY_EXTRACTION_STORAGE_ROOT", str(tmp_path))
+    monkeypatch.setenv("CAM_ETSY_ELIGIBLE_EXTRACTION_ENABLED", "1")
+    monkeypatch.delenv("CAM_ETSY_IMAGE_ORCHESTRATOR_ENABLED", raising=False)
+    client, db, _ = scenario
+    scout, headers = pair(client, db)
+    payload = batch("eligible-priority")
+    first = payload["records"]["listings"][0]
+    first["fullImageUrl"] = "https://i.etsystatic.com/123/il_fullxfull.first.jpg"
+    second = {**first, "listingKey": "1234567888", "pageTitle": "Second Shirt",
+              "url": "https://www.etsy.com/listing/1234567888/second",
+              "fullImageUrl": "https://i.etsystatic.com/123/il_fullxfull.second.jpg"}
+    payload["records"]["listings"].append(second)
+    assert sync(client, scout, headers, payload).status_code == 200
+    assert client.put("/api/v1/etsy-spy/listings/1234567890/pick", json={"picked": True}).status_code == 200
+    paired = client.post("/api/v1/etsy-spy/image-agents", json={"name": "Eligible priority"}).json()
+    path = "/api/v1/etsy-spy/image-agents/" + paired["agent_id"]
+    auth = {"Authorization": "Bearer " + paired["token"]}
+    claim = client.post(path + "/claim", headers=auth).json()
+    assert claim["task"]["listing_key"] == "1234567890"
+    assert claim["task"]["source_scope"] == "picked"
+    assert client.post(path + "/result", headers=auth, json={
+        "job_id": claim["task"]["id"], "lease_token": claim["lease_token"], "status": "needs_ai", "engine": "ai_review"}).status_code == 200
+    claim = client.post(path + "/claim", headers=auth).json()
+    assert claim["task"]["listing_key"] == "1234567888" and claim["task"]["source_scope"] == "eligible"
+    row = db.query(EtsySpyListing).filter_by(listing_key="1234567888").one()
+    row.is_current = False
+    db.commit()
+    assert client.post(path + "/check-job", headers=auth, json={
+        "job_id": claim["task"]["id"], "lease_token": claim["lease_token"]}).json()["status"] == "cancelled"
+    assert client.post(path + "/result", headers=auth, json={
+        "job_id": claim["task"]["id"], "lease_token": claim["lease_token"], "status": "needs_ai", "engine": "ai_review"}).status_code == 409
+    assert client.post(path + "/claim", headers=auth).json()["task"] is None
