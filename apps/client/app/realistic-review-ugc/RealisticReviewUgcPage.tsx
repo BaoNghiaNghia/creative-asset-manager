@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrandIcon } from "../components/Icons";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
-import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
+import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import {
   analyzeStage3ReviewGroups,
   hideStage5Review,
@@ -59,6 +59,7 @@ import "./stage4-pause.css";
 import "../styles/cam-evo-tokens.css";
 import "./GatorHatsEvo.css";
 import "./GatorHatsReviewsEvo.css";
+import "./GatorHatsCompactWorkspace.css";
 
 const EMPTY_KEYWORD_PAGE: KeywordVolumePage = {
   items: [],
@@ -1014,7 +1015,7 @@ export function RealisticReviewUgcPage() {
     setActiveStage(nextStage);
   }
 
-  return <main className={"rrugc-shell rrugc-source-first-shell cam-unified-workspace-v18" +
+  return <main className={"rrugc-shell rrugc-source-first-shell cam-unified-workspace-v18 rrugc-compact-workspace" +
     (workflowGroupForStage(activeStage) === "products" ? " rrugc-evo-products" : " rrugc-evo-reviews")}>
     <aside className="ops-sidebar">
       <div className="brand"><b><BrandIcon /></b><span><strong>Creative assets</strong><small>UGC reference automation</small></span></div>
@@ -1022,10 +1023,11 @@ export function RealisticReviewUgcPage() {
     </aside>
     <section className="rrugc-main">
       <WorkspacePageHeader
-        className="rrugc-header cam-header-v18"
+        className="rrugc-header cam-header-v18 rrugc-compact-header"
         route="realistic-review-ugc"
-        description="Analyze keyword demand, generate artwork for used quotes, prepare 13 cap colorways, discover Pinterest references, generate UGC images, and publish review-ready outputs."
-        titleAddon={<span className="rrugc-page-live-pill"><i aria-hidden="true" />Dual scout pipeline</span>}
+        eyebrow={workflowGroupForStage(activeStage) === "products" ? "GATORHATS · PRODUCTS" : "GATORHATS · REVIEWS"}
+        description=""
+        center={<RrugcWorkflowNavigation activeStage={activeStage} onSelectStage={selectStage} />}
         actions={<div className="rrugc-global-management-actions">
           <Stage4CompletionNotifications onViewStage4={() => selectStage("stage4")} />
           <button
@@ -1044,10 +1046,8 @@ export function RealisticReviewUgcPage() {
             className="rrugc-global-management-button"
             onClick={() => setSettingsOpen(true)}
           ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="2"/></svg>Settings</button>
-          <WorkspaceBackToAssets />
         </div>}
       />
-      <RrugcWorkflowNavigation activeStage={activeStage} onSelectStage={selectStage} />
 
       <div className="rrugc-page-body rrugc-source-first-body">
         {error && <div className="rrugc-error" role="alert">{error}</div>}

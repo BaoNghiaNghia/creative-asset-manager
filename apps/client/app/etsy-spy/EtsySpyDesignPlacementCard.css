@@ -1,0 +1,114 @@
+/* Design Preview: position selector and selected variants share a single card. */
+.etsy-design-gallery-placement {
+  gap: 8px;
+}
+.etsy-design-gallery-placement-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid #6f9fec;
+  border-radius: 11px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(87, 140, 225, .36);
+  overflow: hidden;
+}
+.etsy-design-gallery-placement-card .etsy-design-gallery-position-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 105px), 1fr));
+  gap: 4px;
+}
+.etsy-design-gallery-placement-card .etsy-design-gallery-position-list > button {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: #f6f8fb;
+  color: #4a607e;
+  box-shadow: none;
+}
+.etsy-design-gallery-placement-card .etsy-design-gallery-position-list > button:hover {
+  border: 0;
+  background: #edf4ff;
+}
+.etsy-design-gallery-placement-card .etsy-design-gallery-position-list > button.active {
+  border: 0;
+  background: #ebf3ff;
+  color: #2059a8;
+  box-shadow: none;
+}
+.etsy-design-gallery-placement-card .etsy-design-gallery-variants {
+  flex: 0 0 auto;
+  min-height: 0;
+  margin-top: 5px;
+  padding-top: 6px;
+  border-top: 1px solid #e8eef8;
+}
+.etsy-design-gallery-placement-card .etsy-design-gallery-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 5px;
+  min-height: 0;
+  padding: 0;
+  overflow: visible;
+}
+.etsy-design-gallery-placement-card .etsy-design-gallery-list:has(> button:only-child) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.etsy-design-gallery-placement-card .etsy-design-gallery-list > button {
+  min-height: 0;
+  padding: 4px;
+  gap: 4px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  box-shadow: none;
+}
+.etsy-design-gallery-placement-card .etsy-design-gallery-list > button:hover {
+  border: 0;
+  background: #f4f8ff;
+}
+.etsy-design-gallery-placement-card .etsy-design-gallery-list > button.active {
+  border: 0;
+  background: #f4f8ff;
+  color: #245ba7;
+  box-shadow: none;
+}
+.etsy-design-gallery-placement-card .etsy-design-gallery-variant-artwork {
+  height: 96px;
+}
+.etsy-design-gallery-placement-card .etsy-design-gallery-variant-label {
+  line-height: 1.25;
+}
+@media (max-width: 680px) {
+  .etsy-design-gallery-placement-card .etsy-design-gallery-position-list {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 0 0 2px;
+  }
+  .etsy-design-gallery-placement-card .etsy-design-gallery-position-list > button {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 105px;
+    min-height: 36px;
+  }
+  .etsy-design-gallery-placement-card .etsy-design-gallery-list {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 1px 0 3px;
+  }
+  .etsy-design-gallery-placement-card .etsy-design-gallery-list > button {
+    flex: 0 0 104px;
+    min-height: 0;
+  }
+  .etsy-design-gallery-placement-card .etsy-design-gallery-list > button:only-child {
+    flex: 1 1 auto;
+  }
+  .etsy-design-gallery-placement-card .etsy-design-gallery-variant-artwork {
+    height: 78px;
+  }
+}

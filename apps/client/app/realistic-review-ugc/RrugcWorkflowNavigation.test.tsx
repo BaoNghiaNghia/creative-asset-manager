@@ -34,7 +34,7 @@ describe("GatorHats sidebar groups and stage navigation", () => {
   });
 
   const selected = () => host.querySelector<HTMLOutputElement>('[data-testid="active-stage"]')?.textContent;
-  const tabs = () => Array.from(host.querySelectorAll<HTMLButtonElement>('.rrugc-stage-tabs button')).map(tab => tab.id);
+  const tabs = () => Array.from(host.querySelectorAll<HTMLButtonElement>('.rrugc-compact-stage-tabs button')).map(tab => tab.id);
 
   it("maps Products Stage 0–3 independently from Reviews Stage 1–5", () => {
     expect(RRUGC_WORKFLOW_GROUPS.map(item => item.title)).toEqual(["GatorHats Products", "GatorHats Reviews"]);
@@ -58,20 +58,20 @@ describe("GatorHats sidebar groups and stage navigation", () => {
 
   it("keeps stage keyboard navigation within the visible workflow", async () => {
     await act(async () => {
-      host.querySelector<HTMLElement>(".rrugc-stage-tabs")?.dispatchEvent(
+      host.querySelector<HTMLElement>(".rrugc-compact-stage-tabs")?.dispatchEvent(
         new KeyboardEvent("keydown", { bubbles: true, key: "ArrowLeft", cancelable: true }),
       );
     });
     expect(selected()).toBe("products-stage3");
     await act(async () => { host.querySelector<HTMLButtonElement>("#open-reviews")?.click(); });
     await act(async () => {
-      host.querySelector<HTMLElement>(".rrugc-stage-tabs")?.dispatchEvent(
+      host.querySelector<HTMLElement>(".rrugc-compact-stage-tabs")?.dispatchEvent(
         new KeyboardEvent("keydown", { bubbles: true, key: "End", cancelable: true }),
       );
     });
     expect(selected()).toBe("stage5");
     await act(async () => {
-      host.querySelector<HTMLElement>(".rrugc-stage-tabs")?.dispatchEvent(
+      host.querySelector<HTMLElement>(".rrugc-compact-stage-tabs")?.dispatchEvent(
         new KeyboardEvent("keydown", { bubbles: true, key: "ArrowRight", cancelable: true }),
       );
     });

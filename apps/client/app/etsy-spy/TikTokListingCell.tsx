@@ -2,6 +2,7 @@ import {useCallback, useEffect, useRef, useState} from "react";
 import {createPortal} from "react-dom";
 import {spyFetch, type Listing, type TikTokListingDraft, type TikTokListingView} from "./api";
 import "./TikTokListingModalV4.css";
+import {ListingIdeaPreflightPanel} from "./ListingIdeaPreflightPanel";
 
 const LABELS: Record<string, string> = {
   not_queued: "Chưa tạo", pending: "Đang chờ", retry: "Chờ retry",
@@ -295,6 +296,7 @@ export function TikTokListingCell({item, canManage, optimizerEnabled, onQueued}:
               onClick={closeDialog}>×</button>
           </div>
           <div className="etsy-tiktok-dialog-body">
+            <ListingIdeaPreflightPanel key={item.listingKey} listingKey={item.listingKey} canManage={canManage}/>
             {loading && <p role="status" className="etsy-tiktok-loading">Đang cập nhật trạng thái…</p>}
             {result ? <>
               {evidence && <section className="etsy-tiktok-research" aria-label="Nghiên cứu Etsy từ YTrends">

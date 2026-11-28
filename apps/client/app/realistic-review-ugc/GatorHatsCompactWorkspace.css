@@ -1,0 +1,297 @@
+/* GatorHats Products and Reviews only. White, flat work surfaces and the
+   compact Etsy Spy / TikTokShop header; preserve media, status and QA colors. */
+main.rrugc-shell.rrugc-compact-workspace {
+  --cam-bg:#fff;
+  --cam-evo-page:#fff;
+  --rrugc-bg:#fff;
+  --rrugc-surface-soft:#fff;
+  --rrugc-compact-border:#e5eaf1;
+  --rrugc-compact-ink:#203650;
+  --rrugc-compact-muted:#71839a;
+  --rrugc-compact-accent:#ab572c;
+  --rrugc-compact-active:#fff5eb;
+  background:#fff!important;
+}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-main {
+  min-width:0;
+  padding:0!important;
+  background:#fff!important;
+  container-name:gatorhats-workspace;
+  container-type:inline-size;
+}
+main.rrugc-shell.rrugc-compact-workspace.cam-unified-workspace-v18 .workspace-page-header.rrugc-compact-header {
+  display:grid;
+  grid-template-columns:max-content minmax(0,1fr) max-content;
+  align-items:center;
+  min-height:58px;
+  height:auto;
+  margin:0;
+  padding:6px 16px!important;
+  gap:5px 12px;
+  border:0;
+  border-bottom:1px solid var(--rrugc-compact-border);
+  background:#fff!important;
+  box-shadow:none;
+}
+main.rrugc-compact-workspace .rrugc-compact-header .workspace-page-header-copy {min-width:0}
+main.rrugc-shell.rrugc-compact-workspace.cam-unified-workspace-v18 .rrugc-compact-header h1 {
+  font-size:20px!important;
+  line-height:1.15;
+  font-weight:780;
+  white-space:nowrap;
+}
+main.rrugc-compact-workspace .rrugc-compact-header .workspace-page-header-eyebrow {
+  font-size:9px;
+  line-height:1.15;
+  letter-spacing:.09em;
+  color:var(--rrugc-compact-muted);
+}
+main.rrugc-compact-workspace .rrugc-compact-header .workspace-page-header-title-row {margin:3px 0 0;gap:4px}
+main.rrugc-compact-workspace .rrugc-compact-header .workspace-page-header-center {min-width:0;width:100%;margin:0}
+main.rrugc-compact-workspace .rrugc-compact-header .workspace-page-header-actions {min-width:0;gap:4px;justify-content:flex-end}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-compact-header .rrugc-global-management-actions {
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  flex-wrap:wrap;
+  gap:4px;
+}
+main.rrugc-shell.rrugc-compact-workspace.cam-unified-workspace-v18 .rrugc-compact-header .rrugc-global-management-button {
+  box-sizing:border-box;
+  min-height:31px;
+  margin:0;
+  padding:5px 7px;
+  gap:4px;
+  border-radius:6px;
+  border-color:#d7e0ec;
+  background:#fff;
+  color:#405977;
+  font-size:10px;
+  line-height:1.2;
+  box-shadow:none;
+}
+main.rrugc-compact-workspace .rrugc-compact-header .rrugc-global-management-button svg {width:13px;height:13px}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-compact-header .rrugc-global-management-button:hover {background:#fffaf5;border-color:#edd1bb;color:var(--rrugc-compact-accent)}
+/* Switch by actual workspace width, not by screen width or sidebar state. */
+@container gatorhats-workspace (max-width:1270px) {
+  main.rrugc-shell.rrugc-compact-workspace.cam-unified-workspace-v18 .workspace-page-header.rrugc-compact-header {
+    grid-template-columns:minmax(0,1fr) max-content;
+    gap:5px 8px;
+  }
+  main.rrugc-compact-workspace .rrugc-compact-header .workspace-page-header-center {
+    grid-row:2;
+    grid-column:1/-1;
+    border-top:1px solid var(--rrugc-compact-border);
+  }
+  main.rrugc-compact-workspace .rrugc-compact-header .workspace-page-header-actions {grid-row:1;grid-column:2}
+}
+@container gatorhats-workspace (max-width:650px) {
+  main.rrugc-shell.rrugc-compact-workspace.cam-unified-workspace-v18 .workspace-page-header.rrugc-compact-header {
+    grid-template-columns:minmax(0,1fr);
+    padding:6px 8px!important;
+  }
+  main.rrugc-compact-workspace .rrugc-compact-header .workspace-page-header-center {grid-row:3;grid-column:1}
+  main.rrugc-compact-workspace .rrugc-compact-header .workspace-page-header-actions {grid-row:2;grid-column:1;justify-content:flex-start}
+  main.rrugc-shell.rrugc-compact-workspace .rrugc-compact-header .rrugc-global-management-actions {justify-content:flex-start}
+  main.rrugc-shell.rrugc-compact-workspace.cam-unified-workspace-v18 .rrugc-compact-header h1 {font-size:18px!important}
+}
+/* Eliminate the gray canvas and panel gutters without affecting overlays. */
+main.rrugc-shell.rrugc-compact-workspace.cam-unified-workspace-v18 .rrugc-page-body.rrugc-source-first-body {
+  display:grid;
+  grid-template-columns:minmax(0,1fr);
+  gap:7px;
+  min-width:0;
+  width:100%;
+  margin:0;
+  padding:8px 16px 12px!important;
+  box-sizing:border-box;
+  background:#fff!important;
+}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-stage-panel {min-width:0;gap:7px;background:#fff}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-stage-panel[hidden] {display:none}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-stage-panel > :is(
+  .rrugc-stage0-v2,.rrugc-keyword-gen,.rrugc-colorway-stage,.rrugc-products-video-stage,
+  .rrugc-cap-stack-stage,.rrugc-source-plans,.rrugc-stage2,.rrugc-stage3
+) {
+  min-width:0;
+  width:100%;
+  max-width:none;
+  box-sizing:border-box;
+  margin:0;
+  padding:0!important;
+  border:0!important;
+  border-radius:0;
+  background:#fff!important;
+  box-shadow:none;
+}
+main.rrugc-shell.rrugc-compact-workspace :is(
+  .rrugc-stage-header,.rrugc-stage0-heading-row,.rrugc-stage0-unified-toolbar,
+  .rrugc-keyword-gen-list-heading,.typography-keyword-jobs-shell,
+  .rrugc-colorway-toolbar,.rrugc-colorway-header,.rrugc-colorway-table-wrap,
+  .rrugc-video-stage-library,.rrugc-video-stage-director,.rrugc-video-stage-section-heading,
+  .rrugc-video-stage-job,.rrugc-cap-stack-heading,.rrugc-cap-stack-controls,
+  .rrugc-cap-stack-overview,.rrugc-cap-stack-toolbar,.rrugc-cap-stack-gallery,
+  .rrugc-cap-stack-card-footer,.rrugc-cap-stack-pagination,
+  .rrugc-source-plan-toolbar,.rrugc-source-plan-table-wrap,
+  .rrugc-stage4-unified-toolbar,.rrugc-stage4-sort-bar,.rrugc-stage5-toolbar,
+  .rrugc-stage5-source-tree,.rrugc-stage5-tree-head,.rrugc-stage5-tree-foot,
+  .rrugc-stage3-group,.rrugc-stage3-group-head,.rrugc-stage3-group-foot,
+  .rrugc-stage3-gallery,.rrugc-stage3-image figcaption,.rrugc-stage3-empty,
+  .rrugc-source-pagination,.rrugc-keyword-gen-table-wrap,.rrugc-stage0-table-wrap
+) {
+  background:#fff!important;
+  box-shadow:none;
+}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-stage-panel .rrugc-stage-header:not([role="dialog"] *) {
+  min-height:0;
+  padding:3px 0;
+  margin:0 0 6px;
+  gap:8px;
+  border:0!important;
+  border-radius:0;
+}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-stage-header-copy>small {font-size:9px;line-height:1.2;letter-spacing:.07em;color:var(--rrugc-compact-muted)}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-stage-header-copy h2 {margin:2px 0;font-size:16px;line-height:1.25;color:var(--rrugc-compact-ink)}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-stage-header-copy p {margin:0;font-size:10px;line-height:1.35;color:var(--rrugc-compact-muted)}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-stage-panel :is(
+  .rrugc-source-plan-toolbar,.rrugc-colorway-toolbar,.rrugc-stage4-unified-toolbar,
+  .rrugc-stage5-toolbar,.rrugc-cap-stack-toolbar
+) {border-radius:0;padding-block:5px;gap:6px}
+/* KPI bands: use hairlines rather than floating colored cards. */
+main.rrugc-shell.rrugc-compact-workspace .rrugc-stage-panel :is(
+  .rrugc-source-plan-kpis,.rrugc-colorway-kpis,.rrugc-video-stage-metrics
+) {
+  gap:0;
+  margin-block:5px;
+  border-block:1px solid var(--rrugc-compact-border);
+  background:#fff!important;
+}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-stage-panel :is(
+  .rrugc-source-plan-kpis,.rrugc-colorway-kpis,.rrugc-video-stage-metrics
+)>:is(article,div) {
+  min-width:0;
+  min-height:44px;
+  padding:6px 10px;
+  border:0;
+  border-right:1px solid var(--rrugc-compact-border);
+  border-radius:0;
+  background:#fff!important;
+  box-shadow:none;
+}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-stage-panel :is(
+  .rrugc-source-plan-kpis,.rrugc-colorway-kpis,.rrugc-video-stage-metrics
+)>:is(article,div):last-child {border-right:0}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-stage-panel :is(
+  .rrugc-source-plan-kpis,.rrugc-colorway-kpis,.rrugc-video-stage-metrics
+)>:is(article,div)>strong {font-size:19px;line-height:1.15;font-variant-numeric:tabular-nums}
+/* Stage 0 filter cards: a single selected underline, no decorative fill. */
+main.rrugc-shell.rrugc-compact-workspace.rrugc-evo-products .rrugc-stage0-v2 .rrugc-stage0-kpis-restored {
+  display:grid;
+  grid-template-columns:repeat(7,minmax(0,1fr));
+  gap:0;
+  margin:5px 0 8px;
+  background:#fff!important;
+}
+main.rrugc-shell.rrugc-compact-workspace.rrugc-evo-products .rrugc-stage0-v2 .rrugc-stage0-kpis-restored .rrugc-stage0-kpi-card {
+  min-width:0;
+  min-height:64px;
+  gap:3px;
+  padding:6px 9px;
+  border:0!important;
+  border-right:1px solid var(--rrugc-compact-border)!important;
+  border-bottom:2px solid transparent!important;
+  border-radius:0;
+  background:#fff!important;
+  background-image:none!important;
+  box-shadow:none;
+  transform:none;
+}
+main.rrugc-shell.rrugc-compact-workspace.rrugc-evo-products .rrugc-stage0-kpis-restored .rrugc-stage0-kpi-card::before,
+main.rrugc-shell.rrugc-compact-workspace.rrugc-evo-products .rrugc-stage0-kpis-restored .rrugc-stage0-kpi-card::after {content:none;display:none}
+main.rrugc-shell.rrugc-compact-workspace.rrugc-evo-products .rrugc-stage0-v2 .rrugc-stage0-kpis-restored .rrugc-stage0-kpi-card:last-child {border-right:0!important}
+main.rrugc-shell.rrugc-compact-workspace.rrugc-evo-products .rrugc-stage0-v2 .rrugc-stage0-kpis-restored .rrugc-stage0-kpi-card.active {
+  border-bottom-color:#e77c37!important;
+  background:var(--rrugc-compact-active)!important;
+  box-shadow:none;
+}
+main.rrugc-shell.rrugc-compact-workspace.rrugc-evo-products .rrugc-stage0-v2 .rrugc-stage0-kpis-restored .rrugc-stage0-kpi-card.active>strong {color:var(--rrugc-compact-accent)!important}
+main.rrugc-shell.rrugc-compact-workspace.rrugc-evo-products .rrugc-stage0-v2 .rrugc-stage0-kpis-restored .rrugc-stage0-kpi-card:not(.active):hover {background:#fffaf5!important}
+main.rrugc-shell.rrugc-compact-workspace.rrugc-evo-products .rrugc-stage0-v2 .rrugc-stage0-kpis-restored .rrugc-stage0-kpi-card>strong {font-size:19px}
+main.rrugc-shell.rrugc-compact-workspace.rrugc-evo-products .rrugc-stage0-v2 .rrugc-stage0-kpis-restored .rrugc-stage0-kpi-card>small {font-size:9px}
+/* Stage 1 keyword-generation filters and Cap Stack metrics. */
+main.rrugc-shell.rrugc-compact-workspace .rrugc-keyword-gen-stats {gap:0;border-block:1px solid var(--rrugc-compact-border);background:#fff}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-keyword-gen-stats>button {
+  min-height:42px;
+  border:0;
+  border-right:1px solid var(--rrugc-compact-border);
+  border-bottom:2px solid transparent;
+  border-radius:0;
+  background:#fff!important;
+  box-shadow:none;
+}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-keyword-gen-stats>button.active {background:var(--rrugc-compact-active)!important;border-bottom-color:#e77c37;color:var(--rrugc-compact-accent)}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-cap-stack-controls {border:0;border-radius:0}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-cap-stack-overview {border-block:1px solid var(--rrugc-compact-border);padding-block:4px}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-cap-stack-heading.rrugc-card {border:0!important;padding:3px 0;margin:0}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-cap-stack-vision>summary {background:#fff}
+/* All operational table headers and neutral cells use white. Keep picked
+   keyword rows recognizably green and retain colored QA/worker status chips. */
+main.rrugc-shell.rrugc-compact-workspace .rrugc-stage-panel :is(
+  .rrugc-stage0-keyword-table,.rrugc-keyword-gen-table,.rrugc-colorway-table,
+  .rrugc-source-plan-table,.rrugc-stage2-table
+) thead th {
+  background:#fff!important;
+  border-bottom:1px solid var(--rrugc-compact-border);
+  color:#5e708a;
+  box-shadow:none;
+}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-stage-panel :is(
+  .rrugc-stage0-keyword-table,.rrugc-keyword-gen-table,.rrugc-colorway-table,
+  .rrugc-source-plan-table,.rrugc-stage2-table
+) tbody tr:not(.is-picked) {
+  background:#fff!important;
+}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-stage-panel :is(
+  .rrugc-stage0-keyword-table,.rrugc-keyword-gen-table,.rrugc-colorway-table,
+  .rrugc-source-plan-table,.rrugc-stage2-table
+) tbody tr:not(.is-picked)>td {
+  background:#fff!important;
+}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-stage0-keyword-table tbody tr.is-picked>td {background:#f7fbf8!important}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-stage-panel :is(
+  .rrugc-stage0-keyword-table,.rrugc-keyword-gen-table,.rrugc-colorway-table,
+  .rrugc-source-plan-table,.rrugc-stage2-table
+) tbody tr:hover>td {background:#fffaf5!important}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-stage5-toolbar .rrugc-stage5-toolbar-stats>span {background:#fff;box-shadow:none}
+main.rrugc-shell.rrugc-compact-workspace .rrugc-stage-panel :is(
+  .rrugc-source-pagination,.rrugc-cap-stack-pagination
+) {padding:4px 7px;min-height:34px;border:0;border-top:1px solid var(--rrugc-compact-border);border-radius:0}
+/* Responsive reductions are based on real available workspace space. */
+@container gatorhats-workspace (max-width:1100px) {
+  main.rrugc-shell.rrugc-compact-workspace.rrugc-evo-products .rrugc-stage0-v2 .rrugc-stage0-kpis-restored {
+    grid-template-columns:repeat(4,minmax(0,1fr));
+  }
+  main.rrugc-shell.rrugc-compact-workspace.rrugc-evo-products .rrugc-stage0-v2 .rrugc-stage0-heading-row {
+    grid-template-columns:minmax(0,1fr);
+    gap:5px;
+    margin-bottom:4px;
+  }
+}
+@container gatorhats-workspace (max-width:650px) {
+  main.rrugc-shell.rrugc-compact-workspace.cam-unified-workspace-v18 .rrugc-page-body.rrugc-source-first-body {padding:5px 8px 8px!important}
+  main.rrugc-shell.rrugc-compact-workspace.rrugc-evo-products .rrugc-stage0-v2 .rrugc-stage0-kpis-restored {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  main.rrugc-shell.rrugc-compact-workspace .rrugc-stage-panel .rrugc-stage-header:not([role="dialog"] *) {
+    flex-direction:column;
+    flex-wrap:nowrap;
+    align-items:stretch;
+    gap:5px;
+  }
+  main.rrugc-shell.rrugc-compact-workspace .rrugc-stage-header-actions {width:100%;min-width:0;max-width:100%;justify-content:flex-start}
+  main.rrugc-shell.rrugc-compact-workspace .rrugc-stage-panel :is(.rrugc-source-plan-kpis,.rrugc-colorway-kpis,.rrugc-video-stage-metrics) {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    max-width:100%;
+    overflow:hidden;
+  }
+}

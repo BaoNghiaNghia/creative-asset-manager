@@ -26,6 +26,15 @@ describe("Tiktokshop workspace Phase 3 isolation", () => {
     expect(html).toContain("Scout &amp; UGC");
     expect(html).toContain(TIKTOKSHOP_SOURCE_ROOT);
     expect(html).toContain("rrugc-tiktokshop-workspace");
+    expect(html).toContain("tiktok-compact-header");
+    expect(html).toContain("workspace-page-header-center");
+    expect(html).toContain('class="tiktok-stage-tabs"');
+    expect(html).not.toContain('class="ops-tabs rrugc-stage-tabs tiktok-stage-tabs"');
+    expect(html).not.toContain('class="rrugc-stage-tab-number"');
+    expect(html).toContain("tiktok-generation-table");
+    expect(html).toContain("tiktok-kpi-strip");
+    expect(html).not.toContain("isolated Scout pilot");
+    expect(html).not.toContain("Back to assets");
     expect(html).toContain("TiktokShop Drive");
     expect(html).toContain('aria-haspopup="dialog"');
     expect(html).toContain('aria-expanded="false"');

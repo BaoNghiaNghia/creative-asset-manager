@@ -10,12 +10,12 @@ APP_ROOT="${CAM_APP_ROOT:-/opt/creative-asset-manager}"
 ALLOW_DIRTY=false
 REF=""
 ROLLBACK=false
-KEEP_RELEASES="${CAM_FRONTEND_RELEASE_KEEP:-1}"
+KEEP_RELEASES="${CAM_FRONTEND_RELEASE_KEEP:-2}"
 
 usage() { cat <<'USAGE'
 Usage: sudo scripts/deploy-cam-frontend.sh [--commit SHA|--branch NAME] [--rollback] [--allow-dirty]
-After verified activation, keeps only the current frontend release by default.
-Set CAM_FRONTEND_RELEASE_KEEP=2 to retain one rollback release.
+After verified activation, retains current and previous frontend release by default.
+Normal deployment requires the live frontend lineage and Color Mix V5 contract.
 Validates and atomically activates a committed prebuilt frontend release.
 USAGE
 }
@@ -40,13 +40,16 @@ SOURCE_DIR="$(realpath -- "$SOURCE_DIR")"
 [[ "$(git -C "$SOURCE_DIR" rev-parse --show-toplevel)" == "$SOURCE_DIR" ]] \
   || die "Source directory does not match its Git checkout root."
 SOURCE_DIR="$(realpath -- "$SOURCE_DIR")"
-for command in git rsync nginx systemctl python3 curl; do require "$command"; done
+for command in git rsync nginx systemctl python3 curl flock; do require "$command"; done
 CONFIG_PYTHON="$APP_ROOT/current/apps/api/.venv/bin/python"
 [[ -x "$CONFIG_PYTHON" ]] || die "Active backend Python runtime is unavailable."
 [[ $EUID -eq 0 ]] || die "Run as root so release ownership and Nginx activation are safe."
 [[ -f "$ENV_FILE" ]] || die "Production environment file is missing."
 ENV_HELPER="$SOURCE_DIR/deploy/tools/production_env.py"
 [[ -f "$ENV_HELPER" ]] || die "production_env.py is missing."
+install -d -o root -g root -m 0755 "$WEB_ROOT"
+exec 9>"$WEB_ROOT/.frontend-release.lock"
+flock -n 9 || die "Another guarded frontend deployment is running."
 if $ROLLBACK; then
   [[ -L "$WEB_ROOT/previous" ]] || die "No previous frontend release is recorded."
   target="$(readlink -f -- "$WEB_ROOT/previous")"
@@ -92,6 +95,8 @@ if find "$DIST" -type f \( -name "*.map" -o -name "*.map.gz" \) -print -quit | g
 if ! python3 "$SOURCE_DIR/deploy/tools/validate_frontend_dist.py" "$DIST"; then
   die "Generated dist contains a forbidden endpoint or credential value."
 fi
+python3 "$SOURCE_DIR/deploy/tools/frontend_release_guard.py" "$DIST" "$WEB_ROOT/current" "$SOURCE_DIR" "$COMMIT" \
+  || die "Frontend Release Guard rejected activation."
 RELEASES="$WEB_ROOT/releases"
 TARGET="$RELEASES/$RELEASE_ID"
 install -d -o root -g root -m 0755 "$RELEASES"
@@ -107,26 +112,55 @@ fi
 "$CONFIG_PYTHON" "$ENV_HELPER" check --env-file "$ENV_FILE" --expected-owner-uid 0 --api-root "$SOURCE_DIR/apps/api" >/dev/null
 nginx -t
 OLD=""
+OLD_PREVIOUS=""
 [[ ! -L "$WEB_ROOT/current" ]] || OLD="$(readlink -f -- "$WEB_ROOT/current")"
+[[ ! -L "$WEB_ROOT/previous" ]] || OLD_PREVIOUS="$(readlink -f -- "$WEB_ROOT/previous")"
+restore_frontend() {
+  if [[ -n "$OLD" ]]; then
+    ln -s -- "$OLD" "$WEB_ROOT/current.rollback"
+    mv -Tf -- "$WEB_ROOT/current.rollback" "$WEB_ROOT/current"
+    if [[ -n "$OLD_PREVIOUS" ]]; then
+      ln -s -- "$OLD_PREVIOUS" "$WEB_ROOT/previous.rollback"
+      mv -Tf -- "$WEB_ROOT/previous.rollback" "$WEB_ROOT/previous"
+    else
+      rm -f -- "$WEB_ROOT/previous"
+    fi
+    nginx -t && systemctl reload nginx
+  fi
+}
 [[ -z "$OLD" || "$OLD" == "$TARGET" ]] || ln -s -- "$OLD" "$WEB_ROOT/previous.new"
 [[ -z "$OLD" || "$OLD" == "$TARGET" ]] || mv -Tf -- "$WEB_ROOT/previous.new" "$WEB_ROOT/previous"
 ln -s -- "$TARGET" "$WEB_ROOT/current.new"
 mv -Tf -- "$WEB_ROOT/current.new" "$WEB_ROOT/current"
 if ! nginx -t || ! systemctl reload nginx; then
-  [[ -z "$OLD" ]] || { ln -s -- "$OLD" "$WEB_ROOT/current.rollback"; mv -Tf -- "$WEB_ROOT/current.rollback" "$WEB_ROOT/current"; nginx -t; systemctl reload nginx; }
-  die "Frontend activation failed and previous release was restored."
+  restore_frontend
+  die "Frontend activation failed; previous release restoration attempted."
 fi
 HOST="$(python3 -c "import sys; sys.path.insert(0, \"$SOURCE_DIR/deploy/tools\"); from production_env import parse_environment_file; print(parse_environment_file(__import__(\"pathlib\").Path(\"$ENV_FILE\"))[\"TRUSTED_HOSTS\"].split(\",\")[0].strip())")"
 PUBLIC_URL="$(python3 -c "import sys; sys.path.insert(0, \"$SOURCE_DIR/deploy/tools\"); from production_env import parse_environment_file; print(parse_environment_file(__import__(\"pathlib\").Path(\"$ENV_FILE\"))[\"PUBLIC_APP_URL\"].rstrip(\"/\"))")"
 for path in / /build-info.json /favicon.svg /favicon.ico /favicon-32x32.png /apple-touch-icon.png /app-icon-192.png /app-icon-512.png /site.webmanifest /live /ready /version; do
-  curl --fail --silent --show-error --max-time 15 "$PUBLIC_URL$path" >/dev/null
+  if ! curl --fail --silent --show-error --max-time 15 "$PUBLIC_URL$path" >/dev/null; then
+    restore_frontend
+    die "Public health check failed; prior frontend restoration attempted."
+  fi
 done
-curl --fail --silent --show-error --max-time 10 -H "Host: $HOST" "http://127.0.0.1:8000/version" >/dev/null
+if ! curl --fail --silent --show-error --max-time 10 -H "Host: $HOST" "http://127.0.0.1:8000/version" >/dev/null; then
+  restore_frontend
+  die "Backend health check failed; prior frontend restoration attempted."
+fi
+if ! curl --fail --silent --show-error --max-time 15 "$PUBLIC_URL/build-info.json" | python3 -c \
+    'import json,sys; b=json.load(sys.stdin); sys.exit(0 if b.get("build_commit") == sys.argv[1] and b.get("ui_contract") == "cam-color-mix-v5" else 1)' "$BUILD_COMMIT"; then
+  restore_frontend
+  die "Public frontend provenance does not match the candidate; prior frontend restoration attempted."
+fi
 if [[ "${CAM_PRODUCTION_UI_SMOKE_AFTER_DEPLOY:-0}" == "1" ]]; then
-  CAM_PRODUCTION_UI_URL="$PUBLIC_URL" \
+  if ! CAM_PRODUCTION_UI_URL="$PUBLIC_URL" \
   CAM_PRODUCTION_EXPECTED_COMMIT="$COMMIT" \
   CAM_PRODUCTION_UI_MODE="${CAM_PRODUCTION_UI_MODE:-auto}" \
-    bash "$SOURCE_DIR/scripts/cam-production-ui-smoke.sh"
+    bash "$SOURCE_DIR/scripts/cam-production-ui-smoke.sh"; then
+    restore_frontend
+    die "Production UI smoke failed; prior frontend restoration attempted."
+  fi
 fi
 # Only after a successful activation and public health checks can the
 # optional single-release policy remove the previous rollback symlink/tree.

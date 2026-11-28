@@ -1,0 +1,76 @@
+:root {
+  --cam-icon-blue: #2563eb;
+  --cam-icon-mint: #34d399;
+  --cam-icon-orange: #ffaa45;
+  --cam-nav-text: #334155;
+  --cam-nav-muted: #64748b;
+  --cam-nav-active-text: #1d4ed8;
+  --cam-nav-active-bg: #eaf1ff;
+  --cam-nav-active-border: #d2e1ff;
+  --cam-nav-hover-bg: #f1f5fb;
+  --cam-nav-font: "Inter Variable", "Be Vietnam Pro", system-ui, sans-serif;
+}
+.workspace-navigation, .responsive-workspace-nav, .responsive-nav-drawer-panel,
+.mobile-workspace-more-panel, .tablet-rrugc-workflow-nav { font-family: var(--cam-nav-font); }
+.workspace-navigation :is(.workspace-nav-icon, .workspace-nav-submenu-icon),
+.mobile-workspace-tabs .workspace-nav-icon,
+.mobile-workspace-more-items .workspace-nav-icon {
+  object-fit: contain;
+  flex-shrink: 0;
+  filter: none;
+  opacity: 1;
+}
+:is(.workspace-navigation, .ops-sidebar .workspace-navigation,
+    .access-sidebar .workspace-navigation, .inventory-desktop-sidebar .workspace-navigation,
+    .product-shell .sidebar .workspace-navigation) a {
+  color: var(--cam-nav-text);
+  font-size: 13px;
+  font-weight: 550;
+  letter-spacing: -.012em;
+}
+:is(.workspace-navigation, .ops-sidebar .workspace-navigation,
+    .access-sidebar .workspace-navigation, .inventory-desktop-sidebar .workspace-navigation,
+    .product-shell .sidebar .workspace-navigation) .workspace-nav-submenu a {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.workspace-navigation .workspace-nav-section-label {
+  color: var(--cam-nav-muted);
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: .075em;
+}
+:is(.workspace-navigation, .ops-sidebar .workspace-navigation,
+    .access-sidebar .workspace-navigation, .inventory-desktop-sidebar .workspace-navigation,
+    .product-shell .sidebar .workspace-navigation) a:hover {
+  color: var(--cam-nav-active-text);
+  background: var(--cam-nav-hover-bg);
+}
+:is(.workspace-navigation, .ops-sidebar .workspace-navigation,
+    .access-sidebar .workspace-navigation, .inventory-desktop-sidebar .workspace-navigation,
+    .product-shell .sidebar .workspace-navigation) a[aria-current] {
+  color: var(--cam-nav-active-text);
+  background: var(--cam-nav-active-bg);
+  border-color: var(--cam-nav-active-border);
+  font-weight: 650;
+}
+.workspace-navigation a[aria-current="page"]::before { background: var(--cam-icon-blue); }
+.workspace-navigation .workspace-nav-group:has(a[aria-current="location"]) > .workspace-nav-group-row > a[aria-current="page"] {
+  color: var(--cam-nav-text);
+  background: transparent;
+  border-color: transparent;
+  font-weight: 600;
+}
+.workspace-navigation .workspace-nav-group:has(a[aria-current="location"]) > .workspace-nav-group-row > a[aria-current="page"]::before { display: none; }
+.workspace-navigation .workspace-nav-group:has(a[aria-current="location"]) .workspace-nav-expander { color: var(--cam-icon-blue); }
+@media (min-width: 1025px) and (pointer: fine) {
+  :is(.workspace-navigation, .product-shell .sidebar .workspace-navigation) .workspace-nav-icon {
+    width: 20px; height: 20px; flex-basis: 20px;
+  }
+  :is(.workspace-navigation, .product-shell .sidebar .workspace-navigation) .workspace-nav-submenu-icon {
+    width: 18px; height: 18px; flex-basis: 18px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace-navigation a { transition: none; }
+}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { AccessApiError, fetchAccessIdentity } from "../features/access_management";
+import type { WorkspaceAccountProfile } from "./components/WorkspaceAccountAvatar";
 
 // Resume the authorized route in place after maintenance, never reload it.
 const resumeAfterMaintenance = () => {};
@@ -10,7 +11,7 @@ export const ROUTE_IDENTITY_CONFIRM_RETRY_MS = 1_500;
 export const ROUTE_READINESS_TIMEOUT_MS = 3_000;
 export type RouteAccessState =
   | { status: "checking" }
-  | { status: "allowed"; permissions: readonly string[] }
+  | { status: "allowed"; permissions: readonly string[]; account?: WorkspaceAccountProfile }
   | { status: "denied" }
   | { status: "unauthenticated" }
   | { status: "reconnecting" }
@@ -107,7 +108,7 @@ export function useRouteAccessGate(
         // have been revoked while the backend was temporarily unavailable.
         const authorized = isWorkspaceRouteAuthorized(identity, requiredPermission!, requiredModule);
         setState(authorized
-          ? { status: "allowed", permissions: identity.permissions }
+          ? { status: "allowed", permissions: identity.permissions, account: identity.user_id ? { display_name: identity.display_name, email: identity.email, avatar_url: identity.avatar_url } : undefined }
           : { status: "denied" });
         if (hasEnteredMaintenance) {
           hasEnteredMaintenance = false;

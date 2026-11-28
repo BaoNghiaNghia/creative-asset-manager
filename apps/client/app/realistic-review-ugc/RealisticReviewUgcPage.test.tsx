@@ -1107,7 +1107,9 @@ describe("Realistic Review UGC source-first workspace", () => {
 
   it("renders the source-first UI and removes legacy campaign/candidate/product panels", () => {
     const markup = renderToStaticMarkup(<RealisticReviewUgcPage />);
-    expect(markup).toContain("Dual scout pipeline");
+    expect(markup).toContain("rrugc-compact-header");
+    expect(markup).not.toContain("Dual scout pipeline");
+    expect(markup).not.toContain("Back to assets");
     expect(markup).toContain("Embroidery source → Pinterest refs");
     expect(markup).toContain("Auto scan on");
     expect(markup).toContain("1kNBQU4O-i6cbDBnRrhPGNENHvieWYPfX");

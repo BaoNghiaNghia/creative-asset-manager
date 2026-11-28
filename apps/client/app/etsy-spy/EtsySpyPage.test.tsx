@@ -310,8 +310,10 @@ function installFetch() {
 }
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
-async function start({tiktokEnabled = false, initialUrl = "/etsy-spy", listingPages = 1}:
-  {tiktokEnabled?: boolean; initialUrl?: string; listingPages?: number} = {}) {
+async function start({tiktokEnabled = false, initialUrl = "/etsy-spy", listingPages = 1,
+  extractionEnabled = false}:
+  {tiktokEnabled?: boolean; initialUrl?: string; listingPages?: number;
+    extractionEnabled?: boolean} = {}) {
   // jsdom does not ship ResizeObserver, while the real browser provides it.
   vi.stubGlobal("ResizeObserver", class {
     observe() {}
@@ -319,6 +321,7 @@ async function start({tiktokEnabled = false, initialUrl = "/etsy-spy", listingPa
     disconnect() {}
   });
   installFetch();
+  extractionPilotOn = extractionEnabled;
   simulatedListingPages = listingPages;
   tiktokFeatureOn = tiktokEnabled;
   window.history.replaceState(null, "", initialUrl);
@@ -521,6 +524,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelector(".etsy-page-range")?.textContent).toContain("0–0 / 150");
     expect(container?.querySelector(".etsy-empty-title")?.textContent)
       .toBe("Trang này không còn sản phẩm");
+    expect(container?.querySelector(".etsy-empty-artwork")).toBeNull();
     await act(async () => {
       container?.querySelector<HTMLButtonElement>(".etsy-empty-action")?.click();
       await new Promise(resolve => setTimeout(resolve, 50));
@@ -533,6 +537,10 @@ describe("Etsy Spy native CAM dashboard", () => {
     await start({initialUrl: "/etsy-spy?tab=products&pick_state=picked&observed_day=2026-11-11&group=christmas&q=Santa"});
     expect(container?.querySelector(".etsy-empty-title")?.textContent)
       .toBe("Không tìm thấy sản phẩm phù hợp");
+    const artwork = container?.querySelector("svg.etsy-empty-artwork");
+    expect(artwork?.getAttribute("data-artwork")).toBe("product-discovery");
+    expect(artwork?.getAttribute("aria-hidden")).toBe("true");
+    expect(artwork?.getAttribute("focusable")).toBe("false");
     const reset = container?.querySelector<HTMLButtonElement>(".etsy-empty-action");
     expect(reset?.textContent).toContain("Xóa lọc");
     expect(reset?.getAttribute("aria-label")).toContain("giữ nguyên danh mục");
@@ -546,6 +554,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(params.get("q")).toBeNull();
     expect(container?.querySelector(".etsy-empty-title")?.textContent)
       .toBe("Chưa có sản phẩm Picked");
+    expect(container?.querySelector(".etsy-empty-artwork")).toBeNull();
     const toEligible = container?.querySelector<HTMLButtonElement>(".etsy-empty-action");
     expect(toEligible?.textContent).toContain("Eligible");
     await act(async () => { toEligible?.click(); });
@@ -555,6 +564,8 @@ describe("Etsy Spy native CAM dashboard", () => {
 
   it("explains an empty Later list and offers navigation back to Eligible", async () => {
     await start({initialUrl: "/etsy-spy?tab=products&pick_state=later&observed_day=all"});
+    expect(container?.querySelector("main.etsy-product-viewport")).toBeTruthy();
+    expect(container?.querySelector("#etsy-product-results .etsy-pager")).toBeTruthy();
     expect(container?.querySelector(".etsy-empty-title")?.textContent)
       .toBe("Chưa có sản phẩm Later");
     expect(container?.querySelector(".etsy-empty-description")?.textContent)
@@ -765,14 +776,20 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(html).toContain("Rudolph Shirt");
     expect(html).toContain("Bestseller");
     expect(html).toContain("Keyword SMS");
+    const badgeHeader = container?.querySelector(".etsy-data-table.is-products th[data-etsy-col='badge']");
+    const badgeCells = container?.querySelectorAll(".etsy-data-table.is-products td[data-etsy-col='badge']");
+    expect(badgeHeader?.textContent).toContain("Etsy Badge");
+    expect(badgeCells?.length).toBeGreaterThan(0);
+    expect(badgeCells?.[0]?.querySelector(".etsy-badge-stack > .etsy-pill.etsy-demand")).toBeTruthy();
     const headings = Array.from(container?.querySelectorAll(".etsy-data-table.is-products th:not(.etsy-select-header)") || [])
-      .map(x => x.querySelector(".etsy-column-sort-label")?.textContent ??
+      .map(x => x.getAttribute("data-etsy-col") === "metrics" ? "Demand" : x.querySelector(".etsy-column-sort-label")?.textContent ??
         (x.textContent || "").trim());
     expect(headings).toEqual([
-      "Product / Etsy", "Keyword SMS", "Etsy Badge",
-      "Bought / 24h", "Views / 24h", "Carts", "Observed", "Action",
+      "Product / Etsy", "Design", "Keyword SMS", "Etsy Badge",
+      "Demand", "Observed", "Action",
     ]);
-    expect(container?.querySelectorAll(".etsy-product-row")[0]?.querySelectorAll("td")).toHaveLength(9);
+    expect(container?.querySelectorAll(".etsy-product-row")[0]?.querySelectorAll("td")).toHaveLength(8);
+    expect(container?.querySelector(".etsy-data-table.is-products[data-etsy-layout=\'eligible\'] .etsy-design-cell")).toBeTruthy();
     expect(container?.querySelector(".etsy-select-header input[type='checkbox']")).toBeTruthy();
     expect(container?.querySelector(".etsy-data-table.is-products .etsy-keyword-cell")).toBeNull();
     expect(headings).not.toContain("Keyword");
@@ -794,7 +811,7 @@ describe("Etsy Spy native CAM dashboard", () => {
 
   it("renders Carts 20+ without changing numeric values or other rows", async () => {
     await start();
-    const cells = Array.from(container?.querySelectorAll(".etsy-product-row td:nth-child(7)") || []);
+    const cells = Array.from(container?.querySelectorAll(".etsy-product-row [data-etsy-metric='inCarts'] dd") || []);
     expect(cells.map(cell => cell.textContent)).toEqual(["20+", "25", "—"]);
     expect(listing.inCarts).toBe(20);
     expect(popularNoMatch.inCarts).toBe(25);
@@ -831,25 +848,42 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(container?.querySelector(".etsy-stat-total[aria-pressed='true']")).toBeTruthy();
     expect(container?.querySelectorAll(".etsy-observed-day")).toHaveLength(28);
     expect(container?.querySelector(".etsy-pager select[aria-label='Rows per page']")).toBeTruthy();
+    expect(container?.querySelector(".etsy-page-size")?.textContent).toContain("Dòng");
+    expect(container?.querySelector(".etsy-pager button[aria-label='Previous page']")).toBeTruthy();
+    expect(container?.querySelector(".etsy-pager button[aria-label='Next page']")).toBeTruthy();
+    expect(container?.querySelector(".etsy-pager button[aria-label='First page']")).toBeNull();
+    expect(container?.querySelector(".etsy-pager button[aria-label='Last page']")).toBeNull();
+    expect(container?.querySelector(".etsy-data-table.is-products[data-etsy-layout='eligible'] colgroup")?.children).toHaveLength(8);
     expect(container?.querySelector(".etsy-product-glyph")?.textContent).toBe("E");
     expect(container?.querySelector(".etsy-action-cell a[href*='etsy.com/listing']")).toBeTruthy();
     expect(container?.querySelector(".etsy-title-meta a[href*='etsy.com/listing']")).toBeTruthy();
-    expect(container?.querySelector(".etsy-time")?.textContent).toContain("6/11/26");
+    const observedTime = container?.querySelector("time.etsy-observed-age");
+    expect(observedTime?.getAttribute("datetime")).toBe(listing.observedAt);
+    expect(observedTime?.getAttribute("title")).toContain("6/11/26");
+    expect(observedTime?.getAttribute("title")).toContain("GMT+7");
+    expect(observedTime?.textContent).not.toContain("6/11/26");
     expect(container?.querySelector(".etsy-search-box input[aria-label='Search Spy records']")).toBeTruthy();
     const stageChildren = Array.from(container?.querySelector("#etsy-spy-workspace")?.children || []);
     const location = (selector: string) => stageChildren.findIndex(child => child.matches(selector));
     // Flat layout: no redundant filter or idle bulk-selection bars.
-    expect(container?.querySelector(".etsy-spy-topbar .workspace-page-header-center > .etsy-stats")).toBeTruthy();
     expect(location(".etsy-stats")).toBe(-1);
+    expect(container?.querySelector(".etsy-spy-topbar .workspace-page-header-center > .etsy-stats")).toBeTruthy();
     expect(location(".etsy-filter-context")).toBe(-1);
     expect(location(".etsy-bulk-bar")).toBe(-1);
     expect(location(".etsy-facet-explorer")).toBeGreaterThan(location(".etsy-spy-topbar"));
+    // V2 groups the data card and Quick Inspect in one responsive layout.
     expect(location(".etsy-v2-results-layout")).toBeGreaterThan(location(".etsy-facet-explorer"));
     expect(container?.querySelector(".etsy-v2-results-layout > .etsy-table-card")).toBeTruthy();
-    expect(container?.querySelector(".etsy-table-wrap th button[aria-label='Sort by Carts']")).toBeTruthy();
-    const cartsCells = container?.querySelectorAll(".etsy-product-row td:nth-child(7)");
+    expect(container?.querySelector("main.etsy-product-viewport")).toBeTruthy();
+    expect(container?.querySelector("#etsy-product-results .etsy-table-wrap.is-viewport-fit")).toBeTruthy();
+    expect(container?.querySelector(".etsy-table-wrap th select[aria-label='Sort demand metrics']")).toBeTruthy();
+    const cartsCells = container?.querySelectorAll(".etsy-product-row [data-etsy-metric='inCarts'] dd");
     expect(cartsCells).toHaveLength(3);
     expect(Array.from(cartsCells || [], cell => cell.textContent)).toEqual(["20+", "25", "—"]);
+    const firstDemand = container?.querySelector(".etsy-product-row td[data-etsy-col='metrics']");
+    expect(firstDemand?.querySelectorAll("dl > div")).toHaveLength(3);
+    expect(firstDemand?.querySelector("[data-etsy-metric='bought24h'] dd")?.textContent).toBe("—");
+    expect(firstDemand?.querySelector("[data-etsy-metric='views24h'] dd")?.textContent).toBe("20");
     const today = vietnamCalendarDay();
     expect(observed.some(url => url.includes("/listings?") &&
       url.includes("observed_day=" + today))).toBe(true);
@@ -960,10 +994,17 @@ describe("Etsy Spy native CAM dashboard", () => {
       container?.querySelector<HTMLButtonElement>(".etsy-stat-picked")?.click();
       await new Promise(resolve => setTimeout(resolve, 55));
     });
-    // Picked should use a viewport-fitting scroll area; pagination is unchanged.
+    // All product scopes use a viewport-fitting scroll area; pagination is unchanged.
     expect(container?.querySelector("#etsy-product-results .etsy-table-wrap.is-viewport-fit"))
       .toBeTruthy();
     expect(container?.querySelector("#etsy-product-results .etsy-pager")).toBeTruthy();
+    const pickedTable = container?.querySelector<HTMLTableElement>(
+      ".etsy-data-table.is-products[data-etsy-layout='picked']");
+    expect(pickedTable).toBeTruthy();
+    expect(pickedTable?.querySelectorAll("colgroup col")).toHaveLength(11);
+    expect(pickedTable?.querySelector("col.etsy-col-metrics")).toBeTruthy();
+    expect(pickedTable?.querySelector("col.etsy-col-videoUgc")).toBeTruthy();
+    expect(pickedTable?.querySelector("col.etsy-col-badge")).toBeTruthy();
     const labels = [
       ["Product / Etsy", "pageTitle", "asc"],
       ["Design", "design", "desc"],
@@ -972,9 +1013,6 @@ describe("Etsy Spy native CAM dashboard", () => {
       ["Video UGC", "videoUgc", "desc"],
       ["Keyword SMS", "keywordSms", "asc"],
       ["Etsy Badge", "badge", "asc"],
-      ["Bought / 24h", "bought24h", "desc"],
-      ["Views / 24h", "views24h", "desc"],
-      ["Carts", "inCarts", "desc"],
       ["Observed", "observedAt", "desc"],
     ] as const;
     for (const [label, id, firstDir] of labels) {
@@ -1017,9 +1055,25 @@ describe("Etsy Spy native CAM dashboard", () => {
 
   it("sorts on the backend, retains URL query params and separates pages", async () => {
     await start();
-    const sort = container?.querySelector("button[aria-label='Sort by Carts']") as HTMLButtonElement;
-    expect(sort).toBeTruthy();
-    await act(async () => {sort.click(); await new Promise(resolve => setTimeout(resolve, 30));});
+    const sort = () => container?.querySelector<HTMLSelectElement>("select[aria-label='Sort demand metrics']");
+    expect(sort()).toBeTruthy();
+    for (const id of ["bought24h", "views24h", "inCarts"]) {
+      for (const dir of ["asc", "desc"]) {
+        await act(async () => {
+          const control = sort()!;
+          control.value = id + ":" + dir;
+          control.dispatchEvent(new Event("change", { bubbles: true }));
+          await new Promise(resolve => setTimeout(resolve, 80));
+        });
+        const params = new URLSearchParams(window.location.search);
+        expect(params.get("sort")).toBe(id);
+        expect(params.get("dir")).toBe(dir);
+        expect(params.get("page")).toBe("1");
+        expect(sort()?.value).toBe(id + ":" + dir);
+        expect(sort()?.closest("th")?.getAttribute("aria-sort")).toBe(dir === "asc" ? "ascending" : "descending");
+        expect(observed.some(url => url.includes("/listings?") && url.includes("sort=" + id) && url.includes("dir=" + dir))).toBe(true);
+      }
+    }
     expect(observed.some(url => /\/listings\?.*sort=inCarts/.test(url))).toBe(true);
     expect(new URLSearchParams(window.location.search).get("sort")).toBe("inCarts");
     expect(container?.querySelector(".etsy-stage-nav")).toBeNull();
@@ -1236,7 +1290,7 @@ describe("Etsy Spy native CAM dashboard", () => {
   });
 
   it("keeps five compact KPI cards without Keyword nodes", async () => {
-    await start();
+    await start({extractionEnabled:true});
     const cards = Array.from(container?.querySelectorAll(".etsy-stats .etsy-stat") || []);
     expect(cards).toHaveLength(5);
     expect(cards[1].querySelector(".etsy-picked-image-status")).toBeNull();
@@ -1512,6 +1566,7 @@ describe("Etsy Spy native CAM dashboard", () => {
     expect(card?.getAttribute("aria-pressed")).toBe("true");
     expect(new URLSearchParams(window.location.search).get("panel")).toBe("win-keywords");
     expect(container?.querySelector(".etsy-win-keyword-panel")).toBeTruthy();
+    expect(container?.querySelector("main.etsy-product-viewport")).toBeNull();
     expect(container?.querySelector(".etsy-data-table.is-products")).toBeNull();
     expect(container?.querySelector<HTMLInputElement>('input[aria-label="Add blacklist phrases"]')).toBeNull();
 

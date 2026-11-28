@@ -536,6 +536,7 @@ function SourcePlanSkeletonRows({ count }: { count: number }) {
 export function SourcePlanTable({
   plans,
   rootFolderId = SOURCE_ROOT_FOLDER_ID,
+  compact = false,
   scoutEnabled = true,
   folderData = null,
   selectedFolderPath = null,
@@ -561,6 +562,7 @@ export function SourcePlanTable({
 }: {
   plans: SourcePlan[];
   rootFolderId?: string;
+  compact?: boolean;
   scoutEnabled?: boolean;
   folderData?: SourcePlanFolders | null;
   selectedFolderPath?: string | null;
@@ -607,13 +609,15 @@ export function SourcePlanTable({
     <RrugcStageHeader
       className="rrugc-source-plans-heading"
       kicker="STAGE 3 · DRIVE → AI CONTEXT → PINTEREST"
-      title="Embroidery source → Pinterest refs"
-      description={scoutEnabled
+      title={compact ? "Pinterest References" : "Embroidery source → Pinterest refs"}
+      description={compact
+        ? (scoutEnabled ? "Drive sources · AI context · Pinterest" : "Manual scan · isolated agents not enabled")
+        : scoutEnabled
         ? "New Drive images are analyzed automatically, then sources with the same embroidery are grouped into one shared Pinterest plan and one reference pool."
         : "TikTokShop Drive source library. Automatic Pinterest Scout, analysis and generation stay off until workspace-isolated agents are configured."}
       actions={<div className="rrugc-source-plan-heading-actions">
         <span className="rrugc-source-auto-badge"><i aria-hidden="true" />{scoutEnabled ? "Auto scan on" : "Manual source scan"}</span>
-        <span className="rrugc-source-root" title={rootFolderId}>Drive · {rootFolderId}</span>
+        {!compact && <span className="rrugc-source-root" title={rootFolderId}>Drive · {rootFolderId}</span>}
         <button type="button" className="rrugc-primary rrugc-icon-action" disabled={syncing} onClick={onSync}><RrugcActionIcon name={syncing ? "refresh" : "scan"} />{syncing ? "Scanning…" : "Scan now"}</button>
       </div>}
     />
@@ -654,6 +658,7 @@ export function SourcePlanTable({
             <option value="status">Status</option>
             <option value="progress">Scout progress</option>
             <option value="refs">Drive-ready references</option>
+            {compact && <><option value="active_jobs">Active jobs</option><option value="outputs">Completed outputs</option></>}
           </select>
         </label>
         <button
@@ -743,11 +748,11 @@ export function SourcePlanTable({
     <div className="rrugc-source-pagination">
       <span>{start}–{end} of {total}</span>
       <div className="rrugc-source-page-controls">
-        <button type="button" disabled={loading || page <= 1} onClick={() => onPageChange(1)} aria-label="First page"><RrugcActionIcon name="chevrons-left" /></button>
+        {!compact && <button type="button" disabled={loading || page <= 1} onClick={() => onPageChange(1)} aria-label="First page"><RrugcActionIcon name="chevrons-left" /></button>}
         <button type="button" disabled={loading || page <= 1} onClick={() => onPageChange(Math.max(1, page - 1))} aria-label="Previous page"><RrugcActionIcon name="chevron-left" /></button>
         <strong>Page {page} / {pageCount}</strong>
         <button type="button" disabled={loading || page >= pageCount} onClick={() => onPageChange(Math.min(pageCount, page + 1))} aria-label="Next page"><RrugcActionIcon name="chevron-right" /></button>
-        <button type="button" disabled={loading || page >= pageCount} onClick={() => onPageChange(pageCount)} aria-label="Last page"><RrugcActionIcon name="chevrons-right" /></button>
+        {!compact && <button type="button" disabled={loading || page >= pageCount} onClick={() => onPageChange(pageCount)} aria-label="Last page"><RrugcActionIcon name="chevrons-right" /></button>}
       </div>
       <label>Rows<select value={pageSize} disabled={loading} onChange={event => onPageSizeChange(Number(event.target.value))}>{PAGE_SIZE_OPTIONS.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
     </div>

@@ -9,8 +9,11 @@ import jobQueueIcon from "../../assets/navigation/job-queue.svg";
 import reviewBoardIcon from "../../assets/navigation/review-board.svg";
 import realisticReviewUgcIcon from "../../assets/navigation/realistic-review-ugc.svg";
 import videoGenerationIcon from "../../assets/navigation/video-generation.svg";
-import tiktokshopIcon from "../../assets/navigation/tiktokshop.png";
+import tiktokshopIcon from "../../assets/navigation/tiktokshop.svg";
 import etsySpyIcon from "../../assets/navigation/etsy-spy.svg";
+import gatorhatsProductsIcon from "../../assets/navigation/gatorhats-products.svg";
+import gatorhatsReviewsIcon from "../../assets/navigation/gatorhats-reviews.svg";
+import scoutUgcIcon from "../../assets/navigation/scout-ugc.svg";
 import { currentRrugcStage, rrugcWorkflowHref, workflowGroupForStage, RRUGC_WORKFLOW_GROUPS, type RrugcStageTab } from "../realistic-review-ugc/workflowRouting";
 import {
   AI_OPERATIONS_TABS,
@@ -85,9 +88,11 @@ export function WorkspaceNavigation({
 }) {
   const [visible, setVisible] = useState(showReviewBoard ?? false);
   const [resolvedAccess, setResolvedAccess] = useState<{ permissions: readonly string[]; navigationModules: readonly string[] | null } | null>(null);
-  const [operationsOpen, setOperationsOpen] = useState(active === "operations");
-  const [rrugcOpen, setRrugcOpen] = useState(active === "realistic-review-ugc");
-  const [tiktokOpen, setTiktokOpen] = useState(active === "tiktokshop");
+  // Show every authorized group on first render, regardless of the active route.
+  // Keep each disclosure independent so users can still collapse a group.
+  const [operationsOpen, setOperationsOpen] = useState(true);
+  const [rrugcOpen, setRrugcOpen] = useState(true);
+  const [tiktokOpen, setTiktokOpen] = useState(true);
   const selectedRrugcGroup = workflowGroupForStage(rrugcStage ?? currentRrugcStage());
 
   useEffect(() => {
@@ -141,7 +146,7 @@ export function WorkspaceNavigation({
     ] : []),
     ...(canViewBranding ? [{ id: "branding-dna" as const, href: "/branding-dna", label: "Branding DNA" }] : []),
     ...(canViewRrugc ? [
-      { id: "realistic-review-ugc" as const, href: rrugcWorkflowHref("products"), label: "Realistic Review UGC" },
+      { id: "realistic-review-ugc" as const, href: rrugcWorkflowHref("products"), label: "GatorHats" },
     ] : []),
     ...(canViewTiktokshop ? [
       { id: "tiktokshop" as const, href: "/tiktokshop/scout-ugc", label: "Tiktokshop" },
@@ -212,7 +217,7 @@ export function WorkspaceNavigation({
         <button
           type="button"
           className="workspace-nav-expander"
-          aria-label={(rrugcOpen ? "Collapse" : "Expand") + " Realistic Review UGC navigation"}
+          aria-label={(rrugcOpen ? "Collapse" : "Expand") + " GatorHats navigation"}
           aria-expanded={rrugcOpen}
           aria-controls="workspace-rrugc-submenu"
           onClick={() => setRrugcOpen(value => !value)}
@@ -229,11 +234,7 @@ export function WorkspaceNavigation({
             className={selected ? "active" : undefined}
             aria-current={selected ? "location" : undefined}
             data-rrugc-workflow={group.id}>
-            <svg className="workspace-nav-submenu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              {group.id === "products" ? <>
-                <path d="m12 3 9 5-9 5-9-5 9-5Z" /><path d="M3 8v8l9 5 9-5V8M12 13v8" />
-              </> : <path d="m12 3 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.8l-5.8 3.1 1.1-6.5-4.7-4.6 6.5-.9L12 3Z" />}
-            </svg>
+            <img className="workspace-nav-submenu-icon" src={group.id === "products" ? gatorhatsProductsIcon : gatorhatsReviewsIcon} alt="" aria-hidden="true" />
             <span>{group.title}</span>
           </a>;
         })}
@@ -257,11 +258,7 @@ export function WorkspaceNavigation({
         className="workspace-nav-submenu workspace-nav-rrugc-submenu" aria-label="Tiktokshop sections">
         <a href="/tiktokshop/scout-ugc" className={active === "tiktokshop" ? "active" : undefined}
           aria-current={active === "tiktokshop" ? "location" : undefined} data-tiktok-workflow="scout-ugc">
-          <svg className="workspace-nav-submenu-icon" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
-            aria-hidden="true">
-            <path d="M4 8h16v12H4zM9 8V5h6v3M9 13l2 2 4-4"/>
-          </svg>
+          <img className="workspace-nav-submenu-icon" src={scoutUgcIcon} alt="" aria-hidden="true" />
           <span>Scout &amp; UGC</span>
         </a>
       </div>}

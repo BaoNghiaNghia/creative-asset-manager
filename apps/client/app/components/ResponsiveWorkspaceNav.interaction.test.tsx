@@ -49,12 +49,14 @@ describe("mobile workspace overflow interactions", () => {
 
 
 
-  it("opens GatorHats Products and Reviews from the phone UGC tab", async () => {
+  it("opens GatorHats Products and Reviews from the phone GatorHats tab", async () => {
     const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Choose GatorHats Products or Reviews"]');
     expect(trigger).not.toBeNull();
     await act(async () => { trigger?.click(); });
     const dialog = host.querySelector('#mobile-rrugc-workflow-dialog');
     expect(dialog).not.toBeNull();
+    expect(trigger?.textContent).toBe("GatorHats");
+    expect(dialog?.querySelector("header strong")?.textContent).toBe("GatorHats");
     expect(dialog?.querySelector('a[href="/realistic-review-ugc?workflow=products&stage=stage0"]')).not.toBeNull();
     expect(dialog?.querySelector('a[href="/realistic-review-ugc?workflow=reviews&stage=reviews-stage1"]')).not.toBeNull();
     expect(trigger?.getAttribute("aria-expanded")).toBe("true");

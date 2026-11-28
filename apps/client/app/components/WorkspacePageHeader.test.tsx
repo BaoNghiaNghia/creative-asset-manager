@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { WorkspaceRoute } from "./WorkspaceNavigation";
+import { WorkspaceAccountContext } from "./WorkspaceAccountAvatar";
 import {
   WORKSPACE_PAGE_HEADERS,
   WorkspaceBackToAssets,
@@ -47,6 +48,30 @@ describe("WorkspacePageHeader", () => {
     expect(markup).toContain("Job Queue");
     expect(markup).toContain("Monitor Generate Square 1:1 jobs");
     expect(markup).toContain("Back to assets");
+  });
+
+  it("places the authenticated account avatar after all actions on the requested workspaces", () => {
+    const account = { display_name: "Test Account", email: "test@example.com", avatar_url: "https://lh3.googleusercontent.com/test-avatar" };
+    for (const route of ["etsy-spy", "tiktokshop", "realistic-review-ugc"] as const) {
+      const html = renderToStaticMarkup(<WorkspaceAccountContext.Provider value={account}>
+        <WorkspacePageHeader route={route} actions={<button>Last action</button>} />
+      </WorkspaceAccountContext.Provider>);
+      expect(html).toContain("workspace-page-header-has-avatar");
+      expect(html).toContain('src="https://lh3.googleusercontent.com/test-avatar"');
+      expect(html).toContain('referrerPolicy="no-referrer"');
+      expect(html.indexOf("Last action")).toBeLessThan(html.indexOf('class="workspace-account-avatar"'));
+    }
+    expect(renderToStaticMarkup(<WorkspacePageHeader route="etsy-spy" />)).not.toContain('class="workspace-account-avatar"');
+    expect(renderToStaticMarkup(<WorkspaceAccountContext.Provider value={account}>
+      <WorkspacePageHeader route="assets" />
+    </WorkspaceAccountContext.Provider>)).not.toContain('class="workspace-account-avatar"');
+  });
+
+  it("shows initials if the authenticated user has no image", () => {
+    const html = renderToStaticMarkup(<WorkspaceAccountContext.Provider value={{display_name:"Test Account"}}>
+      <WorkspacePageHeader route="tiktokshop" />
+    </WorkspaceAccountContext.Provider>);
+    expect(html).toContain('class="workspace-account-avatar-initials">TE');
   });
 
   it("allows an operational page to override its heading without changing shared actions", () => {

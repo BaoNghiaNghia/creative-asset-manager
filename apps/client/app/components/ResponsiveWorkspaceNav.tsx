@@ -10,7 +10,7 @@ const ALL_MOBILE_DESTINATIONS: readonly MobileDestination[] = [
   { id: "assets", href: "/", title: "Asset Explorer", shortTitle: "Assets" },
   { id: "inventory", href: "/inventory", title: "Inventory", shortTitle: "Inventory" },
   { id: "operations", href: "/ai-operations", title: "AI Operations", shortTitle: "AI Ops" },
-  { id: "realistic-review-ugc", href: "/realistic-review-ugc", title: "Realistic Review UGC", shortTitle: "UGC" },
+  { id: "realistic-review-ugc", href: "/realistic-review-ugc", title: "GatorHats", shortTitle: "GatorHats" },
   { id: "tiktokshop", href: "/tiktokshop/scout-ugc", title: "Tiktokshop · Scout & UGC", shortTitle: "TikTok" },
   { id: "etsy-spy", href: "/etsy-spy", title: "Etsy Spy", shortTitle: "Etsy" },
   { id: "branding-dna", href: "/branding-dna", title: "Branding DNA", shortTitle: "Brand" },
@@ -240,7 +240,7 @@ export function ResponsiveWorkspaceNav({ active }: { active: WorkspaceRoute }) {
       <button className="mobile-workspace-more-scrim" type="button" aria-label="Close GatorHats menu" onClick={() => {setUgcOpen(false);ugcButton.current?.focus();}} />
       <section id="mobile-rrugc-workflow-dialog" className="mobile-workspace-more-panel" role="dialog" aria-modal="true" aria-label="GatorHats workspaces">
         <header className="mobile-workspace-more-heading">
-          <div><strong>Realistic Review UGC</strong><small>Choose your GatorHats workflow</small></div>
+          <div><strong>GatorHats</strong><small>Choose your GatorHats workflow</small></div>
           <button type="button" aria-label="Close GatorHats menu" onClick={() => {setUgcOpen(false);ugcButton.current?.focus();}}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
           </button>

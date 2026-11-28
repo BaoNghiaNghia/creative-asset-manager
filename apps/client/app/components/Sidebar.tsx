@@ -4,7 +4,8 @@ import { fetchAccessIdentity } from "../../features/access_management";
 import type { Asset, AuthState, ConnectedSource, Provider, ProviderSessions, TreeCache } from "../types";
 import type { ExplorerMoveDragPayload } from "../utils/explorerMove";
 import { DriveTreeNode, TreeChildrenSkeleton } from "./DriveTree";
-import { BrandIcon, DriveIcon, SharePointIcon, SidebarIcon } from "./Icons";
+import { DriveIcon, SharePointIcon, SidebarIcon } from "./Icons";
+import { WorkspaceSidebarBrand } from "./WorkspaceSidebarBrand";
 import { WorkspaceNavigation } from "./WorkspaceNavigation";
 import googleDrivePlatformLogo from "../../assets/logos/google-drive-platform.png";
 import oneDrivePlatformLogo from "../../assets/logos/onedrive-platform.png";
@@ -158,10 +159,7 @@ export function Sidebar({
     <button className="sidebar-collapse" onClick={onCollapse} aria-label="Collapse sidebar" title="Collapse sidebar">
       <SidebarIcon open />
     </button>
-    <div className="brand">
-      <b><BrandIcon /></b>
-      <span><strong>Creative assets</strong><small>{auth.user?.email || "Workspace · Asset library"}</small></span>
-    </div>
+    <WorkspaceSidebarBrand />
     <WorkspaceNavigation
       active="assets"
       showOperations={mayViewAiOperations(workspacePermissions) || navigationModules?.includes("branding-dna")}

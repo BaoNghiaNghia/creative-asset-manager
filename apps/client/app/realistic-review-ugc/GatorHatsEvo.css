@@ -154,13 +154,16 @@
 }
 
 /* Stage 0: information density without 8px labels or colorful KPI boxes. */
+.rrugc-shell.rrugc-evo-products .rrugc-stage0-v2 {
+  padding-top: 8px;
+}
 .rrugc-shell.rrugc-evo-products .rrugc-stage0-v2 .rrugc-stage0-heading-row {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(420px, .85fr);
   align-items: center;
-  gap: 15px;
+  gap: 6px 15px;
   min-height: 0;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
 }
 .rrugc-shell.rrugc-evo-products .rrugc-stage0-v2 .rrugc-stage0-heading-row > .rrugc-stage0-heading {
   max-width: none;
@@ -479,7 +482,7 @@
 @media (max-width: 1350px) {
   .rrugc-shell.rrugc-evo-products .rrugc-stage0-v2 .rrugc-stage0-heading-row {
     grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
+    gap: 6px;
   }
   .rrugc-shell.rrugc-evo-products .rrugc-stage0-v2 .rrugc-stage0-heading-row > .rrugc-stage0-unified-toolbar {
     justify-self: stretch;
@@ -499,6 +502,9 @@
   }
   .rrugc-shell.rrugc-evo-products :is(.rrugc-stage0-v2, .rrugc-keyword-gen, .rrugc-colorway-stage.is-products-compact) {
     padding: 12px;
+  }
+  .rrugc-shell.rrugc-evo-products .rrugc-stage0-v2 {
+    padding-top: 8px;
   }
   .rrugc-shell.rrugc-evo-products .rrugc-global-management-actions {
     justify-content: flex-start;

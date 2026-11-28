@@ -1,0 +1,72 @@
+/* Demand metrics: one physical column, three individually labeled values.
+   Keep the existing server-side sort keys and distinguish unavailable from 0. */
+.etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products :is(th,td)[data-etsy-col="metrics"] {
+  box-sizing:border-box;width:128px;min-width:120px;max-width:136px;
+  vertical-align:middle;
+}
+.etsy-spy-page .etsy-table-wrap th .etsy-demand-sort {
+  display:block;width:100%;min-width:0;max-width:100%;
+  min-height:27px;padding:3px 1px;border:0;border-radius:4px;
+  background:transparent;color:#5e708a;font:inherit;font-size:10px;font-weight:650;
+  cursor:pointer;white-space:nowrap;
+}
+.etsy-spy-page .etsy-table-wrap th.etsy-header-sorted .etsy-demand-sort {color:#ad572b}
+.etsy-spy-page .etsy-table-wrap th .etsy-demand-sort:focus-visible {outline:2px solid #b85b2c;outline-offset:1px}
+.etsy-spy-page .etsy-demand-metrics {display:grid;gap:3px;min-width:0;max-width:112px;margin:0;padding:0;line-height:1.2}
+.etsy-spy-page .etsy-demand-metrics>div {
+  display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;gap:3px;
+  min-width:0;min-height:12px;
+}
+.etsy-spy-page .etsy-demand-metrics dt {
+  display:block;margin:0;min-width:0;color:#71839a;font-size:10px;font-weight:550;white-space:nowrap;
+}
+.etsy-spy-page .etsy-demand-metrics dt .etsy-demand-period {display:inline;margin:0;padding:0;font-size:9px;font-weight:500;line-height:inherit;color:inherit;white-space:nowrap}
+.etsy-spy-page .etsy-demand-metrics dd {
+  margin:0;max-width:100%;color:#203650;font-size:11px;font-weight:650;text-align:right;
+  font-variant-numeric:tabular-nums;white-space:nowrap;
+}
+.etsy-spy-page .etsy-demand-metrics .is-missing dd {color:#98a5b7;font-weight:500}
+.etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products td[data-etsy-col="observedAt"] {font-size:10px!important;vertical-align:middle;white-space:nowrap}
+.etsy-spy-page .etsy-observed-age {display:inline-block;max-width:100%;font-size:inherit;line-height:1.3;white-space:nowrap;font-variant-numeric:tabular-nums;color:#62738e}
+.etsy-spy-page .etsy-observed-age.is-missing {color:#98a5b7}
+@media(min-width:681px) {
+  /* Leave breathing room before Observed while keeping values aligned. */
+  .etsy-spy-page .etsy-demand-metrics {box-sizing:border-box;max-width:128px;padding-inline-end:8px}
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products.is-selectable:not(.is-picked-listings) {min-width:940px}
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products.is-picked-listings {min-width:1490px}
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products [data-etsy-col="observedAt"] {width:94px;min-width:84px;max-width:102px}
+}
+@media(max-width:680px) {
+  /* The mobile card uses semantic classes, not old column indexes. */
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products .etsy-product-row td.etsy-demand-cell {
+    grid-column:1/-1!important;width:auto!important;min-width:0!important;max-width:none!important;
+    padding:6px 0!important;border:0!important;border-block:1px solid #edf1f6!important;
+    border-radius:0;background:transparent!important;justify-self:stretch;
+  }
+  .etsy-spy-page .etsy-demand-metrics {grid-template-columns:repeat(3,minmax(0,1fr));gap:0;max-width:none}
+  .etsy-spy-page .etsy-demand-metrics>div {
+    grid-template-columns:minmax(0,1fr);gap:4px;justify-items:center;padding:2px 4px;
+    border-right:1px solid #edf1f6;
+  }
+  .etsy-spy-page .etsy-demand-metrics>div:last-child {border-right:0}
+  .etsy-spy-page .etsy-demand-metrics dt {font-size:11px}
+  .etsy-spy-page .etsy-demand-metrics dd {font-size:13px}
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products .etsy-product-row td.etsy-demand-cell::before {content:none}
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products .etsy-product-row td[data-etsy-col="badge"],
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products .etsy-product-row td.etsy-sms-cell {
+    grid-column:1/-1!important;width:auto!important;min-width:0!important;max-width:none!important;
+    padding:0!important;border:0!important;background:transparent!important;justify-self:stretch;
+  }
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products .etsy-product-row td[data-etsy-col="badge"]::before {content:"Etsy badge"}
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products .etsy-product-row td.etsy-sms-cell::before {content:"Keyword SMS"}
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products .etsy-product-row td.etsy-time {
+    display:block!important;grid-column:1/2!important;width:auto!important;min-width:0!important;max-width:none!important;
+    padding:0!important;border:0!important;background:transparent!important;align-self:center;justify-self:start;
+  }
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products .etsy-product-row td.etsy-time::before {content:"Observed"}
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products .etsy-product-row td.etsy-action-cell {
+    grid-column:2/-1!important;width:auto!important;min-width:0!important;max-width:none!important;
+    padding:0!important;border:0!important;background:transparent!important;align-self:center;justify-self:end;
+  }
+  .etsy-spy-page .etsy-table-wrap .etsy-data-table.is-products .etsy-product-row td.etsy-action-cell::before {content:none}
+}

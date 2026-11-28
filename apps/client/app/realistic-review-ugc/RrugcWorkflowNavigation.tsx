@@ -31,8 +31,7 @@ export function RrugcWorkflowNavigation({
     requestAnimationFrame(() => document.getElementById("rrugc-tab-" + stages[next].id)?.focus());
   }
 
-  return <div className="rrugc-workflow-navigation">
-    <nav ref={stageNavRef} className="ops-tabs rrugc-stage-tabs" aria-label={(group === "products" ? "GatorHats Products" : "GatorHats Reviews") + " stages"} role="tablist" onKeyDown={onStageKeyDown}>
+  return <nav ref={stageNavRef} className="rrugc-compact-stage-tabs" aria-label={(group === "products" ? "GatorHats Products" : "GatorHats Reviews") + " stages"} role="tablist" onKeyDown={onStageKeyDown}>
       {stages.map(item => <button
         key={item.id}
         id={"rrugc-tab-" + item.id}
@@ -42,11 +41,10 @@ export function RrugcWorkflowNavigation({
         aria-controls={"rrugc-panel-" + item.id}
         tabIndex={activeStage === item.id ? 0 : -1}
         className={activeStage === item.id ? "active" : ""}
+        title={item.label + " · " + item.description}
         onClick={() => onSelectStage(item.id)}
       >
-        <span className="rrugc-stage-tab-number" aria-hidden="true">{item.marker}</span>
         <span className="rrugc-stage-tab-copy"><strong>{item.label}</strong><small>{item.description}</small></span>
       </button>)}
-    </nav>
-  </div>;
+    </nav>;
 }

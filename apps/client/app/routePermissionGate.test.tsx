@@ -10,7 +10,7 @@ let host: HTMLDivElement | null = null;
 
 function Probe({ permission = "inventory.read", recovered, retryKey = 0 }: { permission?: string | null; recovered: () => void; retryKey?: number }) {
   const access = useRouteAccessGate(permission, recovered, retryKey);
-  return <output data-testid="gate">{access.status}</output>;
+  return <output data-testid="gate" data-avatar={access.status === "allowed" ? access.account?.avatar_url : undefined}>{access.status}</output>;
 }
 
 async function mount(recovered = vi.fn(), permission: string | null = "inventory.read") {
@@ -44,6 +44,18 @@ describe("production deploy permissions gate", () => {
     expect(isWorkspaceRouteAuthorized(gator, "realistic_review_ugc.read", "tiktokshop")).toBe(false);
     expect(isWorkspaceRouteAuthorized(gator, "realistic_review_ugc.read", "realistic-review-ugc")).toBe(true);
     expect(isWorkspaceRouteAuthorized({ permissions: ["realistic_review_ugc.read"], navigation_modules: null }, "realistic_review_ugc.read", "tiktokshop")).toBe(true);
+  });
+  it("reuses the authorized identity avatar without another API request", async () => {
+    const avatar = "https://lh3.googleusercontent.com/test-avatar";
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({
+      user_id: "test-user", permissions: ["inventory.read"], avatar_url: avatar,
+      display_name: "Test Account", email: "test@example.com",
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetcher);
+    const probe = await mount();
+    expect(probe.status).toBe("allowed");
+    expect(host?.querySelector("output")?.getAttribute("data-avatar")).toBe(avatar);
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
   it("shows maintenance on 503 and resumes the original route without a page reload", async () => {
     vi.useFakeTimers();

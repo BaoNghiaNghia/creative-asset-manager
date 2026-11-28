@@ -1,0 +1,298 @@
+/* Desktop density for Etsy Spy: make all Picked columns fit the available
+   TABLE width, not the physical screen width. Smaller workspaces keep their
+   native horizontal scrolling and sticky identity columns. */
+@media (min-width: 1025px) {
+  .etsy-spy-page .etsy-v2-results-layout .etsy-table-card {
+    container: etsyTableFit / inline-size;
+  }
+}
+
+/* At full desktop width the product table uses a fixed, explicit column budget.
+   Legacy CSS gave Product/Action/Badge conflicting absolute minimums, forcing a
+   horizontal scrollbar even when the viewport was wide enough. */
+@container etsyTableFit (min-width: 1120px) {
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products {
+    /* Scale to table width: thumbnails nearly fill a Picked row without
+       widening any column or reintroducing desktop horizontal scrolling. */
+    /* One height across Etsy, Design, Listing Image and Video UGC.
+       Keep each item's width and object-fit appropriate to its content. */
+    --etsy-row-thumbnail-height: clamp(56px, 5cqw, 90px);
+    --etsy-product-thumb-size: var(--etsy-row-thumbnail-height);
+    --etsy-listing-thumb-size: var(--etsy-row-thumbnail-height);
+    --etsy-demand-column: clamp(120px, calc(6.5cqw + 16px), 136px);
+    --etsy-observed-column: clamp(84px, 5.5cqw, 102px);
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products :is(th, td) {
+    box-sizing: border-box;
+    min-width: 0 !important;
+    max-width: none !important;
+    width: auto !important;
+    padding-inline: 4px !important;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products th button {
+    min-width: 0 !important;
+    width: 100%;
+    padding: 6px 3px !important;
+    white-space: normal;
+    overflow-wrap: normal;
+    line-height: 1.15;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products th .etsy-column-sort-label {
+    white-space: normal;
+    overflow-wrap: normal;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products td[data-etsy-col="badge"] {
+    overflow: visible;
+    vertical-align: middle;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-product-identity,
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-product-copy {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-product-identity { gap: 6px; }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products :is(
+    .etsy-product-thumbnail-link, .etsy-product-glyph, .etsy-design-thumb,
+    .etsy-listing-image-main, .etsy-video-ugc-badge
+  ) {
+    box-sizing: border-box;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products :is(.etsy-product-thumbnail-link, .etsy-product-glyph) {
+    flex: 0 0 var(--etsy-product-thumb-size);
+    width: var(--etsy-product-thumb-size);
+    height: var(--etsy-product-thumb-size);
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-design-cell {
+    --etsy-design-thumbnail-height: var(--etsy-row-thumbnail-height);
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-design-thumbnails {
+    width: 100%;
+    max-width: 100%;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-design-thumb,
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-design-thumb img {
+    max-width: 100%;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-listing-image-cell {
+    min-width: 0 !important;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-listing-image-layout {
+    grid-template-columns: var(--etsy-listing-thumb-size) minmax(0, 1fr);
+    column-gap: 4px;
+    max-width: 100%;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-listing-image-primary,
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-listing-image-main {
+    width: var(--etsy-listing-thumb-size);
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-listing-image-main {
+    height: var(--etsy-listing-thumb-size);
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-listing-image-pending {
+    width: var(--etsy-listing-thumb-size);
+    min-height: var(--etsy-listing-thumb-size);
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-listing-image-layout.is-empty,
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-listing-image-layout.is-empty .etsy-listing-image-primary {
+    width: 100%;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-listing-image-layout.is-empty .etsy-listing-image-pending {
+    width: 100%;
+    min-height: 36px;
+    gap: 5px;
+    font-size: 10px;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-listing-image-layout.is-empty .etsy-listing-image-pending svg {
+    width: 17px;
+    height: 17px;
+    flex: 0 0 17px;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-listing-image-layout.is-empty .etsy-listing-image-pending-label {
+    white-space: normal;
+    word-break: normal;
+    overflow-wrap: normal;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-listing-image-badge {
+    min-height: 24px;
+    padding: 1px 0;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-listing-image-count {
+    font-size: 9.5px;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-product-copy strong {
+    overflow-wrap: anywhere;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-video-ugc-badge {
+    width: min(100%, 92px);
+    max-width: 100%;
+    height: var(--etsy-row-thumbnail-height);
+    min-height: var(--etsy-row-thumbnail-height);
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-badge-stack {
+    gap: 3px 4px;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-action-cell .etsy-row-actions {
+    display: flex;
+    flex-flow: row nowrap;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 0;
+    gap: 3px;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-action-cell .etsy-row-actions :is(button, a) {
+    flex-shrink: 0;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products .etsy-action-cell .etsy-pick-button {
+    padding-inline: 5px;
+    gap: 3px;
+  }
+  /* Later cannot be used on Picked until Unpick. Hide only this disabled
+     control in the dense Picked table; it remains available in Eligible/Later. */
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products[data-etsy-layout="picked"]
+  .etsy-action-cell .etsy-later-button:disabled {
+    display: none;
+  }
+
+  /* Picked table, 11 columns (checkbox + 9 data fields + Action), 100%. */
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products[data-etsy-layout="picked"] col.etsy-col-select {width: 2.6%;}
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products[data-etsy-layout="picked"] col.etsy-col-pageTitle {width: calc(31.5% - var(--etsy-demand-column) - var(--etsy-observed-column));}
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products[data-etsy-layout="picked"] col.etsy-col-design {width: 8.3%;}
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products[data-etsy-layout="picked"] col.etsy-col-tiktokListing {width: 10.5%;}
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products[data-etsy-layout="picked"] col.etsy-col-listingImage {width: 9.5%;}
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products[data-etsy-layout="picked"] col.etsy-col-videoUgc {width: 7.5%;}
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products[data-etsy-layout="picked"] col.etsy-col-keywordSms {width: 7.7%;}
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products[data-etsy-layout="picked"] col.etsy-col-badge {width: 11.5%;}
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products[data-etsy-layout="picked"] col.etsy-col-metrics {width: var(--etsy-demand-column);}
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products[data-etsy-layout="picked"] col.etsy-col-observedAt {width: var(--etsy-observed-column);}
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products[data-etsy-layout="picked"] col.etsy-col-action {width: 10.9%;}
+
+  /* Eligible and Later use seven columns, leaving room for all actions. */
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products:not([data-etsy-layout="picked"]) col.etsy-col-select {width: 3%;}
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products:not([data-etsy-layout="picked"]) col.etsy-col-pageTitle {width: calc(49% - var(--etsy-demand-column) - var(--etsy-observed-column));}
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products:not([data-etsy-layout="picked"]) col.etsy-col-keywordSms {width: 17%;}
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products:not([data-etsy-layout="picked"]) col.etsy-col-badge {width: 16%;}
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products:not([data-etsy-layout="picked"]) col.etsy-col-metrics {width: var(--etsy-demand-column);}
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products:not([data-etsy-layout="picked"]) col.etsy-col-observedAt {width: var(--etsy-observed-column);}
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products:not([data-etsy-layout="picked"]) col.etsy-col-action {width: 15%;}
+}
+
+/* Smaller pagination: a single, light 30px control bar; keyboard jump is kept.
+   Touchscreens retain their larger tap targets in the existing mobile styles. */
+@media (min-width: 681px) {
+  .etsy-spy-page .etsy-v2-results-layout .etsy-pager {
+    min-height: 36px;
+    padding: 3px 10px;
+    gap: 5px 9px;
+    flex-wrap: nowrap;
+    align-items: center;
+    font-size: 10px;
+  }
+  .etsy-spy-page .etsy-v2-results-layout .etsy-page-range {font-size: 10px;}
+  .etsy-spy-page .etsy-v2-results-layout .etsy-page-controls {
+    gap: 4px;
+    flex-wrap: nowrap;
+  }
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-page-controls > button,
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-page-jump > button {
+    min-width: 27px;
+    min-height: 27px;
+    width: 27px;
+    height: 27px;
+    padding: 0;
+    font-size: 13px;
+    border-radius: 6px;
+  }
+  .etsy-spy-page .etsy-v2-results-layout .etsy-page-jump {
+    margin: 0 2px;
+    gap: 4px;
+  }
+  .etsy-spy-page .etsy-v2-results-layout .etsy-page-jump label {
+    display: none;
+  }
+  .etsy-spy-page .etsy-v2-results-layout .etsy-page-jump input {
+    width: 35px;
+    min-height: 27px;
+    height: 27px;
+    padding: 2px 3px;
+    font-size: 11px;
+    border-radius: 6px;
+  }
+  .etsy-spy-page .etsy-v2-results-layout .etsy-page-size {
+    gap: 5px;
+    font-size: 10px;
+  }
+  .etsy-spy-page .etsy-v2-results-layout .etsy-page-size select {
+    min-height: 27px;
+    height: 27px;
+    padding: 2px 5px;
+    font-size: 11px;
+  }
+}
+
+/* Eligible now includes Design; keep its width within the existing budget. */
+@container etsyTableFit (min-width: 1120px) {
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products[data-etsy-layout="eligible"] col.etsy-col-design {width: 9%;}
+  .etsy-spy-page .etsy-v2-results-layout
+  .etsy-data-table.is-products[data-etsy-layout="eligible"] col.etsy-col-pageTitle {
+    width: calc(40% - var(--etsy-demand-column) - var(--etsy-observed-column));
+  }
+}

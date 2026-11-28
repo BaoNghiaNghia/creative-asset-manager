@@ -1,0 +1,159 @@
+/* Branding DNA only: same compact white workspace as Etsy Spy and
+   GatorHats. Do not override warning, authorization or evidence states. */
+main.branding-dna-page.bdna-compact-workspace {
+  --bdna-bg:#fff;
+  --bdna-soft:#fff;
+  --bdna-compact-border:#e5eaf1;
+  --bdna-compact-ink:#203650;
+  --bdna-compact-muted:#71839a;
+  --bdna-compact-accent:#ab572c;
+  --bdna-compact-active:#fff5eb;
+  background:#fff!important;
+  width:100%;
+  min-width:0;
+  min-height:100dvh;
+  padding:0 0 12px!important;
+  container-name:bdna-workspace;
+  container-type:inline-size;
+}
+main.branding-dna-page.bdna-compact-workspace.cam-unified-workspace-v18 .workspace-page-header.bdna-compact-header {
+  display:grid;
+  grid-template-columns:max-content minmax(0,1fr) max-content;
+  align-items:center;
+  gap:5px 14px;
+  min-height:58px;
+  margin:0;
+  padding:6px 16px!important;
+  border:0;
+  border-bottom:1px solid var(--bdna-compact-border);
+  background:#fff!important;
+  box-shadow:none;
+}
+main.branding-dna-page.bdna-compact-workspace.cam-unified-workspace-v18 .bdna-compact-header h1 {
+  font-size:21px!important;line-height:1.15;font-weight:780;white-space:nowrap;
+}
+main.branding-dna-page.bdna-compact-workspace .bdna-compact-header .workspace-page-header-eyebrow {font-size:9px;line-height:1.15;letter-spacing:.09em;color:var(--bdna-compact-muted)}
+main.branding-dna-page.bdna-compact-workspace .bdna-compact-header .workspace-page-header-title-row {margin:3px 0 0;gap:4px}
+main.branding-dna-page.bdna-compact-workspace .bdna-compact-header .workspace-page-header-center {min-width:0;width:100%;margin:0}
+main.branding-dna-page.bdna-compact-workspace .bdna-compact-header .workspace-page-header-actions {min-width:0;gap:4px;justify-content:flex-end}
+main.branding-dna-page.bdna-compact-workspace.cam-unified-workspace-v18 .bdna-compact-header .bdna-header-runtime {
+  min-height:27px;display:inline-flex;align-items:center;padding:4px 7px;font-size:10px;border-radius:6px;box-shadow:none;
+}
+/* Standalone stage navigation: no shared ops-tabs or legacy blue underline. */
+main.branding-dna-page.bdna-compact-workspace .bdna-compact-stage-tabs {
+  box-sizing:border-box;display:flex;align-items:stretch;justify-content:flex-start;gap:0;width:100%;min-width:0;max-width:100%;
+  padding:0;border:0;background:#fff;overflow-x:auto;overflow-y:hidden;overscroll-behavior-inline:contain;
+  scrollbar-width:none;-webkit-overflow-scrolling:touch;
+}
+main.branding-dna-page.bdna-compact-workspace .bdna-compact-stage-tabs>button {
+  appearance:none;display:flex;align-items:center;justify-content:flex-start;flex:1 0 112px;min-width:112px;max-width:185px;min-height:46px;
+  padding:6px 10px;box-sizing:border-box;border:0;border-right:1px solid var(--bdna-compact-border);border-bottom:2px solid transparent;
+  border-radius:0;background:#fff;color:var(--bdna-compact-ink);font:inherit;text-align:left;cursor:pointer;box-shadow:none;
+}
+main.branding-dna-page.bdna-compact-workspace .bdna-compact-stage-tabs>button:last-child {border-right:0}
+main.branding-dna-page.bdna-compact-workspace .bdna-compact-stage-tabs>button::before,
+main.branding-dna-page.bdna-compact-workspace .bdna-compact-stage-tabs>button::after {content:none;display:none}
+main.branding-dna-page.bdna-compact-workspace .bdna-compact-stage-tabs>button[aria-selected="true"] {
+  background:var(--bdna-compact-active);color:var(--bdna-compact-accent);border-bottom-color:#e77c37;
+}
+main.branding-dna-page.bdna-compact-workspace .bdna-compact-stage-tabs>button:hover:not([aria-selected="true"]) {background:#fffaf5;color:var(--bdna-compact-accent)}
+main.branding-dna-page.bdna-compact-workspace .bdna-compact-stage-tabs>button:focus-visible {outline:2px solid #b85b2c;outline-offset:-3px}
+main.branding-dna-page.bdna-compact-workspace .bdna-compact-stage-tabs .bdna-stage-copy {display:grid;gap:3px;min-width:0}
+main.branding-dna-page.bdna-compact-workspace .bdna-compact-stage-tabs .bdna-stage-copy strong {font-size:11px;font-weight:750;line-height:1.2;color:inherit;white-space:nowrap}
+main.branding-dna-page.bdna-compact-workspace .bdna-compact-stage-tabs .bdna-stage-copy small {font-size:9px;line-height:1.2;color:var(--bdna-compact-muted);white-space:nowrap}
+main.branding-dna-page.bdna-compact-workspace .bdna-compact-stage-tabs>button[aria-selected="true"] small {color:var(--bdna-compact-accent)}
+/* White, full-width content surfaces; thin dividers replace nested panels. */
+main.branding-dna-page.bdna-compact-workspace .bdna-stage-panel {
+  display:grid;grid-template-columns:minmax(0,1fr);gap:8px;width:100%;min-width:0;margin:0;
+  padding:8px 16px 10px!important;box-sizing:border-box;background:#fff!important;
+}
+main.branding-dna-page.bdna-compact-workspace .bdna-workspace-heading {margin:0;padding:3px 0;gap:8px;min-height:0;align-items:center;background:#fff}
+main.branding-dna-page.bdna-compact-workspace .bdna-workspace-heading>div>span {font-size:9px;letter-spacing:.07em;color:var(--bdna-compact-muted)}
+main.branding-dna-page.bdna-compact-workspace .bdna-workspace-heading h2 {margin:2px 0;font-size:16px;line-height:1.25;color:var(--bdna-compact-ink)}
+main.branding-dna-page.bdna-compact-workspace .bdna-workspace-heading p {margin:0;font-size:10px;line-height:1.4;color:var(--bdna-compact-muted)}
+main.branding-dna-page.bdna-compact-workspace .bdna-workspace-state {margin:0;background:#fff;border:1px solid var(--bdna-compact-border);padding:4px 6px;font-size:9px;border-radius:5px;white-space:nowrap}
+main.branding-dna-page.bdna-compact-workspace .bdna-stage-panel>:is(.bdna-live-section,.bdna-worker-manager,.bdna-evidence,.bdna-rag,.bdna-readiness,.bdna-future-panel) {
+  width:100%;min-width:0;max-width:none;margin:0;padding:8px 0!important;
+  border:0;border-top:1px solid var(--bdna-compact-border);border-radius:0;
+  background:#fff!important;box-shadow:none;box-sizing:border-box;
+}
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-live-heading,.bdna-worker-header,.bdna-evidence-header,.bdna-rag-header,.bdna-readiness-head) {gap:8px;align-items:center;min-width:0;background:#fff}
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-live-heading,.bdna-worker-header,.bdna-readiness-head)>div>strong,
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-evidence-header,.bdna-rag-header) h3 {font-size:14px;line-height:1.3;margin:0 0 3px;color:var(--bdna-compact-ink)}
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-live-heading,.bdna-worker-header) small,
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-evidence-header,.bdna-rag-header,.bdna-readiness-head) p {font-size:10px;line-height:1.4;margin:0;color:var(--bdna-compact-muted)}
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-live-section,.bdna-worker-manager,.bdna-evidence,.bdna-rag,.bdna-readiness) button:not(.bdna-evidence-row) {min-height:30px;padding:5px 8px;border-radius:6px;font-size:11px;line-height:1.3;box-shadow:none}
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-shop-form,.bdna-worker-manager,.bdna-evidence,.bdna-rag,.bdna-readiness) :is(input,select) {box-sizing:border-box;min-width:0;max-width:100%;min-height:32px;padding:5px 8px;border-radius:6px;font-size:11px;background:#fff}
+/* Overview steps and KPIs. */
+main.branding-dna-page.bdna-compact-workspace .bdna-workflow-overview {
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;border-block:1px solid var(--bdna-compact-border);background:#fff;
+}
+main.branding-dna-page.bdna-compact-workspace .bdna-workflow-overview>div {
+  border:0;border-right:1px solid var(--bdna-compact-border);border-radius:0;min-height:44px;padding:6px 9px;gap:3px 7px;box-sizing:border-box;background:#fff;
+  grid-template-columns:22px minmax(0,1fr);
+}
+main.branding-dna-page.bdna-compact-workspace .bdna-workflow-overview>div:last-child {border-right:0}
+main.branding-dna-page.bdna-compact-workspace .bdna-workflow-overview>div>span {
+  width:22px;height:22px;border-radius:5px;border:1px solid var(--bdna-compact-border);background:#fff;color:var(--bdna-compact-muted);
+}
+main.branding-dna-page.bdna-compact-workspace .bdna-workflow-overview strong {font-size:11px}
+main.branding-dna-page.bdna-compact-workspace .bdna-workflow-overview small {font-size:9px}
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-live-summary,.bdna-readiness-stats) {
+  gap:0;margin:8px 0;border-block:1px solid var(--bdna-compact-border);background:#fff;
+}
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-live-summary,.bdna-readiness-stats)>article {
+  min-width:0;min-height:52px;padding:7px 10px;gap:3px;box-sizing:border-box;
+  background:#fff!important;border:0;border-right:1px solid var(--bdna-compact-border);border-radius:0;box-shadow:none;
+}
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-live-summary,.bdna-readiness-stats)>article:last-child {border-right:0}
+main.branding-dna-page.bdna-compact-workspace .bdna-live-summary>article::after {content:none;display:none}
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-live-summary,.bdna-readiness-stats)>article>small {font-size:10px;font-weight:650;color:var(--bdna-compact-muted)}
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-live-summary,.bdna-readiness-stats)>article>strong {font-size:20px;line-height:1.15;font-weight:750;letter-spacing:0}
+main.branding-dna-page.bdna-compact-workspace .bdna-live-summary>article.bdna-live-not-ready>strong {font-size:15px;color:#a16824}
+main.branding-dna-page.bdna-compact-workspace .bdna-live-summary>article>span {background:transparent!important;padding:0;font-size:10px;color:var(--bdna-compact-muted)}
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-live-info,.bdna-worker-caution) {margin:6px 0 0;padding:5px 8px;background:#fff!important;border-radius:0;font-size:10px;line-height:1.5}
+/* Shop registry, scanner and evidence: consistent flat rows. */
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-shop-form,.bdna-rag-upload,.bdna-rag-preview,.bdna-readiness-sections>section) {background:#fff!important;padding:9px;gap:8px;border-color:var(--bdna-compact-border);border-radius:6px;box-shadow:none}
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-shop-cards,.bdna-worker-list,.bdna-rag-list) {gap:0;margin-top:6px;border-top:1px solid var(--bdna-compact-border)}
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-shop-card,.bdna-worker-entry,.bdna-rag-document) {min-width:0;gap:8px;padding:8px;border:0;border-bottom:1px solid var(--bdna-compact-border);border-radius:0;background:#fff!important;box-shadow:none}
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-shop-card,.bdna-worker-entry,.bdna-rag-document):hover {background:#fffaf5!important}
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-shop-card,.bdna-worker-entry)>div {min-width:0;overflow-wrap:anywhere}
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-shop-card,.bdna-worker-entry) strong {font-size:12px}
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-shop-card,.bdna-worker-entry) small {font-size:10px}
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-empty,.bdna-evidence-empty,.bdna-rag-empty,.bdna-readiness-empty,.bdna-worker-list>span) {background:#fff!important;margin:6px 0;padding:14px 10px;font-size:11px;border-radius:6px}
+main.branding-dna-page.bdna-compact-workspace .bdna-worker-enroll {margin:8px 0;gap:8px}
+main.branding-dna-page.bdna-compact-workspace .bdna-evidence-list {gap:6px;grid-template-columns:repeat(auto-fill,minmax(min(230px,100%),1fr))}
+main.branding-dna-page.bdna-compact-workspace .bdna-evidence-row {padding:8px;gap:4px;border-radius:6px;background:#fff}
+main.branding-dna-page.bdna-compact-workspace .bdna-evidence-row[aria-pressed="true"] {background:var(--bdna-compact-active);border-color:#e3a57a}
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-evidence-count,.bdna-evidence-pager,.bdna-evidence-gallery) {margin-top:8px}
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-evidence-image,.bdna-rag-chunks>div,.bdna-rag-results article,.bdna-readiness-sources article) {background:#fff;padding:8px;border-color:var(--bdna-compact-border);border-radius:6px}
+main.branding-dna-page.bdna-compact-workspace :is(.bdna-rag,.bdna-readiness) {gap:9px}
+main.branding-dna-page.bdna-compact-workspace .bdna-rag-metrics {gap:0;border-block:1px solid var(--bdna-compact-border)}
+main.branding-dna-page.bdna-compact-workspace .bdna-rag-metrics>span {background:#fff;border:0;border-right:1px solid var(--bdna-compact-border);border-radius:0;padding:6px 9px;font-size:11px}
+main.branding-dna-page.bdna-compact-workspace .bdna-readiness-sections {gap:8px}
+main.branding-dna-page.bdna-compact-workspace .bdna-readiness-sections h3 {margin:0 0 7px;font-size:13px}
+main.branding-dna-page.bdna-compact-workspace .branding-dna-preview-link {margin:3px 16px 0;border:0;border-top:1px solid var(--bdna-compact-border);border-radius:0;background:#fff!important;box-shadow:none}
+main.branding-dna-page.bdna-compact-workspace .branding-dna-preview-link summary {padding:8px 0;font-size:10px}
+main.branding-dna-page.bdna-compact-workspace .branding-dna-preview-link>div {padding:6px 0;gap:8px}
+@container bdna-workspace (max-width:1060px) {
+  main.branding-dna-page.bdna-compact-workspace.cam-unified-workspace-v18 .workspace-page-header.bdna-compact-header {grid-template-columns:minmax(0,1fr) max-content;gap:5px 8px}
+  main.branding-dna-page.bdna-compact-workspace .bdna-compact-header .workspace-page-header-center {grid-row:2;grid-column:1/-1;border-top:1px solid var(--bdna-compact-border)}
+  main.branding-dna-page.bdna-compact-workspace .bdna-compact-header .workspace-page-header-actions {grid-row:1;grid-column:2}
+}
+@container bdna-workspace (max-width:760px) {
+  main.branding-dna-page.bdna-compact-workspace.cam-unified-workspace-v18 .workspace-page-header.bdna-compact-header {padding:6px 8px!important}
+  main.branding-dna-page.bdna-compact-workspace .bdna-stage-panel {padding:5px 8px 8px!important}
+  main.branding-dna-page.bdna-compact-workspace .bdna-workflow-overview {grid-template-columns:repeat(2,minmax(0,1fr))}
+  main.branding-dna-page.bdna-compact-workspace .bdna-workflow-overview>div:nth-child(2) {border-right:0}
+  main.branding-dna-page.bdna-compact-workspace .bdna-workflow-overview>div:nth-child(-n+2) {border-bottom:1px solid var(--bdna-compact-border)}
+  main.branding-dna-page.bdna-compact-workspace .branding-dna-preview-link {margin:3px 8px 0}
+}
+@container bdna-workspace (max-width:480px) {
+  main.branding-dna-page.bdna-compact-workspace.cam-unified-workspace-v18 .bdna-compact-header h1 {font-size:18px!important}
+  main.branding-dna-page.bdna-compact-workspace .bdna-compact-stage-tabs>button {min-height:43px;padding:5px 7px}
+  main.branding-dna-page.bdna-compact-workspace .bdna-workspace-heading {align-items:flex-start}
+  main.branding-dna-page.bdna-compact-workspace .bdna-live-summary {grid-template-columns:repeat(2,minmax(0,1fr))}
+  main.branding-dna-page.bdna-compact-workspace .bdna-live-summary>article:last-child {grid-column:1/-1;border-top:1px solid var(--bdna-compact-border)}
+  main.branding-dna-page.bdna-compact-workspace .bdna-live-summary>article:nth-child(2) {border-right:0}
+  main.branding-dna-page.bdna-compact-workspace :is(.bdna-shop-form,.bdna-worker-manager,.bdna-evidence,.bdna-rag,.bdna-readiness) :is(input,select) {font-size:16px}
+}

@@ -1,0 +1,47 @@
+/* The account photo is the final item of the command bar. Keep it independent
+   from local toolbar button styling, stage tabs and shared legacy avatar CSS. */
+.workspace-page-header .workspace-account-avatar {
+  box-sizing:border-box;
+  display:inline-grid;
+  place-items:center;
+  flex:0 0 34px;
+  width:34px;
+  height:34px;
+  min-width:34px;
+  min-height:34px;
+  margin-inline-start:4px;
+  overflow:hidden;
+  border-radius:50%;
+  background:#edf1f6;
+  color:#405977;
+  line-height:1;
+}
+.workspace-page-header .workspace-account-avatar > img {
+  display:block;
+  width:100%;
+  height:100%;
+  max-width:none;
+  object-fit:cover;
+  border-radius:50%;
+}
+.workspace-page-header .workspace-account-avatar-initials {
+  font-size:11px;
+  font-weight:750;
+}
+.workspace-page-header.workspace-page-header-has-avatar .workspace-page-header-actions {
+  align-items:center;
+}
+@container etsyStage (max-width:759px) {
+  .etsy-spy-page .etsy-spy-topbar.workspace-page-header-has-avatar .workspace-page-header-actions {
+    display:grid;
+    grid-template-columns:minmax(0,1fr) 34px;
+    align-items:center;
+    gap:7px;
+  }
+  .etsy-spy-page .etsy-spy-topbar.workspace-page-header-has-avatar .workspace-account-avatar {margin-inline-start:0}
+}
+@media(max-width:760px) {
+  .workspace-page-header.workspace-page-header-has-avatar:not(.etsy-spy-topbar) .workspace-account-avatar {
+    margin-inline-start:auto;
+  }
+}

@@ -2,7 +2,10 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 
 const MIN_WIDTH = 220;
 const MAX_WIDTH = 480;
-const DEFAULT_WIDTH = 256;
+const DEFAULT_WIDTH = 248;
+// The reference sidebar uses 248px. Start a new persisted width namespace so
+// older, expanded Explorer widths do not override the unified layout.
+const WIDTH_STORAGE_KEY = "cam-sidebar-width-v23";
 const COMPACT_QUERY = "(max-width: 1024px)";
 
 function compactViewport(): boolean {
@@ -11,7 +14,7 @@ function compactViewport(): boolean {
 
 export function useResizableSidebar() {
   const [width, setWidth] = useState(() => {
-    const saved = Number(window.localStorage.getItem("cam-sidebar-width"));
+    const saved = Number(window.localStorage.getItem(WIDTH_STORAGE_KEY));
     return Number.isFinite(saved) && saved >= MIN_WIDTH && saved <= MAX_WIDTH ? saved : DEFAULT_WIDTH;
   });
   const [collapsed, setCollapsed] = useState(
@@ -24,7 +27,7 @@ export function useResizableSidebar() {
       if (!resizing.current) return;
       const nextWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, event.clientX));
       setWidth(nextWidth);
-      window.localStorage.setItem("cam-sidebar-width", String(nextWidth));
+      window.localStorage.setItem(WIDTH_STORAGE_KEY, String(nextWidth));
     }
 
     function stop() {

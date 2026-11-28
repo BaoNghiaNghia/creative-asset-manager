@@ -1,0 +1,21 @@
+.etsy-idea-preflight{border:1px solid var(--border-color,#8884);border-radius:10px;padding:10px 12px;margin:0 0 12px}
+.etsy-idea-preflight-heading,.etsy-idea-preflight-actions{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.etsy-idea-preflight-heading small{display:block;opacity:.72;margin-top:3px;font-size:11px}
+.etsy-idea-preflight button{font:inherit;font-size:12px;border:1px solid currentColor;background:transparent;color:inherit;border-radius:6px;padding:5px 9px;cursor:pointer;white-space:nowrap}
+.etsy-idea-preflight button:disabled{opacity:.45;cursor:not-allowed}
+.etsy-idea-preflight-body{padding-top:10px;font-size:12px}
+.etsy-idea-preflight-summary{display:flex;gap:6px;flex-wrap:wrap}
+.etsy-idea-preflight-summary span{border:1px solid #8885;border-radius:5px;padding:4px 7px}
+.etsy-idea-preflight-missing{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:4px 14px;padding-left:18px;margin:8px 0}
+.etsy-idea-preflight-note{opacity:.75;margin:8px 0;line-height:1.45}
+.etsy-idea-preflight fieldset{display:grid;gap:8px;border:0;padding:0;margin:0;min-width:0}
+.etsy-idea-preflight label{display:grid;gap:3px;min-width:0;font-size:12px}
+.etsy-idea-preflight input:not([type=checkbox]),.etsy-idea-preflight textarea,.etsy-idea-preflight select{box-sizing:border-box;width:100%;font:inherit;color:inherit;background:transparent;border:1px solid #8887;border-radius:6px;padding:6px 8px;min-width:0}
+.etsy-idea-preflight select option{color:CanvasText;background:Canvas}
+.etsy-idea-preflight textarea{resize:vertical}
+.etsy-idea-preflight-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.etsy-idea-preflight .etsy-idea-preflight-check{display:flex;gap:6px;align-items:center}
+.etsy-idea-preflight details{border:1px solid #8884;border-radius:6px;padding:6px 8px}
+.etsy-idea-preflight details label{margin-top:6px}
+.etsy-idea-preflight-actions{justify-content:flex-end;margin-top:10px}
+@media(max-width:520px){.etsy-idea-preflight-grid{grid-template-columns:1fr}}

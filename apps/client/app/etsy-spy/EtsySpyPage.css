@@ -521,20 +521,6 @@ body:has(.etsy-spy-page) .app-route-content{background:#ffffff!important}
 .etsy-table-count{font-size:9px;color:#9aa6b5}
 .etsy-table-card{min-height:190px;border-radius:9px;border-color:#dfe5ef}
 .etsy-table-wrap{max-height:min(68vh,800px);scrollbar-width:thin}
-/* Picked has 50+ rows per page: let the scroll area grow to the viewport
-   instead of ending at the legacy 68vh/800px cap. Other tables are unchanged. */
-@media(min-width:681px){
-  .etsy-spy-page #etsy-product-results .etsy-table-wrap.is-viewport-fit{
-    max-height:var(--etsy-picked-table-available-height,calc(100dvh - 300px));
-    overflow:auto;
-  }
-}
-@media(max-width:680px){
-  .etsy-spy-page #etsy-product-results .etsy-table-wrap.is-viewport-fit{
-    max-height:none;
-    overflow:visible;
-  }
-}
 .etsy-table-wrap table{min-width:1120px;font-size:10px;line-height:1.3;table-layout:auto}
 .etsy-table-wrap .etsy-data-table.is-products{min-width:1010px}
 .etsy-table-wrap th{

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { BrandIcon } from "../components/Icons";
 import { WorkspaceNavigation } from "../components/WorkspaceNavigation";
-import { WorkspaceBackToAssets, WorkspacePageHeader } from "../components/WorkspacePageHeader";
+import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { useActiveStageVisibility } from "../components/useActiveStageVisibility";
 import { SourcePlanTable } from "../realistic-review-ugc/SourcePlanTable";
 import { Stage3ReviewGroups } from "../realistic-review-ugc/Stage3ReviewGroups";
@@ -31,6 +31,7 @@ import type {
 import "../realistic-review-ugc/ui-overhaul.css";
 import "../realistic-review-ugc/tablet-mobile-density.css";
 import "./tiktokshop.css";
+import "./TiktokShopCompact.css";
 
 export const TIKTOKSHOP_SOURCE_ROOT = "1LS8_v9HL-OmucwRFLcFwRU7iW5r3xJkh";
 export type TikTokStage = "stage3" | "stage4" | "stage5";
@@ -119,6 +120,7 @@ export function TiktokShopScoutUgcPage() {
   const [reviewAnalyzing, setReviewAnalyzing] = useState(false);
   const [reviewsMoreLoading, setReviewsMoreLoading] = useState(false);
   const [reviewMessage, setReviewMessage] = useState("");
+  const [reviewQuery, setReviewQuery] = useState("");
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const [result, folderResult] = await Promise.all([
@@ -391,8 +393,21 @@ export function TiktokShopScoutUgcPage() {
     </aside>
     <section className="rrugc-main">
       <WorkspacePageHeader
-        route="tiktokshop" className="cam-header-v18"
-        titleAddon={<span className="rrugc-page-live-pill">TikTokShop · isolated Scout pilot</span>}
+        route="tiktokshop" className="cam-header-v18 tiktok-compact-header"
+        description=""
+        center={<nav ref={stageNavRef} className="tiktok-stage-tabs" aria-label="Tiktokshop Scout and UGC stages" role="tablist" onKeyDown={onStageKeyDown}>
+          {STAGES.map(item => <button key={item.id} type="button" role="tab"
+            id={"tiktok-tab-" + item.id}
+            aria-controls={"tiktok-panel-" + item.id}
+            aria-selected={stage === item.id}
+            tabIndex={stage === item.id ? 0 : -1}
+            className={stage === item.id ? "active" : ""}
+            onClick={() => selectStage(item.id)}>
+            <span className="rrugc-stage-tab-copy">
+              <strong>{item.title}</strong><small>{item.description}</small>
+            </span>
+          </button>)}
+        </nav>}
         actions={<div className="rrugc-global-management-actions">
           <button type="button" ref={settingsButtonRef}
             className="rrugc-global-management-button"
@@ -406,31 +421,15 @@ export function TiktokShopScoutUgcPage() {
           <a className="rrugc-global-management-button"
             href={"https://drive.google.com/drive/folders/" + TIKTOKSHOP_SOURCE_ROOT}
             target="_blank" rel="noreferrer">TiktokShop Drive</a>
-          <WorkspaceBackToAssets />
         </div>}
       />
-      <div className="rrugc-workflow-navigation">
-        <nav ref={stageNavRef} className="ops-tabs rrugc-stage-tabs" aria-label="Tiktokshop Scout and UGC stages" role="tablist" onKeyDown={onStageKeyDown}>
-          {STAGES.map(item => <button key={item.id} type="button" role="tab"
-            id={"tiktok-tab-" + item.id}
-            aria-controls={"tiktok-panel-" + item.id}
-            aria-selected={stage === item.id}
-            tabIndex={stage === item.id ? 0 : -1}
-            className={stage === item.id ? "active" : ""}
-            onClick={() => selectStage(item.id)}>
-            <span className="rrugc-stage-tab-number" aria-hidden="true">{item.id.slice(-1)}</span>
-            <span className="rrugc-stage-tab-copy">
-              <strong>{item.title}</strong><small>{item.description}</small>
-            </span>
-          </button>)}
-        </nav>
-      </div>
       <div className="rrugc-page-body rrugc-source-first-body">
         {error && <div role="alert" className="rrugc-error">{error}</div>}
         <section id="tiktok-panel-stage3" role="tabpanel" aria-labelledby="tiktok-tab-stage3"
           className="rrugc-stage-panel" hidden={stage !== "stage3"}>
           <SourcePlanTable
             rootFolderId={TIKTOKSHOP_SOURCE_ROOT}
+            compact
             scoutEnabled={page.items.some(item => item.auto_scout)}
             plans={page.items}
             folderData={folders}
@@ -462,6 +461,15 @@ export function TiktokShopScoutUgcPage() {
             loading={loading || jobsLoading} busy={jobsBusy}
             page={pageNumber} pageSize={pageSize} total={page.total}
             onPageChange={setPageNumber}
+            onPageSizeChange={value => { setPageSize(value); setPageNumber(1); }}
+            query={query}
+            onQueryChange={value => { setQuery(value); setPageNumber(1); }}
+            folderPath={folderPath}
+            onClearFolder={() => { setFolderPath(null); setPageNumber(1); }}
+            sortBy={sortBy}
+            sortDirection={sortDirection}
+            onSortByChange={value => { setSortBy(value); setPageNumber(1); }}
+            onSortDirectionChange={value => { setSortDirection(value); setPageNumber(1); }}
             onCreate={queueGeneration}
             onRetry={job => updateJob(job, "retry")}
             onRegenerate={job => updateJob(job, "regenerate")}
@@ -470,21 +478,19 @@ export function TiktokShopScoutUgcPage() {
         </section>
         <section id="tiktok-panel-stage5" role="tabpanel" aria-labelledby="tiktok-tab-stage5"
           className="rrugc-stage-panel" hidden={stage !== "stage5"}>
-          <div className="rrugc-card tiktokshop-stage-note tiktokshop-stage-note-actions">
-            <div><strong>Internal apparel image QA only</strong>
-              <p style={{ margin: "4px 0" }}>TikTokShop outputs are creative drafts, not actual customer photographs or verified buyer reviews. No fake reviewer, rating or Loox import is generated.</p>
-            </div>
-            <button type="button" className="rrugc-icon-action"
-              onClick={() => void downloadStage5LooxReviewConcepts("internal_csv", "tiktokshop")
-                .catch(reason => setError(reason instanceof Error ? reason.message : "Unable to export internal QA drafts."))}>
-              Export internal QA CSV
-            </button>
+          <div className="tiktok-internal-notice" role="note">
+            <strong>Internal apparel image QA only</strong>
+            <span>Creative drafts · not customer photographs or verified buyer reviews.</span>
           </div>
           <Stage3ReviewGroups
             data={reviews}
             loading={reviewsLoading}
             analyzing={reviewAnalyzing}
             message={reviewMessage}
+            query={reviewQuery}
+            onQueryChange={setReviewQuery}
+            internalQa
+            onExportReviews={async () => { await downloadStage5LooxReviewConcepts("internal_csv", "tiktokshop"); }}
             onAnalyze={folderId => { void analyzeReviews(folderId); }}
             onLoadMore={reviews.has_more ? () => void loadMoreReviews() : undefined}
             loadingMore={reviewsMoreLoading}

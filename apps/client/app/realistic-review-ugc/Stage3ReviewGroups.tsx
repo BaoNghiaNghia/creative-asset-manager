@@ -35,6 +35,7 @@ type Props = {
   onFolderSelect?: (path: string | null) => void;
   onDeleteReview?: (stage2JobId: string) => Promise<void>;
   onExportReviews?: (format: "csv" | "xlsx" | "internal_csv") => Promise<void>;
+  internalQa?: boolean;
 };
 
 export type Stage5SortBy = "newest" | "oldest" | "folder" | "image_count" | "score" | "status";
@@ -456,6 +457,7 @@ export function Stage3ReviewGroups({
   onFolderSelect,
   onDeleteReview,
   onExportReviews,
+  internalQa = false,
 }: Props) {
   const [selectedReviewId, setSelectedReviewId] = useState<string | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<Stage3ReviewImage | null>(null);
@@ -547,7 +549,7 @@ export function Stage3ReviewGroups({
       className="rrugc-stage4-heading"
       kicker="STAGE 5 · FOLDER GROUPS → UGC REVIEW"
       title="UGC Review"
-      description="Review Stage 4 outputs by folder. Analyze new images, manage cards and export retained review concepts."
+      description={internalQa ? "Internal image QA · Stage 4 outputs" : "Review Stage 4 outputs by folder. Analyze new images, manage cards and export retained review concepts."}
     />
 
     <ActionMessageToast message={message} />
@@ -560,7 +562,7 @@ export function Stage3ReviewGroups({
           query={query}
           onQueryChange={onQueryChange}
           suggestions={searchSuggestions}
-          placeholder="Search folders, images, reviewers…"
+          placeholder={internalQa ? "Search folders, images, scene, status…" : "Search folders, images, reviewers…"}
           label="Search Stage 5 UGC reviews"
         />
       </div>
@@ -590,7 +592,7 @@ export function Stage3ReviewGroups({
           <span className="rrugc-stage5-short-label">{analyzing ? "Queueing…" : "Analyze"}</span>
         </button>
         {onExportReviews && <>
-          <button type="button" className="rrugc-stage5-preview-export rrugc-icon-action" aria-label="Export Internal Concepts CSV" disabled={Boolean(exporting)} title="Internal synthetic concept dataset with clean body and explicit review_origin=synthetic_ai column. Not a public customer-review import." onClick={() => void exportAll("internal_csv")}><RrugcActionIcon name="download" /><span>Internal CSV</span></button>
+          <button type="button" className="rrugc-stage5-preview-export rrugc-icon-action" aria-label={internalQa ? "Export internal QA CSV" : "Export Internal Concepts CSV"} disabled={Boolean(exporting)} title="Internal synthetic concept dataset with clean body and explicit review_origin=synthetic_ai column. Not a public customer-review import." onClick={() => void exportAll("internal_csv")}><RrugcActionIcon name="download" /><span>{internalQa ? "QA CSV" : "Internal CSV"}</span></button>
         </>}
       </div>
       <div className="rrugc-stage3-stats rrugc-stage5-toolbar-stats" aria-label="Stage 5 summary">

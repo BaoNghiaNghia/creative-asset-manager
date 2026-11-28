@@ -493,45 +493,47 @@ export function DesignCell({ item, onPreviewStart, canRetry = false, onRetryQueu
               </footer>
             </div>
             <aside className="etsy-design-gallery-side" aria-label="Vị trí và ảnh thiết kế">
-              <section className="etsy-design-gallery-side-section">
+              <section className="etsy-design-gallery-side-section etsy-design-gallery-placement">
                 <div className="etsy-design-gallery-section-heading">
                   <strong>Vị trí in</strong>
                   <span>{positions.length} vị trí</span>
                 </div>
-                <div className="etsy-design-gallery-position-list" role="group"
-                  aria-label="Chọn vị trí in">
-                  {positions.map(position => (
-                    <button key={position.key} type="button"
-                      className={position.key === selectedPosition.key ? "active" : ""}
-                      onClick={() => { setActive(position.entries[0].index); }}
-                      aria-pressed={position.key === selectedPosition.key}
-                      aria-label={`${position.label}, ${position.entries.length} thiết kế`}>
-                      <span>{position.label}</span>
-                      <span className="etsy-design-gallery-position-count">
-                        {position.entries.length}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-              <section className="etsy-design-gallery-side-section etsy-design-gallery-variants">
-                <div className="etsy-design-gallery-list" role="group"
-                  aria-label={`Các thiết kế ${selectedPosition.label}`}>
-                  {selectedPosition.entries.map((entry, ordinal) => (
-                    <button key={entry.design.job_id + ":" + entry.design.id} type="button"
-                      className={entry.index === selected ? "active" : ""}
-                      onClick={() => { setActive(entry.index); }}
-                      aria-label={`Xem thiết kế ${entry.index + 1}, ${selectedPosition.label}, ${variantLabel(entry.design.variant, ordinal + 1, entry.design)}`}
-                      aria-pressed={entry.index === selected}>
-                      <span className="etsy-design-gallery-variant-artwork">
-                        <EtsyDeferredImage src={entry.design.thumbnail_url} alt=""
-                          width={88} height={88} />
-                      </span>
-                      <span className="etsy-design-gallery-variant-label">
-                        {variantLabel(entry.design.variant, ordinal + 1, entry.design)}
-                      </span>
-                    </button>
-                  ))}
+                <div className="etsy-design-gallery-placement-card">
+                  <div className="etsy-design-gallery-position-list" role="group"
+                    aria-label="Chọn vị trí in">
+                    {positions.map(position => (
+                      <button key={position.key} type="button"
+                        className={position.key === selectedPosition.key ? "active" : ""}
+                        onClick={() => { setActive(position.entries[0].index); }}
+                        aria-pressed={position.key === selectedPosition.key}
+                        aria-label={`${position.label}, ${position.entries.length} thiết kế`}>
+                        <span>{position.label}</span>
+                        <span className="etsy-design-gallery-position-count">
+                          {position.entries.length}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="etsy-design-gallery-variants">
+                    <div className="etsy-design-gallery-list" role="group"
+                      aria-label={`Các thiết kế ${selectedPosition.label}`}>
+                      {selectedPosition.entries.map((entry, ordinal) => (
+                        <button key={entry.design.job_id + ":" + entry.design.id} type="button"
+                          className={entry.index === selected ? "active" : ""}
+                          onClick={() => { setActive(entry.index); }}
+                          aria-label={`Xem thiết kế ${entry.index + 1}, ${selectedPosition.label}, ${variantLabel(entry.design.variant, ordinal + 1, entry.design)}`}
+                          aria-pressed={entry.index === selected}>
+                          <span className="etsy-design-gallery-variant-artwork">
+                            <EtsyDeferredImage src={entry.design.thumbnail_url} alt=""
+                              width={88} height={88} />
+                          </span>
+                          <span className="etsy-design-gallery-variant-label">
+                            {variantLabel(entry.design.variant, ordinal + 1, entry.design)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </section>
               <section className="etsy-design-gallery-side-section etsy-design-gallery-backgrounds">

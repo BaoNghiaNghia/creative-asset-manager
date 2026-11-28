@@ -21,6 +21,13 @@ describe("Branding DNA worker control plane preview", () => {
   it("shows tenant shop and worker controls while preview opens in separate tab", () => {
     const html = renderToStaticMarkup(<BrandingDnaPage />);
     expect(html).toContain("workspace-page-header");
+    expect(html).toContain("bdna-compact-header");
+    expect(html).toContain("workspace-page-header-center");
+    expect(html).toContain('class="bdna-compact-stage-tabs"');
+    expect(html).not.toContain('class="ops-tabs bdna-stage-tabs"');
+    expect(html).not.toContain('class="bdna-stage-number"');
+    expect(html).not.toContain("Back to assets");
+    expect(html.match(/role="tab" aria-selected=/g)).toHaveLength(6);
     expect(html).toContain("Branding DNA workflow");
     expect(html).toContain("SHOPS SAVED");
     expect(html).toContain("Mở Shop Library");

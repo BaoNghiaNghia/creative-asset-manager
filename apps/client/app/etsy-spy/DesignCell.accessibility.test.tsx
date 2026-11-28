@@ -114,6 +114,11 @@ describe("Picked Design gallery accessibility and refresh", () => {
     await act(async () => host?.querySelector<HTMLButtonElement>(".etsy-design-thumb")?.click());
 
     const gallery = document.body.querySelector<HTMLElement>(".etsy-design-gallery");
+    const placementCards = gallery?.querySelectorAll(".etsy-design-gallery-placement-card");
+    expect(placementCards).toHaveLength(1);
+    expect(placementCards?.[0].querySelector(".etsy-design-gallery-position-list")).toBeTruthy();
+    expect(placementCards?.[0].querySelector(".etsy-design-gallery-variants .etsy-design-gallery-list")).toBeTruthy();
+    expect(gallery?.querySelector(".etsy-design-gallery-side > .etsy-design-gallery-variants")).toBeNull();
     const positions = gallery?.querySelectorAll<HTMLButtonElement>(
       ".etsy-design-gallery-position-list button",
     );

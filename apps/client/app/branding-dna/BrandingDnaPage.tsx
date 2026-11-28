@@ -10,7 +10,8 @@ import { BrandingDnaWorkers } from "./BrandingDnaWorkers";
 import { BrandingDnaEvidence } from "./BrandingDnaEvidence";
 import { BrandingDnaKnowledge } from "./BrandingDnaKnowledge";
 import { BrandingDnaReadiness } from "./BrandingDnaReadiness";
-import { WorkspacePageHeader, WorkspaceBackToAssets } from "../components/WorkspacePageHeader";
+import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
+import "./BrandingDnaCompactWorkspace.css";
 import { useActiveStageVisibility } from "../components/useActiveStageVisibility";
 
 const DEMO_TABS = ["overview", "shops", "scanner", "products", "knowledge", "dna"] as const;
@@ -54,11 +55,11 @@ export function BrandingDnaPage() {
     { id: "knowledge", title: "Shop Knowledge", note: "RAG Library" },
     { id: "dna", title: "Brand DNA", note: "Input Readiness" },
   ];
-  return <main className="branding-dna-page cam-unified-workspace-v18">
-    <WorkspacePageHeader route="branding-dna" className="ops-header bdna-ops-header cam-header-v18"
-      actions={<><span className="bdna-header-runtime">Scanner not connected</span><WorkspaceBackToAssets /></>} />
-    <div className="bdna-stage-shell">
-      <nav ref={stageNavRef} className="ops-tabs bdna-stage-tabs" aria-label="Branding DNA stages" role="tablist" onKeyDown={event => {
+  return <main className="branding-dna-page cam-unified-workspace-v18 bdna-compact-workspace">
+    <WorkspacePageHeader route="branding-dna" className="bdna-ops-header cam-header-v18 bdna-compact-header"
+      description=""
+      actions={<span className="bdna-header-runtime">Scanner not connected</span>}
+      center={<nav ref={stageNavRef} className="bdna-compact-stage-tabs" aria-label="Branding DNA stages" role="tablist" onKeyDown={event => {
         const index = tabs.findIndex(item => item.id === activeTab);
         const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : event.key === "ArrowLeft" ? (index - 1 + tabs.length) % tabs.length : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : -1;
         if (next < 0) return;
@@ -66,12 +67,10 @@ export function BrandingDnaPage() {
         selectTab(tabs[next].id);
         window.requestAnimationFrame(() => document.getElementById("bdna-stage-" + tabs[next].id)?.focus());
       }}>
-        {tabs.map((item, index) => <button key={item.id} id={"bdna-stage-" + item.id} type="button" role="tab" aria-selected={activeTab === item.id} aria-controls={"bdna-panel-" + item.id} tabIndex={activeTab === item.id ? 0 : -1} className={activeTab === item.id ? "active" : ""} onClick={() => selectTab(item.id)}>
-          <span className="bdna-stage-number" aria-hidden="true">{index}</span>
+        {tabs.map(item => <button key={item.id} id={"bdna-stage-" + item.id} type="button" role="tab" aria-selected={activeTab === item.id} aria-controls={"bdna-panel-" + item.id} tabIndex={activeTab === item.id ? 0 : -1} className={activeTab === item.id ? "active" : ""} onClick={() => selectTab(item.id)}>
           <span className="bdna-stage-copy"><strong>{item.title}</strong><small>{item.note}</small></span>
         </button>)}
-      </nav>
-    </div>
+      </nav>} />
     <section id={"bdna-panel-" + activeTab} role="tabpanel" aria-labelledby={"bdna-stage-" + activeTab} className="bdna-stage-panel">
     <div className="bdna-workspace-heading">
       <div><span>BRANDING DNA / STAGE {tabs.findIndex(item => item.id === activeTab)}</span><h2>{tabs.find(item => item.id === activeTab)?.title}</h2>

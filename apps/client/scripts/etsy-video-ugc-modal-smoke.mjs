@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
 const client = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const css = await readFile(resolve(client, "app/etsy-spy/VideoUGCCell.css"), "utf8");
+// Include the real global shell styles to catch inherited white aside surfaces.
+const globalCss = await readFile(resolve(client, "styles/global.css"), "utf8");
+const css = globalCss + "\n" + await readFile(resolve(client, "app/etsy-spy/VideoUGCCell.css"), "utf8");
 const capture = process.env.CAM_UGC_QA_SCREENSHOTS === "1";
 const evidenceDir = resolve(client, ".ui-qa/ugc-orientation");
 if (capture) await mkdir(evidenceDir, {recursive:true});
@@ -35,16 +37,9 @@ const markup = (aspect) => {
     '<div class="etsy-video-ugc-modal-content"><div class="etsy-video-ugc-studio is-' +
     (vertical ? "vertical" : "horizontal") + '">' +
     '<div class="etsy-video-ugc-primary is-' + (vertical ? "vertical" : "horizontal") + '">' +
-    '<div class="etsy-video-ugc-primary-head"><div class="etsy-video-ugc-player-identity">' +
-    '<strong>Video ' + (vertical ? "dọc" : "ngang") + '</strong><span class="etsy-video-ugc-ratio">' +
-    aspect + '</span></div><span class="etsy-video-ugc-qa is-pending">' +
-    '<span class="etsy-video-ugc-qa-dot"></span>Chờ QA nội dung</span></div>' +
     '<div class="etsy-video-ugc-player-stage is-' + (vertical ? "vertical" : "horizontal") + '">' +
-    '<button class="etsy-video-ugc-poster-action" aria-label="Phát Video ' +
-    (vertical ? "dọc" : "ngang") + '">' +
-    '<span class="etsy-video-ugc-poster-play"><svg viewBox="0 0 24 24"><path d="m8 5 12 7-12 7Z"/></svg></span>' +
-    '<span class="etsy-video-ugc-poster-label">Nhấn để phát · ' + aspect +
-    '</span></button></div>' +
+    '<video controls autoplay muted playsinline preload="auto" class="' +
+    (vertical ? "vertical" : "horizontal") + '"></video></div>' +
     '<div class="etsy-video-ugc-primary-foot"><a href="#">Mở file gốc</a></div></div>' +
     '<aside class="etsy-video-ugc-selector"><div class="etsy-video-ugc-version-group" role="tablist">' +
     selector(aspect, true) + selector(other, false) + '</div>' +
@@ -81,28 +76,51 @@ try {
           linkCount:document.querySelectorAll(".etsy-video-ugc-primary-foot a").length,
           selectorCount:document.querySelectorAll(".etsy-video-ugc-version").length,
           selectorLayout:getComputedStyle(document.querySelector(".etsy-video-ugc-version-group")).display,
-          statusDisplayed:getComputedStyle(document.querySelector(".etsy-video-ugc-qa")).display,
+          selectorBg:getComputedStyle(selector).backgroundColor,
+          selectorBorder:getComputedStyle(selector).borderRightWidth,
+          selectorPadding:getComputedStyle(selector).paddingTop,
+          groupBg:getComputedStyle(document.querySelector(".etsy-video-ugc-version-group")).backgroundColor,
+          headerCount:document.querySelectorAll(".etsy-video-ugc-primary-head, .etsy-video-ugc-qa").length,
+          stageTop:Math.round(sr.top),
+          scheme:getComputedStyle(modal).colorScheme,
+          modalBg:getComputedStyle(modal).backgroundColor,
+          stageBg:getComputedStyle(stage).backgroundColor,
+          activeBg:getComputedStyle(document.querySelector(".etsy-video-ugc-version.is-active")).backgroundColor,
+          inactiveBg:getComputedStyle(document.querySelector(".etsy-video-ugc-version:not(.is-active)")).backgroundColor,
+          titleColor:getComputedStyle(document.querySelector(".etsy-video-ugc-modal-titles h2")).color,
+          linkColor:getComputedStyle(document.querySelector(".etsy-video-ugc-primary-foot a")).color,
+          bodyBg:getComputedStyle(document.body).backgroundColor,
         };
       });
+      assert.equal(m.scheme,"dark","modal must be dark regardless of page theme");
+      assert.equal(m.modalBg,"rgb(17, 24, 39)");
+      assert.equal(m.selectorBg,m.modalBg,"sidebar surface must match the dark modal");
+      assert.equal(m.selectorBorder,"0px","global aside border must not leak into modal");
+      assert.equal(m.selectorPadding,"0px","selector must align with player");
+      assert.equal(m.groupBg,"rgba(0, 0, 0, 0)","gaps must expose the dark selector, not white");
+      assert.equal(m.stageBg,"rgb(8, 13, 22)");
+      assert.equal(m.activeBg,"rgb(30, 48, 73)");
+      assert.equal(m.inactiveBg,"rgb(28, 37, 53)");
+      assert.equal(m.titleColor,"rgb(241, 245, 249)");
+      assert.equal(m.headerCount,0,"redundant player header and QA badge are removed");
+      assert.equal(m.stageTop,m.playerTop,"player starts immediately without reserved header space");
+      assert.equal(m.linkColor,"rgb(147, 197, 253)");
+      assert.equal(m.bodyBg,"rgb(250, 251, 252)","page remains light");
       assert(m.docWidth <= width+1, width+"px page horizontal overflow "+JSON.stringify(m));
       assert(m.modalWidth <= width-18, width+"px modal too wide "+JSON.stringify(m));
       assert(m.modalHeight <= height+1, width+"px modal too tall "+JSON.stringify(m));
       assert(m.modalBottom <= height+2, width+"px modal exceeds viewport "+JSON.stringify(m));
-      assert.equal(m.videoCount,0,"MP4 must not be mounted before Play");
-      assert.equal(m.posterActionCount,1,"Poster action must be visible before Play");
-      await page.locator(".etsy-video-ugc-poster-action").click();
+      assert.equal(m.videoCount,1,"The open modal mounts only the active MP4");
+      assert.equal(m.posterActionCount,0,"Autoplay needs no extra poster click");
       const playable = await page.evaluate(() => {
         const stage = document.querySelector(".etsy-video-ugc-player-stage");
-        const video = document.createElement("video");
-        video.setAttribute("controls", "");
-        video.className = stage.classList.contains("is-vertical") ? "vertical" : "horizontal";
-        stage.querySelector(".etsy-video-ugc-poster-action")?.remove();
-        stage.append(video);
+        const video = stage.querySelector("video");
         const rect = video.getBoundingClientRect();
-        return {count:stage.querySelectorAll("video").length,
-          width:rect.width, height:rect.height};
+        return {width:rect.width,height:rect.height,
+          autoplay:video.autoplay,muted:video.muted,controls:video.controls,inline:video.playsInline};
       });
-      assert.equal(playable.count, 1, "MP4 player must mount only after explicit Play");
+      assert(playable.autoplay && playable.muted && playable.controls && playable.inline,
+        "Active player must support muted inline autoplay and native controls");
       assert(Math.abs(playable.width/playable.height-m.stageRatio)<.03,
         "video element must retain the exact stage aspect ratio");
       assert.equal(m.selectorCount,2);

@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { createRoot } from "react-dom/client";
+import "@fontsource-variable/inter";
 import "@fontsource/be-vietnam-pro/400.css";
 import "@fontsource/be-vietnam-pro/400-italic.css";
 import "@fontsource/be-vietnam-pro/500.css";
@@ -38,6 +39,7 @@ import "../styles/cam-evo-operations-v20.css";
 import "../styles/cam-evo-operations-v21.css";
 // Shared responsive console navigation redesign.
 import "../styles/cam-navigation-v22.css";
+import "../styles/cam-color-mix-v5.css";
 
 function AppBoot() {
   useEffect(() => {

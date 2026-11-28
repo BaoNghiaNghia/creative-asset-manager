@@ -138,13 +138,14 @@ export type ReviewAssessment = {
 };
 export type VideoUgcItem = {
   aspectRatio: "9:16" | "16:9"; url: string;
-  posterUrl?: string; thumbnailUrl?: string;
+  posterUrl?: string; thumbnailUrl?: string; sha256?: string;
   width?: number; height?: number; durationSeconds?: number;
   qaStatus: "pending_review";
 };
 export type VideoUgcView = {
   status: string; count: number; videos: VideoUgcItem[];
   contentQa?: string | null; artworkSha256?: string | null;
+  regeneratingAspectRatios?: VideoUgcItem["aspectRatio"][];
 };
 export type Listing = {
   sessionId: string; keyword: string; sourceKind: string; sourceKinds?: string[]; listingKey: string;

@@ -32,8 +32,8 @@ describe("responsive mobile workspace navigation", () => {
     );
     expect(queue.map(item => item.id)).toEqual(["queue"]);
     expect(availableMobileDestinations(["assets.read", "inventory.read"], []).length).toBe(0);
-    expect(availableMobileDestinations(["realistic_review_ugc.read"], ["realistic-review-ugc"])
-      .map(item => item.id)).toEqual(["realistic-review-ugc"]);
+    expect(availableMobileDestinations(["realistic_review_ugc.read"], ["realistic-review-ugc"]))
+      .toEqual([{ id: "realistic-review-ugc", href: "/realistic-review-ugc", title: "GatorHats", shortTitle: "GatorHats" }]);
     expect(availableMobileDestinations(["realistic_review_ugc.read"], ["tiktokshop"])
       .map(item => item.id)).toEqual(["tiktokshop"]);
   });

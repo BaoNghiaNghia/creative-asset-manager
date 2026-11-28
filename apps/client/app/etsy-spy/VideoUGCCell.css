@@ -41,6 +41,59 @@
   background:#ffeded;color:#ae4847;
 }
 
+.etsy-video-ugc-cell .etsy-video-ugc-badge{
+  display:block;position:relative;width:100px;height:68px;min-height:68px;
+  padding:0;overflow:hidden;border-radius:9px;border:1px solid #d6dfeb;
+  background:#dfe7f2;box-shadow:0 2px 9px #1d2d440f;
+}
+.etsy-video-ugc-cell .etsy-video-ugc-badge:hover{
+  border-color:#8da8d3;box-shadow:0 4px 13px #192f5428;
+}
+.etsy-video-ugc-thumb{
+  display:block;position:relative;width:100%;height:100%;overflow:hidden;
+  background:#f7f9fc;
+}
+.etsy-video-ugc-cover{
+  position:absolute;inset:0;display:block;overflow:hidden;
+}
+.etsy-video-ugc-cover > img{
+  position:absolute;inset:0;display:block;width:100%;height:100%;
+}
+.etsy-video-ugc-cover .etsy-video-ugc-cover-blur{
+  object-fit:cover;filter:blur(8px) brightness(.72);transform:scale(1.14);
+}
+.etsy-video-ugc-cover .etsy-video-ugc-cover-image{
+  object-fit:contain;
+}
+.etsy-video-ugc-cover[data-cover-source="product"] .etsy-video-ugc-cover-image{
+  object-fit:cover;filter:brightness(.87);
+}
+.etsy-video-ugc-cover-fallback{
+  position:absolute;left:4px;top:4px;padding:3px 4px;
+  border-radius:4px;background:#14253bd9;color:#fff;
+  font-size:9px;font-weight:650;line-height:1.1;
+}
+.etsy-video-ugc-thumb:has([data-cover-source="none"]) .etsy-video-ugc-thumb-play svg{
+  background:#53657e;
+}
+.etsy-video-ugc-thumb-play{
+  position:absolute;inset:0;display:grid;place-items:center;
+  color:#fff;filter:drop-shadow(0 1px 4px #16203370);
+}
+.etsy-video-ugc-thumb-play svg{
+  width:29px;height:29px;padding:7px;border-radius:50%;
+  background:#14253b77;backdrop-filter:blur(5px);
+}
+.etsy-video-ugc-thumb-count{
+  position:absolute;right:5px;bottom:5px;display:grid;place-items:center;
+  min-width:19px;height:19px;padding:0 5px;border-radius:5px;
+  background:#101b2bdc;color:#fff;font-size:10px;font-weight:800;
+  line-height:1;
+}
+@media (prefers-reduced-motion: reduce){
+  .etsy-video-ugc-cover .etsy-video-ugc-cover-blur{transform:none}
+}
+
 /* Video UGC Studio V3: one fetched MP4 at a time and two lightweight selectors.
    Geometry follows active media ratio rather than forcing equal-height players. */
 .etsy-video-ugc-backdrop {
@@ -199,74 +252,10 @@
   min-width:0;
   overflow:hidden;
 }
-/* Keep the title, 9:16 canvas and source action aligned as one portrait. */
+/* Keep the 9:16 canvas and source action aligned as one portrait. */
 .etsy-video-ugc-primary.is-vertical {align-items:center}
-.etsy-video-ugc-primary.is-vertical .etsy-video-ugc-primary-head,
 .etsy-video-ugc-primary.is-vertical .etsy-video-ugc-primary-foot {
   width:min(100%,330px,38dvh);
-}
-.etsy-video-ugc-primary-head {
-  display:flex;
-  min-height:32px;
-  align-items:center;
-  justify-content:space-between;
-  flex-wrap:wrap;
-  gap:7px;
-  padding:0 0 10px;
-}
-.etsy-video-ugc-player-identity {
-  display:inline-flex;
-  min-width:0;
-  align-items:center;
-  gap:7px;
-}
-.etsy-video-ugc-player-identity strong {
-  font-size:12px;
-  color:#293d58;
-  font-weight:770;
-  white-space:nowrap;
-}
-.etsy-video-ugc-ratio {
-  display:inline-flex;
-  padding:3px 6px;
-  border-radius:5px;
-  background:#eff3f8;
-  color:#6e8097;
-  font-size:10px;
-  font-weight:700;
-  font-variant-numeric:tabular-nums;
-}
-.etsy-video-ugc-qa {
-  box-sizing:border-box;
-  display:inline-flex;
-  align-items:center;
-  flex:0 0 auto;
-  gap:5px;
-  border:1px solid transparent;
-  border-radius:999px;
-  padding:4px 8px;
-  font-size:10px;
-  font-weight:680;
-  white-space:nowrap;
-  line-height:1.25;
-}
-.etsy-video-ugc-qa.is-pending {
-  border-color:#f0e2c5;
-  background:#fff7e7;
-  color:#996c29;
-}
-.etsy-video-ugc-qa.is-saved {
-  border-color:#dce7f4;
-  background:#eff5fb;
-  color:#4a6e94;
-}
-.etsy-video-ugc-qa-dot {
-  display:inline-block;
-  width:6px;
-  height:6px;
-  flex:0 0 6px;
-  border-radius:50%;
-  background:currentColor;
 }
 .etsy-video-ugc-player-stage {
   box-sizing:border-box;
@@ -547,7 +536,6 @@
   .etsy-video-ugc-version-chevron {display:none}
   .etsy-video-ugc-selected-info,
   .etsy-video-ugc-storage-note {display:none}
-  .etsy-video-ugc-primary-head {padding-bottom:8px}
 }
 @media (max-width:390px) {
   .etsy-video-ugc-modal-hero-icon {display:none}
@@ -559,10 +547,8 @@
 @media (max-height:530px) {
   .etsy-video-ugc-modal-head {min-height:54px;padding:7px 12px}
   .etsy-video-ugc-modal-content {padding:8px}
-  .etsy-video-ugc-primary-head {min-height:26px;padding-bottom:4px}
   .etsy-video-ugc-primary-foot {min-height:28px;padding:4px 0}
   .etsy-video-ugc-player-stage.is-vertical,
-  .etsy-video-ugc-primary.is-vertical .etsy-video-ugc-primary-head,
   .etsy-video-ugc-primary.is-vertical .etsy-video-ugc-primary-foot {
     width:min(100%,220px,32dvh);
   }
@@ -713,4 +699,151 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .etsy-video-ugc-poster-play {transition:none;}
+}
+
+/* Always-dark media studio. Scope every surface to this portal so the
+   light Etsy Spy table, other dialogs and media pixels remain unchanged. */
+.etsy-video-ugc-backdrop {
+  background:rgba(3,7,18,.76);
+}
+.etsy-video-ugc-modal {
+  color-scheme:dark;
+  --ugc-surface:#111827;
+  --ugc-panel:#1c2535;
+  --ugc-border:#334155;
+  --ugc-text:#f1f5f9;
+  --ugc-muted:#a8b6c9;
+  --ugc-accent:#93c5fd;
+  background:var(--ugc-surface);
+  border-color:var(--ugc-border);
+  color:var(--ugc-text);
+  box-shadow:0 25px 80px rgba(0,0,0,.55);
+}
+.etsy-video-ugc-modal .etsy-video-ugc-modal-head,
+.etsy-video-ugc-modal .etsy-video-ugc-selected-info {
+  border-color:var(--ugc-border);
+}
+.etsy-video-ugc-modal .etsy-video-ugc-modal-hero-icon,
+.etsy-video-ugc-modal .etsy-video-ugc-modal-count {
+  background:#243349;
+  border-color:#41546e;
+  color:var(--ugc-accent);
+}
+.etsy-video-ugc-modal .etsy-video-ugc-kicker,
+.etsy-video-ugc-modal .etsy-video-ugc-modal-titles p,
+.etsy-video-ugc-modal .etsy-video-ugc-version-copy small,
+.etsy-video-ugc-modal .etsy-video-ugc-selected-info p {
+  color:var(--ugc-muted);
+}
+.etsy-video-ugc-modal .etsy-video-ugc-modal-titles h2,
+.etsy-video-ugc-modal .etsy-video-ugc-version-copy strong,
+.etsy-video-ugc-modal .etsy-video-ugc-selected-info h3 {
+  color:var(--ugc-text);
+}
+.etsy-video-ugc-modal .etsy-video-ugc-close {
+  background:var(--ugc-panel);
+  border-color:var(--ugc-border);
+  color:#cbd5e1;
+}
+.etsy-video-ugc-modal .etsy-video-ugc-close:hover {
+  background:#334155;
+  color:#fff;
+}
+.etsy-video-ugc-modal :is(button,a):focus-visible {
+  outline-color:var(--ugc-accent);
+}
+.etsy-video-ugc-modal .etsy-video-ugc-modal-content {
+  scrollbar-color:#475569 var(--ugc-surface);
+}
+.etsy-video-ugc-modal .etsy-video-ugc-player-stage,
+.etsy-video-ugc-modal .etsy-video-ugc-player-stage video,
+.etsy-video-ugc-modal .etsy-video-ugc-poster-action img {
+  background:#080d16;
+  border-color:var(--ugc-border);
+}
+.etsy-video-ugc-modal .etsy-video-ugc-primary-foot a {
+  color:var(--ugc-accent);
+}
+/* The application shell styles every aside as a white sidebar. Reset that
+   inherited surface on this media selector without changing the shell. */
+.etsy-video-ugc-modal .etsy-video-ugc-selector {
+  background:var(--ugc-surface);
+  border:0;
+  padding:0;
+  box-shadow:none;
+}
+.etsy-video-ugc-modal .etsy-video-ugc-version-group {
+  background:transparent;
+  border:0;
+  box-shadow:none;
+}
+.etsy-video-ugc-modal .etsy-video-ugc-version {
+  background:var(--ugc-panel);
+  border-color:var(--ugc-border);
+  color:var(--ugc-muted);
+}
+.etsy-video-ugc-modal .etsy-video-ugc-version:hover {
+  background:#253247;
+  border-color:#64748b;
+}
+.etsy-video-ugc-modal .etsy-video-ugc-version.is-active {
+  background:#1e3049;
+  border-color:#6095da;
+  box-shadow:inset 0 0 0 1px #6095da;
+}
+.etsy-video-ugc-modal .etsy-video-ugc-version-preview {
+  background:#0b1220;
+}
+.etsy-video-ugc-modal .etsy-video-ugc-version-preview::before {
+  background:#1e293b;
+  border-color:#475569;
+}
+.etsy-video-ugc-modal .etsy-video-ugc-version-preview svg,
+.etsy-video-ugc-modal .etsy-video-ugc-version-chevron {
+  color:var(--ugc-muted);
+}
+.etsy-video-ugc-modal .etsy-video-ugc-version.is-active .etsy-video-ugc-version-chevron,
+.etsy-video-ugc-modal .etsy-video-ugc-storage-note svg {
+  color:var(--ugc-accent);
+}
+.etsy-video-ugc-modal .etsy-video-ugc-storage-note {
+  background:var(--ugc-panel);
+  border-color:var(--ugc-border);
+  color:var(--ugc-muted);
+}
+
+/* Operator-only destructive action; keep the footer compact and dark. */
+.etsy-video-ugc-modal .etsy-video-ugc-primary-foot {gap:10px;flex-wrap:wrap;}
+.etsy-video-ugc-modal .etsy-video-ugc-delete {
+  display:inline-flex;align-items:center;gap:5px;margin-right:auto;
+  min-width:0;min-height:26px;padding:3px 7px;border-radius:6px;
+  color:#fca5a5;border:1px solid #70424a;background:#2c1e28;
+  font-size:11px;font-weight:650;cursor:pointer;
+}
+.etsy-video-ugc-modal .etsy-video-ugc-delete svg {width:14px;height:14px;flex-shrink:0}
+.etsy-video-ugc-modal .etsy-video-ugc-delete:hover {background:#512b36;border-color:#f87171;color:#fee2e2}
+.etsy-video-ugc-delete-confirm {
+  max-width:440px;margin:10px auto;padding:18px;border:1px solid var(--ugc-border);
+  border-radius:12px;background:var(--ugc-panel);color:#e5e7eb;
+  display:flex;flex-direction:column;gap:12px;
+}
+.etsy-video-ugc-delete-confirm h3 {margin:0;font-size:17px;color:#f8fafc}
+.etsy-video-ugc-delete-confirm p {margin:0;font-size:12px;line-height:1.6}
+.etsy-video-ugc-delete-confirm label {
+  display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--ugc-border);
+  border-radius:8px;background:#111827;cursor:pointer;font-size:13px;color:#e5e7eb;
+}
+.etsy-video-ugc-delete-confirm input {accent-color:#ef4444;width:16px;height:16px;margin:0}
+.etsy-video-ugc-delete-confirm small {font-size:11px;line-height:1.5;color:var(--ugc-muted)}
+.etsy-video-ugc-delete-confirm .etsy-video-ugc-delete-error {color:#fca5a5;background:#371f29;padding:9px;border-radius:7px}
+.etsy-video-ugc-delete-actions {display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.etsy-video-ugc-delete-actions button {
+  border:1px solid var(--ugc-border);border-radius:7px;padding:8px 12px;
+  background:#202b3d;color:#e5e7eb;font-size:12px;font-weight:700;cursor:pointer;
+}
+.etsy-video-ugc-delete-actions .etsy-video-ugc-delete-submit {background:#a72e37;border-color:#dc4d56;color:#fff}
+.etsy-video-ugc-delete-actions button:disabled {opacity:.5;cursor:not-allowed}
+@media (max-width:380px) {
+  .etsy-video-ugc-delete-confirm {padding:12px}
+  .etsy-video-ugc-modal .etsy-video-ugc-primary-foot {gap:4px}
 }

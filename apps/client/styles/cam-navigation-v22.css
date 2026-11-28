@@ -256,6 +256,152 @@
   .inventory-route-main .inventory-workspace-content,
   .inventory-route-main .inventory-content { padding-bottom: 32px; }
 }
+/* Use the identical brand markup, dimensions and subtitle in every desktop
+   workspace, including Asset Explorer. Do not expose account email in the nav. */
+.workspace-sidebar-brand {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  margin: 0 10px 22px;
+  color: #1b2a44;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.3;
+  text-decoration: none;
+}
+.workspace-sidebar-brand img {
+  display: block;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  object-fit: contain;
+}
+.workspace-sidebar-brand span { min-width: 0; }
+.workspace-sidebar-brand small {
+  display: block;
+  color: #697b96;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.3;
+}
+.workspace-sidebar-brand:focus-visible {
+  border-radius: 6px;
+  outline: 2px solid #315fe9;
+  outline-offset: 4px;
+}
+/* The reference navigation wraps long titles instead of clipping them. */
+.product-shell .sidebar .workspace-navigation a>span:last-child {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+@media (min-width: 1025px) {
+  /* Match the 248px sidebar's reference spacing without changing mobile drawer. */
+  .product-shell .sidebar-scroll { padding: 22px 16px; scrollbar-gutter: auto; }
+  /* Keep Explorer collapse functionality, but do not clutter the brand row. */
+  .product-shell .sidebar-collapse { opacity: 0; transition: opacity .15s ease; }
+  .product-shell .sidebar:hover .sidebar-collapse,
+  .product-shell .sidebar-collapse:focus-visible { opacity: 1; }
+}
 @media (prefers-reduced-motion: reduce) {
-  .workspace-navigation a { transition: none; }
+  .workspace-navigation a,
+  .product-shell .sidebar-collapse { transition: none; }
+}
+
+/* Compact full navigation for mouse/keyboard desktops. Keep the existing
+   touch drawer and responsive shell behavior, and allow vertical scrolling. */
+@media (min-width: 1025px) and (pointer: fine) {
+  .workspace-navigation,
+  .ops-sidebar .workspace-navigation,
+  .access-sidebar .workspace-navigation,
+  .product-shell .sidebar .workspace-navigation,
+  .inventory-desktop-sidebar .workspace-navigation {
+    gap: 1px;
+    margin: var(--cam-space-2) 0 0;
+    padding-bottom: var(--cam-space-2);
+  }
+  .workspace-navigation .workspace-nav-section-label {
+    margin: var(--cam-space-2) var(--cam-space-2) var(--cam-space-1);
+    padding-top: var(--cam-space-1);
+    line-height: 1.3;
+    letter-spacing: .08em;
+  }
+  .workspace-navigation a,
+  .ops-sidebar .workspace-navigation a,
+  .access-sidebar .workspace-navigation a,
+  .product-shell .sidebar .workspace-navigation a {
+    min-height: var(--cam-control-sm);
+    padding: 3px var(--cam-space-2);
+    gap: var(--cam-space-2);
+    border-radius: var(--cam-radius-sm);
+    line-height: 1.3;
+  }
+  .workspace-navigation .workspace-nav-icon,
+  .product-shell .sidebar .workspace-navigation .workspace-nav-icon {
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
+  }
+  .workspace-navigation .workspace-nav-group { gap: 1px; }
+  .workspace-navigation .workspace-nav-group-row {
+    grid-template-columns: minmax(0, 1fr) var(--cam-control-sm);
+    gap: 1px;
+  }
+  .workspace-navigation .workspace-nav-expander,
+  .product-shell .sidebar .workspace-navigation .workspace-nav-expander {
+    width: var(--cam-control-sm);
+    height: var(--cam-control-sm);
+    border-radius: var(--cam-radius-sm);
+  }
+  .workspace-navigation .workspace-nav-submenu {
+    margin: 0 0 2px 18px;
+    padding: 0 0 0 var(--cam-space-2);
+    gap: 1px;
+  }
+  .workspace-navigation .workspace-nav-submenu a,
+  .workspace-navigation .workspace-nav-rrugc-submenu a,
+  .ops-sidebar .workspace-navigation .workspace-nav-submenu a,
+  .access-sidebar .workspace-navigation .workspace-nav-submenu a,
+  .inventory-desktop-sidebar .workspace-navigation .workspace-nav-submenu a,
+  .product-shell .sidebar .workspace-navigation .workspace-nav-submenu a,
+  .product-shell .sidebar .workspace-navigation .workspace-nav-rrugc-submenu a {
+    min-height: 30px;
+    padding: 3px var(--cam-space-2);
+    gap: var(--cam-space-2);
+    font-size: var(--cam-font-sm);
+    border-radius: var(--cam-radius-xs);
+  }
+  .workspace-navigation .workspace-nav-submenu-icon,
+  .workspace-navigation .workspace-nav-rrugc-submenu .workspace-nav-submenu-icon,
+  .product-shell .sidebar .workspace-navigation .workspace-nav-submenu-icon,
+  .product-shell .sidebar .workspace-navigation .workspace-nav-rrugc-submenu .workspace-nav-submenu-icon {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+  }
+  .workspace-navigation a[aria-current="page"]::before { top: 5px; bottom: 5px; }
+  .workspace-sidebar-brand,
+  .ops-sidebar .brand,
+  .access-sidebar .brand,
+  .product-shell .sidebar .brand,
+  .inventory-sidebar-brand { margin-bottom: var(--cam-space-2); }
+  .product-shell .sidebar-scroll,
+  .inventory-desktop-sidebar { padding-block: var(--cam-space-4); }
+  .ops-sidebar,
+  .access-sidebar { padding-block: var(--cam-space-4); }
+}
+@media (max-width: 1024px) {
+  .responsive-nav-drawer-panel .workspace-navigation a,
+  .responsive-nav-drawer-panel .workspace-navigation .workspace-nav-submenu a {
+    min-height: var(--cam-control-touch);
+  }
+  .responsive-nav-drawer-panel .workspace-nav-group-row {
+    grid-template-columns: minmax(0, 1fr) var(--cam-control-touch);
+  }
+  .responsive-nav-drawer-panel .workspace-nav-expander {
+    width: var(--cam-control-touch);
+    height: var(--cam-control-touch);
+  }
 }

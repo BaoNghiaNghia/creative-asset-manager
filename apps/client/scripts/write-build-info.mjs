@@ -40,6 +40,8 @@ const buildInfo = {
   build_commit: safeBuildCommit(),
   build_utc_timestamp: safeBuildTimestamp(),
   frontend_version: packageJson.version,
+  ui_contract: "cam-color-mix-v5",
+  ui_revision: 5,
 };
 
 const output = resolve(clientRoot, "dist/build-info.json");

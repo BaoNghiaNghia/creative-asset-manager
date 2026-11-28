@@ -4,6 +4,30 @@ import { WorkspaceNavigation, roleBasedNavbarModules } from "./WorkspaceNavigati
 import { workspaceRouteForApplicationRoute, requiredPermissionForApplicationRoute } from "../AppRoute";
 
 describe("WorkspaceNavigation permissions", () => {
+  it("opens all authorized groups by default even when Etsy Spy is active", () => {
+    const markup = renderToStaticMarkup(<WorkspaceNavigation active="etsy-spy"
+      permissions={["ai_operations.read", "realistic_review_ugc.read", "etsy_spy.read"]}
+      navigationModules={["operations", "realistic-review-ugc", "tiktokshop", "etsy-spy"]}
+      showReviewBoard={false} />);
+    expect(markup.match(/aria-expanded="true"/g)).toHaveLength(3);
+    expect(markup).toContain('id="workspace-ai-operations-submenu"');
+    expect(markup).toContain('id="workspace-rrugc-submenu"');
+    expect(markup).toContain('id="workspace-tiktokshop-submenu"');
+    expect(markup).toContain("Pipeline overview");
+    expect(markup).toContain("GatorHats Products");
+    expect(markup).toContain("Scout &amp; UGC");
+    expect(markup).toMatch(/href="\/etsy-spy"[^>]*aria-current="page"/);
+  });
+
+  it("does not expand groups that are excluded by module grants", () => {
+    const markup = renderToStaticMarkup(<WorkspaceNavigation active="etsy-spy"
+      permissions={["ai_operations.read", "realistic_review_ugc.read", "etsy_spy.read"]}
+      navigationModules={["etsy-spy"]} showReviewBoard={false} />);
+    expect(markup).not.toContain('aria-expanded="true"');
+    expect(markup).not.toContain("workspace-ai-operations-submenu");
+    expect(markup).not.toContain("workspace-rrugc-submenu");
+    expect(markup).not.toContain("workspace-tiktokshop-submenu");
+  });
   it("derives Viewer checkbox defaults from the same legacy navbar visibility", () => {
     const viewerPermissions = [
       "assets.read", "assets.upload", "assets.delete", "search.read",
@@ -18,7 +42,7 @@ describe("WorkspaceNavigation permissions", () => {
         showOperations={false} showReviewBoard={true} />,
     );
     expect(html).toContain("Asset Explorer");
-    expect(html).toContain("Realistic Review UGC");
+    expect(html).toContain(">GatorHats</span>");
     expect(html).toContain("Video Generation");
     expect(html).toContain("Review Board");
     expect(roleBasedNavbarModules(["inventory.read"])).toEqual([
@@ -115,7 +139,7 @@ describe("WorkspaceNavigation permissions", () => {
 
     expect(markup).toContain("Asset Explorer");
     expect(markup).toContain("Video Generation");
-    expect(markup).toContain("Realistic Review UGC");
+    expect(markup).toContain(">GatorHats</span>");
     expect(markup).toContain("Review Board");
     expect(markup).not.toContain("AI Operations");
     expect(markup).not.toContain("Branding DNA");
@@ -151,11 +175,11 @@ describe("WorkspaceNavigation permissions", () => {
     expect(markup).toContain("AI Operations");
     expect(markup).toContain("Branding DNA");
     expect(markup).toContain("Job Queue");
-    expect(markup).toContain("Realistic Review UGC");
+    expect(markup).toContain(">GatorHats</span>");
     expect(markup).toContain("Access Management");
   });
 
-  it("places the GatorHats Products and Reviews links directly under Realistic Review UGC", () => {
+  it("places the GatorHats Products and Reviews links directly under GatorHats", () => {
     const markup = renderToStaticMarkup(
       <WorkspaceNavigation
         active="realistic-review-ugc"
@@ -166,7 +190,9 @@ describe("WorkspaceNavigation permissions", () => {
       />,
     );
     expect(markup).toContain('id="workspace-rrugc-submenu"');
-    expect(markup).toContain('aria-label="Collapse Realistic Review UGC navigation"');
+    expect(markup).toContain(">GatorHats</span>");
+    expect(markup).not.toContain("Realistic Review UGC");
+    expect(markup).toContain('aria-label="Collapse GatorHats navigation"');
     expect(markup).toContain('data-rrugc-workflow="products"');
     expect(markup).toContain('data-rrugc-workflow="reviews"');
     expect(markup).toContain('/realistic-review-ugc?workflow=reviews&amp;stage=reviews-stage1');

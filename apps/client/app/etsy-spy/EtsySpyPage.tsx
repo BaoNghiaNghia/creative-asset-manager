@@ -16,8 +16,10 @@ import { KeywordTreeView } from "./KeywordTreeView";
 import { DesignCell } from "./DesignCell";
 import { ListingImageCell } from "./ListingImageCell";
 import { VideoUGCCell } from "./VideoUGCCell";
+import { MuseMonitor } from "./MuseMonitor";
 import { EtsySpyQuickInspect } from "./EtsySpyWorkspaceV2";
 import { EtsyDeferredImage } from "./EtsyDeferredImage";
+import { EtsyNoResultsArtwork } from "./EtsyNoResultsArtwork";
 import "./EtsySpyImages.css";
 import "./EtsySpyDayCarousel.css";
 import "./EtsySpySort.css";
@@ -26,8 +28,14 @@ import "./EtsySpyWorkspaceV2.css";
 import "./EtsySpyCommandBar.css";
 import "./EtsySpyEtsyBadges.css";
 import "./EtsySpyQuickInspect.css";
+import "./EtsySpyDesktopFit.css";
+import "./EtsySpyDemandMetrics.css";
+import { ObservedAge, ObservedClock } from "./ObservedAge";
+import "./EtsySpyDesignPlacementCard.css";
+import "./EtsySpyViewportFit.css";
 import { pickedPollInterval, reconcilePickedPage } from "./pickedPageReconciliation";
 import { TikTokListingCell, canQueueTikTokDraft } from "./TikTokListingCell";
+import { SmsSyncReceipts } from "./SmsSyncReceipts";
 
 // Keep the service workflows and handlers intact, but hide these four admin panels
 // from Etsy Spy. Actions remain available through the rest of CAM and APIs.
@@ -44,8 +52,7 @@ const SORTS: Record<VisibleSpyTab, readonly { id: string; text: string }[]> = {
   products: [
     { id: "pageTitle", text: "Product / Etsy" }, { id: "keywordSms", text: "Keyword SMS" },
     { id: "badge", text: "Etsy Badge" },
-    { id: "bought24h", text: "Bought / 24h" }, { id: "views24h", text: "Views / 24h" },
-    { id: "inCarts", text: "Carts" }, { id: "observedAt", text: "Observed" },
+    { id: "metrics", text: "Demand" }, { id: "observedAt", text: "Observed" },
   ],
   keywords: [
     { id: "keyword", text: "Keyword" }, { id: "depth", text: "Depth" },
@@ -58,6 +65,12 @@ const SORTS: Record<VisibleSpyTab, readonly { id: string; text: string }[]> = {
     { id: "keyword", text: "Keyword" },
   ],
 };
+const DEMAND_METRICS = [
+  { id: "bought24h", label: "Bought", period: "24h" },
+  { id: "views24h", label: "Views", period: "24h" },
+  { id: "inCarts", label: "Carts", period: "" },
+] as const;
+
 type TikTokListingOverview = {
   enabled: boolean; auto_on_pick: boolean; draft_only: true;
   ytrends_enabled?: boolean;
@@ -421,7 +434,7 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
       optimizerEnabled={optimizerEnabled} onQueued={onListingQueued} />}
     {item.picked && <ListingImageCell item={item} canDelete={canPick}
       onImageDeleted={onListingQueued} onPreviewStart={() => setImagePreview(null)} />}
-    {item.picked && <VideoUGCCell item={item} />}
+    {item.picked && <VideoUGCCell item={item} canDelete={canPick} onRegenerated={onListingQueued} />}
     <td className="etsy-sms-cell" data-etsy-col="keywordSms">
       {smsText ? <div className="etsy-sms-preview"
         title={smsStatus === "title_fallback" ? "Keyword mặc định lấy từ title · " + smsText : smsText}>
@@ -439,18 +452,29 @@ function ProductRow({ item, canPick, busy, onPick, onLater, selectable, selectDi
         inCarts={item.inCarts} />
     </div>
     </td>
-    <td className="etsy-num" data-etsy-col="bought24h">{item.bought24h ?? "—"}</td>
-    <td className="etsy-num" data-etsy-col="views24h">{item.views24h ?? "—"}</td>
-    <td className="etsy-num" data-etsy-col="inCarts">{item.inCarts === 20 ? "20+" : item.inCarts ?? "—"}</td>
-    <td className="etsy-time" data-etsy-col="observedAt">{readableTime(item.observedAt)}</td>
+    <td data-etsy-col="metrics" className="etsy-demand-cell">
+      <dl className="etsy-demand-metrics">
+        {DEMAND_METRICS.map(metric => {
+          const value = item[metric.id];
+          const display = metric.id === "inCarts" && value === 20 ? "20+" : value ?? "—";
+          return <div key={metric.id} data-etsy-metric={metric.id} className={value == null ? "is-missing" : ""}>
+            <dt>{metric.label}{metric.period && <span className="etsy-demand-period"> {metric.period}</span>}</dt>
+            <dd title={value == null ? "No observed value" : String(display)}>{display}</dd>
+          </div>;
+        })}
+      </dl>
+    </td>
+    <td data-etsy-col="observedAt" className="etsy-time"><ObservedAge value={item.observedAt} /></td>
     <td className="etsy-action-cell" data-etsy-col="action">
       <div className="etsy-row-actions">
         <button type="button" className={"etsy-v2-inspect-trigger" + (isInspected ? " active" : "")}
-          aria-label={"Quick Inspect " + item.pageTitle}
-          aria-pressed={isInspected} title="Xem nhanh sản phẩm"
-          onClick={() => onInspect(item)}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
-            aria-hidden="true"><path d="M2.5 12c2.2-3.7 5.4-5.5 9.5-5.5s7.3 1.8 9.5 5.5c-2.2 3.7-5.4 5.5-9.5 5.5S4.7 15.7 2.5 12Z" /><circle cx="12" cy="12" r="2.8" /></svg>
+          aria-label={"Quick Inspect " + item.pageTitle} aria-pressed={isInspected}
+          title="Xem nhanh sản phẩm" onClick={() => onInspect(item)}>
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="3" />
+            <path d="M8 8h8M8 12h8M8 16h4" />
+          </svg>
         </button>
         <button type="button"
           className={"etsy-pick-button" + (item.picked ? " is-picked" : "")}
@@ -666,11 +690,12 @@ function EtsyPageJump({ page, totalPages, loading, onJump }: {
   }}>
     <label htmlFor="etsy-page-number">Trang</label>
     <input id="etsy-page-number" type="number" inputMode="numeric"
+      title="Nhập số trang, nhấn Enter để chuyển"
       aria-label="Nhập số trang muốn đến" min={1} max={totalPages} step={1}
       value={draft} disabled={loading} onChange={event => setDraft(event.target.value)} />
     <span>/ {totalPages}</span>
-    <button type="submit" aria-label="Đi đến trang đã nhập"
-      disabled={loading || !valid || target === page}>Đi</button>
+    <button type="submit" aria-label="Đi đến trang đã nhập" title="Đi đến trang"
+      disabled={loading || !valid || target === page}>↵</button>
   </form>;
 }
 
@@ -794,6 +819,7 @@ export function EtsySpyPage() {
     // Selection follows the visible filter/page, but must survive 15-second
     // worker polling while the user chooses exact Picked products.
     setSelectedListings(new Set());
+    setInspectedKey(null);
   }, [selectionScope]);
   const update = useCallback((changes: Partial<Options>) => {
     setOptions(old => ({ ...old, ...changes, page: changes.page ?? 1 }));
@@ -984,11 +1010,16 @@ export function EtsySpyPage() {
       } finally { polling = false; }
     };
     const interval = window.setInterval(poll, pickedPollDelay);
-    window.addEventListener("focus", poll);
+    // Eligible day views already check the lightweight Scout aggregates on
+    // focus. Keep their timer for Design progress, but avoid a duplicate
+    // table request whenever focus fires. Picked and all-day views need
+    // the immediate receipt/media refresh independently.
+    const refreshOnFocus = options.pickState === "picked" || options.observedDay === "all";
+    if (refreshOnFocus) window.addEventListener("focus", poll);
     return () => {
       disposed = true;
       window.clearInterval(interval);
-      window.removeEventListener("focus", poll);
+      if (refreshOnFocus) window.removeEventListener("focus", poll);
     };
   }, [requestKey, selectionScope, options, pickedPollDelay]);
   const addBlacklist = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -1309,7 +1340,8 @@ export function EtsySpyPage() {
       tone: "win-keyword", tab: "products", filters: { winKeywordsView: true },
       selected: isWinKeywordsView },
   ];
-  return <main className="etsy-spy-page">
+  const fitProductViewport = activeTab === "products" && !isBlacklistView && !isWinKeywordsView;
+  return <main className={"etsy-spy-page" + (fitProductViewport ? " etsy-product-viewport" : "")}>
     <section id="etsy-spy-workspace"
       className="etsy-stage-canvas" aria-label="Etsy Spy workspace">
         <WorkspacePageHeader route="etsy-spy" className="etsy-spy-topbar"
@@ -1339,6 +1371,8 @@ export function EtsySpyPage() {
           }
           actions={<>
             <div className="etsy-stage-heading-actions">
+            <MuseMonitor />
+            {activeTab === "products" && options.pickState === "picked" && !isBlacklistView && !isWinKeywordsView && <SmsSyncReceipts canManage={canManage} />}
             {activeTab === "products" && !isWinKeywordsView && <form className="etsy-blacklist-form"
               onSubmit={addBlacklist} aria-label="Blacklist product title phrases">
               <span className="etsy-blacklist-icon" aria-hidden="true">⊘</span>
@@ -1637,10 +1671,13 @@ export function EtsySpyPage() {
         sort={options.sort} direction={options.dir} refresh={refresh}
         canManage={canManage} onSort={sortColumn} />
       : <div className={"etsy-v2-results-layout" + (inspectedListing ? " has-inspector" : "")}>
-        <div className="etsy-table-card etsy-v2-density-default" id="etsy-product-results">
+      <div className="etsy-table-card" id="etsy-product-results">
       {loading ? <div role="status" className="etsy-skeleton">Loading synchronized records…</div>
         : !rows?.items.length ? <div className="etsy-empty etsy-empty-guided" aria-live="polite">
           {activeTab === "products" && !isBlacklistView && !isWinKeywordsView ? <>
+            {!error && rows && summary?.source_status !== "never_synced" &&
+              !(rows.total > 0 && options.page > 1) && activeProductFilters.length > 0 &&
+              <EtsyNoResultsArtwork />}
             <strong className="etsy-empty-title">
               {summary?.source_status === "never_synced" ? "Chưa có dữ liệu Scout"
                 : rows && rows.total > 0 && options.page > 1 ? "Trang này không còn sản phẩm"
@@ -1687,10 +1724,17 @@ export function EtsySpyPage() {
           </>}
         </div>
         : <EtsyTableViewport scope={selectionScope}
-            fillViewport={activeTab === "products"}>
+            fillViewport={fitProductViewport}>
           <table className={"etsy-data-table is-" + activeTab +
             (selectable ? " is-selectable" : "") +
-            (isPickedSelection ? " is-picked-listings" : "")}><thead><tr>
+            (isPickedSelection ? " is-picked-listings" : "")}
+            data-etsy-layout={activeTab === "products" ? options.pickState : undefined}>
+          {activeTab === "products" && <colgroup>
+            {selectable && <col className="etsy-col-select" />}
+            {columns.map(col => <col key={col.id} className={"etsy-col-" + col.id} />)}
+            <col className="etsy-col-action" />
+          </colgroup>}
+          <thead><tr>
             {selectable && <th className="etsy-select-header">
               <input type="checkbox" aria-label={isPickedSelection
                   ? "Chọn tối đa 5 Picked để tạo TikTok SEO" :
@@ -1700,7 +1744,23 @@ export function EtsySpyPage() {
                 ref={node => { if (node) node.indeterminate = selectedOnPage.length > 0 && !allSelectedOnPage; }}
                 onChange={event => updatePageSelection(event.target.checked)} />
             </th>}
-            {columns.map(col => <th key={col.id} data-etsy-col={col.id}
+            {columns.map(col => col.id === "metrics" ? <th key={col.id} data-etsy-col="metrics"
+              className={DEMAND_METRICS.some(metric => metric.id === options.sort) ? "etsy-header-sorted" : undefined}
+              aria-sort={DEMAND_METRICS.some(metric => metric.id === options.sort) ? (options.dir === "asc" ? "ascending" : "descending") : undefined}>
+              <select className="etsy-demand-sort" aria-label="Sort demand metrics"
+                title="Sort by Bought / 24h, Views / 24h or Carts"
+                value={DEMAND_METRICS.some(metric => metric.id === options.sort) ? options.sort + ":" + options.dir : ""}
+                onChange={event => {
+                  const [sort, dir] = event.target.value.split(":");
+                  if (DEMAND_METRICS.some(metric => metric.id === sort) && (dir === "asc" || dir === "desc")) update({ sort, dir });
+                }}>
+                <option value="" disabled>Demand</option>
+                {DEMAND_METRICS.flatMap(metric => (["desc", "asc"] as const).map(dir =>
+                  <option key={metric.id + ":" + dir} value={metric.id + ":" + dir}>{metric.label} {dir === "desc" ? "↓" : "↑"}</option>
+                ))}
+              </select>
+            </th> : <th key={col.id}
+              data-etsy-col={col.id}
               className={options.sort === col.id ? "etsy-header-sorted" : undefined}
               aria-sort={options.sort === col.id ? (options.dir === "asc" ? "ascending" : "descending") : undefined}>
               <button type="button" className="etsy-column-sort" onClick={() => sortColumn(col.id)}
@@ -1720,7 +1780,7 @@ export function EtsySpyPage() {
             {activeTab === "logs" && <th>Message / Stack</th>}
             {activeTab === "products" && <th className="etsy-action-header">Action</th>}
           </tr></thead><tbody>
-            {activeTab === "products" ? (rows.items as Listing[]).map(item =>
+            {activeTab === "products" ? <ObservedClock>{(rows.items as Listing[]).map(item =>
               <ProductRow key={item.listingKey}
                 item={item} canPick={canManage} showDesign={options.pickState !== "later"}
                 busy={pickBusyKey !== null || laterBusyKey !== null || bulkBusy || tiktokSelectedBusy}
@@ -1734,7 +1794,7 @@ export function EtsySpyPage() {
                 isInspected={inspectedKey === item.listingKey && !!inspectedListing}
                 onPick={togglePicked} onLater={toggleLater}
                 optimizerEnabled={Boolean(tiktokOverview?.enabled)}
-                onListingQueued={() => setRefresh(value => value + 1)} />)
+                onListingQueued={() => setRefresh(value => value + 1)} />)}</ObservedClock>
               : (rows.items as SpyLog[]).map(item => <LogRow key={item.eventId} item={item} />)}
           </tbody></table>
         </EtsyTableViewport>}
@@ -1742,16 +1802,14 @@ export function EtsySpyPage() {
         <span className="etsy-page-range">{rows?.items.length
           ? ((options.page - 1) * options.pageSize + 1).toLocaleString("vi-VN") : 0}–{rows?.items.length
           ? Math.min((options.page - 1) * options.pageSize + rows.items.length, rows.total).toLocaleString("vi-VN")
-          : rows ? "0" : "—"} / {rows?.total.toLocaleString("vi-VN") ?? "—"} bản ghi</span>
+          : rows ? "0" : "—"} / {rows?.total.toLocaleString("vi-VN") ?? "—"}</span>
         <div className="etsy-page-controls">
-          <button type="button" aria-label="First page" disabled={loading || options.page <= 1} onClick={() => update({ page: 1 })}>«</button>
-          <button type="button" aria-label="Previous page" disabled={loading || options.page <= 1} onClick={() => update({ page: options.page - 1 })}>‹</button>
+          <button type="button" aria-label="Previous page" title="Trang trước" disabled={loading || options.page <= 1} onClick={() => update({ page: options.page - 1 })}>‹</button>
           <EtsyPageJump page={options.page} totalPages={totalPages} loading={loading}
             onJump={page => update({ page })} />
-          <button type="button" aria-label="Next page" disabled={loading || options.page >= totalPages} onClick={() => update({ page: options.page + 1 })}>›</button>
-          <button type="button" aria-label="Last page" disabled={loading || options.page >= totalPages} onClick={() => update({ page: totalPages })}>»</button>
+          <button type="button" aria-label="Next page" title="Trang sau" disabled={loading || options.page >= totalPages} onClick={() => update({ page: options.page + 1 })}>›</button>
         </div>
-        <label>Số dòng/trang
+        <label className="etsy-page-size">Dòng
           <select aria-label="Rows per page" value={options.pageSize} disabled={loading}
             onChange={event => update({ pageSize: Number(event.target.value) })}>
             {[50, 100, 200].map(n => <option value={n} key={n}>{n}</option>)}

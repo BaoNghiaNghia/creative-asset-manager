@@ -69,7 +69,7 @@ body:has(.etsy-spy-page) .etsy-spy-route-main { background:#fff!important; }
 .etsy-spy-page .etsy-stats .etsy-stat.active > strong {color:#a44a16;}
 .etsy-spy-page .etsy-facet-explorer {
   margin:0;
-  padding:7px 0;
+  padding:3px 0;
   border:0;
   border-bottom:1px solid #e9edf3;
   border-radius:0;
@@ -90,9 +90,10 @@ body:has(.etsy-spy-page) .etsy-spy-route-main { background:#fff!important; }
   border:0;
 }
 .etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day {
-  min-height:54px;
+  min-height:44px;
   min-width:95px;
-  padding:7px 10px;
+  padding:5px 10px;
+  gap:3px;
   border:0;
   border-right:1px solid #eff2f6;
   border-bottom:2px solid transparent;
@@ -101,6 +102,16 @@ body:has(.etsy-spy-page) .etsy-spy-route-main { background:#fff!important; }
   box-shadow:none;
 }
 .etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day[data-pick-state="eligible"] {min-width:126px}
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-label {font-size:10px;line-height:1.15;}
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-metrics {gap:4px;}
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-eligible strong,
+.etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day-pick strong {font-size:12px;}
+@media (max-width:680px) {
+  .etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day {
+    min-height:48px;
+    padding:6px 9px;
+  }
+}
 .etsy-spy-page .etsy-observed-day-carousel .etsy-observed-day.active {
   border-bottom-color:#e8752e;
   background:#fff8f1;
@@ -168,7 +179,7 @@ body:has(.etsy-spy-page) .etsy-spy-route-main { background:#fff!important; }
 .etsy-spy-page .etsy-v2-results-layout .etsy-table-wrap {
   width:100%;
   min-width:0;
-  max-height:var(--etsy-picked-table-available-height,min(78dvh,1050px));
+  max-height:min(78dvh,1050px);
   scrollbar-width:thin;
 }
 .etsy-spy-page .etsy-v2-results-layout .etsy-data-table {

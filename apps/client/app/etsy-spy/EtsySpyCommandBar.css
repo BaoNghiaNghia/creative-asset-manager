@@ -179,7 +179,7 @@
     padding: 5px 0;
   }
 }
-@container etsyStage (min-width: 1190px) {
+@container etsyStage (min-width: 1000px) {
   .etsy-spy-page .etsy-stage-canvas > .etsy-spy-topbar {
     grid-template-columns: minmax(170px, 195px) minmax(340px, 1fr) minmax(365px, 465px);
     grid-template-areas: "brand kpis tools";

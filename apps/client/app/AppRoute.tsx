@@ -9,6 +9,8 @@ import { CenteredLoadingState } from "./components/CenteredLoadingState";
 import { DesktopUpdateNotice } from "./components/DesktopUpdateNotice";
 import { ResponsiveWorkspaceNav } from "./components/ResponsiveWorkspaceNav";
 import { WorkspaceNavigation } from "./components/WorkspaceNavigation";
+import { WorkspaceSidebarBrand } from "./components/WorkspaceSidebarBrand";
+import { WorkspaceAccountContext } from "./components/WorkspaceAccountAvatar";
 import "./styles/workspace-backend-status.css";
 
 import type { WorkspaceRoute } from "./components/WorkspaceNavigation";
@@ -137,11 +139,11 @@ export function AppRoute() {
     : route === "terms" ? <TermsOfServicePage />
     : route === "ai-operations" ? <AiOperationsPage />
     : route === "access-management" ? <AccessManagementPage /> : <App />;
-  return <>{workspaceRoute && <ResponsiveWorkspaceNav active={workspaceRoute} />}{usesDesktopWorkspaceSidebar(route) && workspaceRoute ? <aside className="inventory-desktop-sidebar" aria-label={route === "etsy-spy" ? "Etsy Spy workspace sidebar" : route === "branding-dna" ? "Branding DNA workspace sidebar" : "Inventory workspace sidebar"}><a className="inventory-sidebar-brand" href="/"><img src="/app-icon-192.png" alt="" /> <span>Creative assets <small>Operations console</small></span></a><WorkspaceNavigation active={workspaceRoute} /></aside> : null}<div className={usesDesktopWorkspaceSidebar(route) ? (route === "etsy-spy" ? "inventory-route-main etsy-spy-route-main" : "inventory-route-main") : "app-route-content"}><Suspense fallback={<CenteredLoadingState
+  return <>{workspaceRoute && <ResponsiveWorkspaceNav active={workspaceRoute} />}{usesDesktopWorkspaceSidebar(route) && workspaceRoute ? <aside className="inventory-desktop-sidebar" aria-label={route === "etsy-spy" ? "Etsy Spy workspace sidebar" : route === "branding-dna" ? "Branding DNA workspace sidebar" : "Inventory workspace sidebar"}><WorkspaceSidebarBrand /><WorkspaceNavigation active={workspaceRoute} /></aside> : null}<div className={usesDesktopWorkspaceSidebar(route) ? (route === "etsy-spy" ? "inventory-route-main etsy-spy-route-main" : "inventory-route-main") : "app-route-content"}><Suspense fallback={<CenteredLoadingState
     kind="application"
     title="Loading application…"
     detail="Preparing the workspace and interface."
-  />}>{page}</Suspense></div><DesktopUpdateNotice />{backendUnavailable && route === "etsy-spy" &&
+  />}><WorkspaceAccountContext.Provider value={access.status === "allowed" ? access.account ?? null : null}>{page}</WorkspaceAccountContext.Provider></Suspense></div><DesktopUpdateNotice />{backendUnavailable && route === "etsy-spy" &&
     <div role="status" aria-live="polite" className="workspace-backend-connection-banner">
       CAM đang kết nối lại máy chủ. Dữ liệu hiện tại và cửa sổ đang mở được giữ nguyên.
     </div>}</>;

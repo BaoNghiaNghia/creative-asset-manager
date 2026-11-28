@@ -1,0 +1,19 @@
+.cam-sms-sync-receipts{display:inline-flex;align-items:center}
+.cam-sms-sync-trigger{white-space:nowrap}
+.cam-sms-sync-panel{position:fixed;z-index:1500;right:16px;top:76px;width:min(342px,calc(100vw - 24px));max-height:calc(100dvh - 92px);overflow:auto;box-sizing:border-box;padding:14px;border:1px solid var(--border-color,#8886);border-radius:12px;background:var(--surface-color,Canvas);color:var(--text-color,CanvasText);box-shadow:0 12px 32px #0003;display:grid;gap:12px;font-size:12px;line-height:1.45;text-align:left}
+.cam-sms-sync-heading,.cam-sms-sync-footer{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.cam-sms-sync-heading strong{font-size:15px}
+.cam-sms-sync-panel p{margin:0;white-space:normal}
+.cam-sms-sync-panel button{font:inherit;border:1px solid #8886;border-radius:6px;padding:5px 9px;color:inherit;background:transparent;cursor:pointer}
+.cam-sms-sync-panel button:disabled{opacity:.5;cursor:not-allowed}
+.cam-sms-sync-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.cam-sms-sync-metrics>div{display:grid;gap:2px;text-align:center;padding:9px 3px;border:1px solid #8883;border-radius:8px}
+.cam-sms-sync-metrics strong{font-size:22px;line-height:1.15;font-variant-numeric:tabular-nums}
+.cam-sms-sync-metrics span{font-size:11px;opacity:.8}
+.cam-sms-sync-panel .cam-sms-sync-primary{width:100%;padding:10px 8px;background:#15803d;color:white;border:0;font-weight:600}
+.cam-sms-sync-quota{color:#b45309}
+.cam-sms-sync-done{color:#15803d}
+.cam-sms-sync-panel small{opacity:.7;font-size:11px}
+.cam-sms-sync-footer{border-top:1px solid #8883;padding-top:8px}
+.cam-sms-sync-footer a{color:inherit;text-decoration:underline}
+@media(max-width:600px){.cam-sms-sync-panel{left:12px;right:12px;top:14vh;width:auto;max-height:76vh}}

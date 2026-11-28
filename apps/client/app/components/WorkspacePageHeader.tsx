@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { WorkspaceRoute } from "./WorkspaceNavigation";
+import { useWorkspaceAccount, WorkspaceAccountAvatar } from "./WorkspaceAccountAvatar";
 
 type WorkspacePageHeaderDefinition = {
   eyebrow: string;
@@ -96,7 +97,9 @@ export function WorkspacePageHeader({
   className,
 }: WorkspacePageHeaderProps) {
   const definition = WORKSPACE_PAGE_HEADERS[route];
-  return <header className={["workspace-page-header", className || ""].filter(Boolean).join(" ")}>
+  const account = useWorkspaceAccount();
+  const showAccount = account && (route === "etsy-spy" || route === "tiktokshop" || route === "realistic-review-ugc");
+  return <header className={["workspace-page-header", className || "", showAccount ? "workspace-page-header-has-avatar" : ""].filter(Boolean).join(" ")}>
     <div className="workspace-page-header-copy">
       <small className="workspace-page-header-eyebrow">{eyebrow ?? definition.eyebrow}</small>
       <div className="workspace-page-header-title-row">
@@ -107,7 +110,7 @@ export function WorkspacePageHeader({
       {meta && <div className="workspace-page-header-meta">{meta}</div>}
     </div>
     {center && <div className="workspace-page-header-center">{center}</div>}
-    {actions && <div className={["workspace-page-header-actions", actionsClassName || ""].filter(Boolean).join(" ")}>{actions}</div>}
+    {(actions || showAccount) && <div className={["workspace-page-header-actions", actionsClassName || ""].filter(Boolean).join(" ")}>{actions}{showAccount && <WorkspaceAccountAvatar profile={account} />}</div>}
   </header>;
 }
 
