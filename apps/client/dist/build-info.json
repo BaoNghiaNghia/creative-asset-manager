@@ -1,5 +1,7 @@
 {
-  "build_commit": "f7483b4e5ce4639b92064e3671d12bf180c05523",
-  "build_utc_timestamp": "2026-11-28T13:50:11.253Z",
-  "frontend_version": "0.1.0"
+  "build_commit": "f70a89a3ce7599d2956f9d0aea90664a50f2e20a",
+  "build_utc_timestamp": "2026-11-28T14:40:34.141Z",
+  "frontend_version": "0.1.0",
+  "ui_contract": "cam-color-mix-v5",
+  "ui_revision": 5
 }
