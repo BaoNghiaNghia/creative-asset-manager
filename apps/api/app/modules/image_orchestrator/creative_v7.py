@@ -149,7 +149,8 @@ def plan_roles(*,listing,pack_id,plan_sha,product,profile=None,profile_evidence=
             if role==13:item.update(sourceRoles=[1,5,6,7],swatches=product["infographicSwatches"],
                          collarCheck="not_applicable",requiresVerifiedPhotoBytes=True)
         result[key]=item
-    value={"protocol":PROTOCOL,"packId":pack_id,"listingId":listing,"productPlanSha256":plan_sha,
+    from .garment_geometry import for_plan
+    value={"garmentGeometry":for_plan(product),"protocol":PROTOCOL,"packId":pack_id,"listingId":listing,"productPlanSha256":plan_sha,
            "artworkSha256":product["artworkSha256"],"sourceSha256":product["sourceSha256"],
            "placementLockSha256":lock["lock_sha256"],"paletteSha256":product["paletteSha256"],
            "productLock":{"garmentSku":product["garmentSku"],"mockupSize":product["mockupSize"],

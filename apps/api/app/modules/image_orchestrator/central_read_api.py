@@ -126,7 +126,11 @@ def skill_registry(response: Response, identity: Identity, db: Database):
                    "resourceId":"muse-native-imagegen-01","bundleSha256":BUNDLE_SHA256,
                    "creativePlanProtocol":"CAM_IMAGE_CREATIVE_PLAN_V7",
                    "creativePlanPreviewAllowed":True,"creativePlanRenderAllowed":False,
-                   "controlledHybridStatus":"PREVIEW_ONLY_UNVALIDATED"}
+                   "controlledHybridStatus":"PREVIEW_ONLY_UNVALIDATED",
+                   "garmentGeometryProtocol":"CAM_SMS_GARMENT_GEOMETRY_V1",
+                   "garmentGeometryMetadataOnly":True}
+        from .garment_geometry import SNAPSHOT_SHA256
+        candidate["garmentGeometrySnapshotSha256"]=SNAPSHOT_SHA256
     return {**_registry(), **candidate, **_gate(identity, db),
             **({"protocol":candidate["protocol"]} if candidate else {}),
             "skillProtocol":p.PROTOCOL,
@@ -528,3 +532,24 @@ async def creative_plan_inspect(response: Response,identity: Identity,db: Databa
     except Exception as exc:
         detail={"code":"creative_artwork_profile_unavailable",**failure_metadata(exc)}
         raise HTTPException(503,detail,headers=retry_headers(detail)) from None
+
+@router.get("/garment-geometry/catalog")
+def garment_geometry_catalog(response: Response,identity: Identity,db: Database):
+    _no_cache(response)
+    _require_candidate_reader(db,identity)
+    from .garment_geometry import catalog
+    return catalog()
+
+@router.get("/garment-geometry")
+def garment_geometry(response: Response,identity: Identity,db: Database,
+                     sku: Annotated[str,Query(pattern=r"^(C1717|G500|G180|G185)$")],
+                     size: Annotated[str,Query(pattern=r"^(XS|S|M|L|XL|2XL|3XL|4XL|5XL)$")],
+                     position: Annotated[str,Query(max_length=32)]="Front",
+                     color: Annotated[str|None,Query(max_length=64)]=None):
+    _no_cache(response)
+    _require_candidate_reader(db,identity)
+    from .garment_geometry import describe
+    try:
+        return describe(sku,size,position,color)
+    except p.Conflict as exc:
+        raise HTTPException(409,str(exc)) from None

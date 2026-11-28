@@ -1,0 +1,1131 @@
+{
+  "schema": "CAM_SMS_GARMENT_GEOMETRY_V1",
+  "snapshotDate": "2026-11-28",
+  "source": "SMS MCP product_decoration + product_information",
+  "sourceUnits": {
+    "decoration": "mm",
+    "sizeChart": "inches"
+  },
+  "referenceLinks": "SMS reports links valid for 60 minutes; snapshot locators are historical, refresh via SMS before retrieval",
+  "products": {
+    "C1717": {
+      "productId": "09c03cd2-bc4d-419e-618e-08db4f76128a",
+      "code": "C1717",
+      "name": "C1717 Comfort Colors T-Shirt",
+      "sizes": [
+        "S",
+        "M",
+        "L",
+        "XL",
+        "2XL",
+        "3XL",
+        "4XL"
+      ],
+      "sizeChart": {
+        "source": "S&S Activewear",
+        "columns": [
+          "Measurement",
+          "S",
+          "M",
+          "L",
+          "XL",
+          "2XL",
+          "3XL",
+          "4XL"
+        ],
+        "rows": [
+          [
+            "Body Length",
+            "26 3/5",
+            "28",
+            "29 2/5",
+            "30 3/4",
+            "31 3/5",
+            "32 1/2",
+            "33 1/2"
+          ],
+          [
+            "Body Length Tolerance",
+            "+/- 1 1/4",
+            "+/- 1 1/4",
+            "+/- 1 1/4",
+            "+/- 1 1/4",
+            "+/- 1 1/4",
+            "+/- 1 1/4",
+            "+/- 1 1/4"
+          ],
+          [
+            "Chest Tolerance",
+            "+/- 1",
+            "+/- 1",
+            "+/- 1",
+            "+/- 1",
+            "+/- 1",
+            "+/- 1",
+            "+/- 1"
+          ],
+          [
+            "Chest Width (Laid Flat)",
+            "18 1/4",
+            "20 1/4",
+            "22",
+            "24",
+            "26",
+            "27 3/4",
+            "29 3/4"
+          ]
+        ]
+      },
+      "decoration": {
+        "method": "Printing 2D",
+        "configured": true,
+        "lastEditedAtUtc": "2026-11-14T08:12:13Z",
+        "positions": [
+          {
+            "position": "Front",
+            "bands": [
+              {
+                "sizes": [
+                  "S"
+                ],
+                "maxWidthMm": 254,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "M"
+                ],
+                "maxWidthMm": 279.4,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "L"
+                ],
+                "maxWidthMm": 304.8,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "XL"
+                ],
+                "maxWidthMm": 330.2,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "2XL"
+                ],
+                "maxWidthMm": 355.6,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "3XL",
+                  "4XL"
+                ],
+                "maxWidthMm": 381,
+                "maxHeightMm": 0
+              }
+            ],
+            "placement": {
+              "imageUrl": "https://storagesmsprod.blob.core.windows.net/external-media/31066_f_fm_638983442481516805.jpg",
+              "imageWidthPx": 500,
+              "imageHeightPx": 625,
+              "pixelsPerMm": 0.6817,
+              "anchorXPercent": 52.38,
+              "anchorYPercent": 21.23,
+              "rotationDeg": 0,
+              "anchor": "top",
+              "anchorOffsetMm": 0,
+              "referenceSize": "M"
+            }
+          },
+          {
+            "position": "Back",
+            "bands": [
+              {
+                "sizes": [
+                  "S"
+                ],
+                "maxWidthMm": 254,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "M"
+                ],
+                "maxWidthMm": 279.4,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "L"
+                ],
+                "maxWidthMm": 304.8,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "XL"
+                ],
+                "maxWidthMm": 330.2,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "2XL"
+                ],
+                "maxWidthMm": 355.6,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "3XL",
+                  "4XL"
+                ],
+                "maxWidthMm": 381,
+                "maxHeightMm": 0
+              }
+            ],
+            "placement": {
+              "imageUrl": "https://storagesmsprod.blob.core.windows.net/external-media/31066_b_fm_638983442482194457.jpg",
+              "imageWidthPx": 500,
+              "imageHeightPx": 625,
+              "pixelsPerMm": 0.7242,
+              "anchorXPercent": 50.99,
+              "anchorYPercent": 17.14,
+              "rotationDeg": 0,
+              "anchor": "top",
+              "anchorOffsetMm": 0,
+              "referenceSize": "M"
+            }
+          }
+        ]
+      }
+    },
+    "G500": {
+      "productId": "19c47372-e64b-49ca-9922-08da5f0a1a0f",
+      "code": "G500",
+      "name": "G500 Gildan T-shirt",
+      "sizes": [
+        "XS",
+        "S",
+        "M",
+        "L",
+        "XL",
+        "2XL",
+        "3XL",
+        "4XL",
+        "5XL"
+      ],
+      "sizeChart": {
+        "source": "S&S Activewear",
+        "columns": [
+          "Measurement",
+          "S",
+          "M",
+          "L",
+          "XL",
+          "2XL",
+          "3XL",
+          "4XL",
+          "5XL"
+        ],
+        "rows": [
+          [
+            "Body Length",
+            "28",
+            "29",
+            "30",
+            "31",
+            "32",
+            "33",
+            "34",
+            "35"
+          ],
+          [
+            "Body Length Tolerance",
+            "-/+ 1",
+            "-/+ 1",
+            "-/+ 1",
+            "-/+ 1",
+            "-/+ 1",
+            "-/+ 1",
+            "-/+ 1",
+            "-/+ 1"
+          ],
+          [
+            "Chest Tolerance",
+            "-/+ 1",
+            "-/+ 1",
+            "-/+ 1",
+            "-/+ 1",
+            "-/+ 1",
+            "-/+ 1",
+            "-/+ 1",
+            "-/+ 1"
+          ],
+          [
+            "Chest Width (Laid Flat)",
+            "18",
+            "20",
+            "22",
+            "24",
+            "26",
+            "28",
+            "30",
+            "32"
+          ]
+        ]
+      },
+      "decoration": {
+        "method": "Printing 2D",
+        "configured": true,
+        "lastEditedAtUtc": "2026-07-25T12:17:38Z",
+        "positions": [
+          {
+            "position": "Front",
+            "bands": [
+              {
+                "sizes": [
+                  "S",
+                  "XS"
+                ],
+                "maxWidthMm": 254,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "M"
+                ],
+                "maxWidthMm": 279.4,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "L"
+                ],
+                "maxWidthMm": 304.8,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "XL"
+                ],
+                "maxWidthMm": 330.2,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "2XL"
+                ],
+                "maxWidthMm": 355.6,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "3XL",
+                  "4XL",
+                  "5XL"
+                ],
+                "maxWidthMm": 381,
+                "maxHeightMm": 0
+              }
+            ],
+            "placement": {
+              "imageUrl": "https://storagesmsprod.blob.core.windows.net/external-media/16807_f_fm_638983447540062182.jpg",
+              "imageWidthPx": 500,
+              "imageHeightPx": 625,
+              "pixelsPerMm": 0.7314,
+              "anchorXPercent": 50,
+              "anchorYPercent": 24.73,
+              "rotationDeg": 0,
+              "anchor": "top",
+              "anchorOffsetMm": 0,
+              "referenceSize": "S"
+            }
+          },
+          {
+            "position": "Back",
+            "bands": [
+              {
+                "sizes": [
+                  "XS",
+                  "S"
+                ],
+                "maxWidthMm": 254,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "M"
+                ],
+                "maxWidthMm": 279.4,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "L"
+                ],
+                "maxWidthMm": 304.8,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "XL"
+                ],
+                "maxWidthMm": 330.2,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "2XL"
+                ],
+                "maxWidthMm": 355.6,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "3XL",
+                  "4XL",
+                  "5XL"
+                ],
+                "maxWidthMm": 381,
+                "maxHeightMm": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "G180": {
+      "productId": "10a53e10-e13d-4ccc-1c9d-08da4ce39a11",
+      "code": "G180",
+      "name": "G180 Gildan Sweatshirt",
+      "sizes": [
+        "XS",
+        "S",
+        "M",
+        "L",
+        "XL",
+        "2XL",
+        "3XL",
+        "4XL",
+        "5XL"
+      ],
+      "sizeChart": {
+        "source": "S&S Activewear",
+        "columns": [
+          "Measurement",
+          "XS",
+          "S",
+          "M",
+          "L",
+          "XL",
+          "2XL",
+          "3XL",
+          "4XL",
+          "5XL"
+        ],
+        "rows": [
+          [
+            "Body Length",
+            "26",
+            "27",
+            "28",
+            "29",
+            "30",
+            "31",
+            "32",
+            "33",
+            "34"
+          ],
+          [
+            "Body Length Tolerance",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1"
+          ],
+          [
+            "Chest Tolerance",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1"
+          ],
+          [
+            "Chest Width (Laid Flat)",
+            "18",
+            "20",
+            "22",
+            "24",
+            "26",
+            "28",
+            "30",
+            "32",
+            "34"
+          ],
+          [
+            "Sleeve Length (From Center Back)",
+            "32 1/2",
+            "33 1/2",
+            "34 1/2",
+            "35 1/2",
+            "36 1/2",
+            "37 1/2",
+            "38 1/2",
+            "39 1/2",
+            "40 1/2"
+          ],
+          [
+            "Sleeve Tolerance",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1"
+          ]
+        ]
+      },
+      "decoration": {
+        "method": "Printing 2D",
+        "configured": true,
+        "lastEditedAtUtc": "2026-11-05T02:03:11Z",
+        "positions": [
+          {
+            "position": "Front",
+            "bands": [
+              {
+                "sizes": [
+                  "XS"
+                ],
+                "maxWidthMm": 254,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "S"
+                ],
+                "maxWidthMm": 279.4,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "M"
+                ],
+                "maxWidthMm": 304.8,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "L"
+                ],
+                "maxWidthMm": 330.2,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "XL"
+                ],
+                "maxWidthMm": 355.6,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "2XL",
+                  "3XL",
+                  "4XL",
+                  "5XL"
+                ],
+                "maxWidthMm": 381,
+                "maxHeightMm": 0
+              }
+            ],
+            "placement": {
+              "imageUrl": "https://storagesmsprod.blob.core.windows.net/external-media/19534_f_fm_638986130520821425.jpg",
+              "imageWidthPx": 500,
+              "imageHeightPx": 625,
+              "pixelsPerMm": 0.7488,
+              "anchorXPercent": 48.76,
+              "anchorYPercent": 22.79,
+              "rotationDeg": 0,
+              "anchor": "top",
+              "anchorOffsetMm": 0,
+              "referenceSize": "L"
+            }
+          },
+          {
+            "position": "Back",
+            "bands": [
+              {
+                "sizes": [
+                  "XS"
+                ],
+                "maxWidthMm": 254,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "S"
+                ],
+                "maxWidthMm": 279.4,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "M"
+                ],
+                "maxWidthMm": 304.8,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "L"
+                ],
+                "maxWidthMm": 330.2,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "XL"
+                ],
+                "maxWidthMm": 355.6,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "2XL",
+                  "3XL",
+                  "4XL",
+                  "5XL"
+                ],
+                "maxWidthMm": 381,
+                "maxHeightMm": 0
+              }
+            ],
+            "placement": {
+              "imageUrl": "https://storagesmsprod.blob.core.windows.net/external-media/19515_b_fm_638986129881415189.jpg",
+              "imageWidthPx": 500,
+              "imageHeightPx": 625,
+              "pixelsPerMm": 0.7041,
+              "anchorXPercent": 47.89,
+              "anchorYPercent": 17.77,
+              "rotationDeg": 0,
+              "anchor": "top",
+              "anchorOffsetMm": 0,
+              "referenceSize": "L"
+            }
+          }
+        ]
+      }
+    },
+    "G185": {
+      "productId": "3317bf9a-8044-4494-53b8-08da4ce4de7f",
+      "code": "G185",
+      "name": "G185 Gildan Hoodie",
+      "sizes": [
+        "XS",
+        "S",
+        "M",
+        "L",
+        "XL",
+        "2XL",
+        "3XL",
+        "4XL",
+        "5XL"
+      ],
+      "sizeChart": {
+        "source": "S&S Activewear",
+        "columns": [
+          "Measurement",
+          "XS",
+          "S",
+          "M",
+          "L",
+          "XL",
+          "2XL",
+          "3XL",
+          "4XL",
+          "5XL"
+        ],
+        "rows": [
+          [
+            "Body Length",
+            "26",
+            "27",
+            "28",
+            "29",
+            "30",
+            "31",
+            "32",
+            "33",
+            "34"
+          ],
+          [
+            "Body Length Tolerance",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1"
+          ],
+          [
+            "Chest Tolerance",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1"
+          ],
+          [
+            "Chest Width (Laid Flat)",
+            "18",
+            "20",
+            "22",
+            "24",
+            "26",
+            "28",
+            "30",
+            "32",
+            "34"
+          ],
+          [
+            "Sleeve Length (From Center Back)",
+            "32 1/2",
+            "33 1/2",
+            "34 1/2",
+            "35 1/2",
+            "36 1/2",
+            "37 1/2",
+            "38 1/2",
+            "39 1/2",
+            "40 1/2"
+          ],
+          [
+            "Sleeve Tolerance",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1",
+            "+/-1"
+          ]
+        ]
+      },
+      "decoration": {
+        "method": "Printing 2D",
+        "configured": true,
+        "lastEditedAtUtc": "2026-10-14T06:21:43Z",
+        "positions": [
+          {
+            "position": "Front",
+            "bands": [
+              {
+                "sizes": [
+                  "XS"
+                ],
+                "maxWidthMm": 254,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "S"
+                ],
+                "maxWidthMm": 279.4,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "M"
+                ],
+                "maxWidthMm": 304.8,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "L"
+                ],
+                "maxWidthMm": 330.2,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "XL"
+                ],
+                "maxWidthMm": 355.6,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "2XL",
+                  "3XL",
+                  "4XL",
+                  "5XL"
+                ],
+                "maxWidthMm": 381,
+                "maxHeightMm": 0
+              }
+            ],
+            "placement": {
+              "imageUrl": "https://storagesmsprod.blob.core.windows.net/external-media/19746_f_fm_638983444800601288.jpg",
+              "imageWidthPx": 500,
+              "imageHeightPx": 625,
+              "pixelsPerMm": 0.8397,
+              "anchorXPercent": 52.34,
+              "anchorYPercent": 26.26,
+              "rotationDeg": 0,
+              "anchor": "top",
+              "anchorOffsetMm": 0,
+              "referenceSize": "L"
+            }
+          },
+          {
+            "position": "Back",
+            "bands": [
+              {
+                "sizes": [
+                  "XS"
+                ],
+                "maxWidthMm": 254,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "S"
+                ],
+                "maxWidthMm": 279.4,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "M"
+                ],
+                "maxWidthMm": 304.8,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "L"
+                ],
+                "maxWidthMm": 330.2,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "XL"
+                ],
+                "maxWidthMm": 355.6,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "2XL",
+                  "3XL",
+                  "4XL",
+                  "5XL"
+                ],
+                "maxWidthMm": 381,
+                "maxHeightMm": 0
+              }
+            ],
+            "placement": {
+              "imageUrl": "https://storagesmsprod.blob.core.windows.net/external-media/19728_b_fm_638983444049255894.jpg",
+              "imageWidthPx": 500,
+              "imageHeightPx": 625,
+              "pixelsPerMm": 0.6284,
+              "anchorXPercent": 51.34,
+              "anchorYPercent": 35.54,
+              "rotationDeg": 0,
+              "anchor": "top",
+              "anchorOffsetMm": 0,
+              "referenceSize": "L"
+            }
+          },
+          {
+            "position": "Shoulder Back",
+            "positionNote": "13500 × 2700 px (300 DPI)",
+            "bands": [
+              {
+                "sizes": [
+                  "XS",
+                  "S",
+                  "M",
+                  "L"
+                ],
+                "maxWidthMm": 889,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "2XL",
+                  "3XL",
+                  "XL"
+                ],
+                "maxWidthMm": 1016,
+                "maxHeightMm": 0
+              },
+              {
+                "sizes": [
+                  "4XL",
+                  "5XL"
+                ],
+                "maxWidthMm": 1143,
+                "maxHeightMm": 0
+              }
+            ],
+            "placement": {
+              "imageUrl": "https://storagesmsprod.blob.core.windows.net/external-media/19728_b_fm_638983444049255894.jpg",
+              "imageWidthPx": 500,
+              "imageHeightPx": 625,
+              "pixelsPerMm": 0.7009,
+              "anchorXPercent": 51.12,
+              "anchorYPercent": 26.64,
+              "rotationDeg": 0,
+              "anchor": "top",
+              "anchorOffsetMm": 0,
+              "referenceSize": "L"
+            }
+          },
+          {
+            "position": "Left Sleeve",
+            "positionNote": "template 1500x5700px",
+            "bands": [
+              {
+                "sizes": [
+                  "XS",
+                  "S"
+                ],
+                "maxWidthMm": 76.2,
+                "maxHeightMm": 431.8,
+                "ratio": 0.176,
+                "smsBandBox": {
+                  "size": "XS",
+                  "centerXPx": 417.3,
+                  "centerYPx": 265.2,
+                  "widthPx": 85.3,
+                  "heightPx": 483.4,
+                  "leftPercent": 74.92,
+                  "topPercent": 3.77,
+                  "widthPercent": 17.06,
+                  "heightPercent": 77.35,
+                  "rotationDeg": -6.5
+                }
+              },
+              {
+                "sizes": [
+                  "M",
+                  "L"
+                ],
+                "maxWidthMm": 101.6,
+                "maxHeightMm": 457.2,
+                "ratio": 0.222,
+                "smsBandBox": {
+                  "size": "M",
+                  "centerXPx": 420.9,
+                  "centerYPx": 297.4,
+                  "widthPx": 93.1,
+                  "heightPx": 418.8,
+                  "leftPercent": 74.88,
+                  "topPercent": 14.07,
+                  "widthPercent": 18.61,
+                  "heightPercent": 67.01,
+                  "rotationDeg": -6.5
+                }
+              },
+              {
+                "sizes": [
+                  "XL",
+                  "2XL",
+                  "3XL",
+                  "4XL",
+                  "5XL"
+                ],
+                "maxWidthMm": 127,
+                "maxHeightMm": 482.6,
+                "ratio": 0.263,
+                "smsBandBox": {
+                  "size": "XL",
+                  "centerXPx": 423.4,
+                  "centerYPx": 319.6,
+                  "widthPx": 98.4,
+                  "heightPx": 374.1,
+                  "leftPercent": 74.85,
+                  "topPercent": 21.21,
+                  "widthPercent": 19.69,
+                  "heightPercent": 59.85,
+                  "rotationDeg": -6.5
+                }
+              }
+            ],
+            "placement": {
+              "imageUrl": "https://storagesmsprod.blob.core.windows.net/external-media/19746_f_fm_638983444800601288.jpg",
+              "imageWidthPx": 500,
+              "imageHeightPx": 625,
+              "pixelsPerMm": 0.8397,
+              "anchorXPercent": 88.92,
+              "anchorYPercent": 80.86,
+              "rotationDeg": -6.5,
+              "anchor": "bottom",
+              "anchorOffsetMm": 0,
+              "referenceSize": "L"
+            }
+          },
+          {
+            "position": "Right Sleeve",
+            "positionNote": "template 1500x5700px",
+            "bands": [
+              {
+                "sizes": [
+                  "XS",
+                  "S"
+                ],
+                "maxWidthMm": 76.2,
+                "maxHeightMm": 431.8,
+                "ratio": 0.176,
+                "smsBandBox": {
+                  "size": "XS",
+                  "centerXPx": 89,
+                  "centerYPx": 257.1,
+                  "widthPx": 85.3,
+                  "heightPx": 483.4,
+                  "leftPercent": 9.27,
+                  "topPercent": 2.47,
+                  "widthPercent": 17.06,
+                  "heightPercent": 77.35,
+                  "rotationDeg": 8
+                }
+              },
+              {
+                "sizes": [
+                  "M",
+                  "L"
+                ],
+                "maxWidthMm": 101.6,
+                "maxHeightMm": 457.2,
+                "ratio": 0.222,
+                "smsBandBox": {
+                  "size": "M",
+                  "centerXPx": 84.5,
+                  "centerYPx": 289.1,
+                  "widthPx": 93.1,
+                  "heightPx": 418.8,
+                  "leftPercent": 7.6,
+                  "topPercent": 12.76,
+                  "widthPercent": 18.61,
+                  "heightPercent": 67.01,
+                  "rotationDeg": 8
+                }
+              },
+              {
+                "sizes": [
+                  "XL",
+                  "2XL",
+                  "3XL",
+                  "4XL",
+                  "5XL"
+                ],
+                "maxWidthMm": 127,
+                "maxHeightMm": 482.6,
+                "ratio": 0.263,
+                "smsBandBox": {
+                  "size": "XL",
+                  "centerXPx": 81.4,
+                  "centerYPx": 311.3,
+                  "widthPx": 98.4,
+                  "heightPx": 374.1,
+                  "leftPercent": 6.44,
+                  "topPercent": 19.88,
+                  "widthPercent": 19.69,
+                  "heightPercent": 59.85,
+                  "rotationDeg": 8
+                }
+              }
+            ],
+            "placement": {
+              "imageUrl": "https://storagesmsprod.blob.core.windows.net/external-media/19746_f_fm_638983444800601288.jpg",
+              "imageWidthPx": 500,
+              "imageHeightPx": 625,
+              "pixelsPerMm": 0.8397,
+              "anchorXPercent": 11.08,
+              "anchorYPercent": 79.44,
+              "rotationDeg": 8,
+              "anchor": "bottom",
+              "anchorOffsetMm": 0,
+              "referenceSize": "L"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "colorReferences": {
+    "C1717": {
+      "Front": {
+        "Black": {
+          "imageUrl": "https://storagesmsprod.blob.core.windows.net/external-media/34669_f_fm_638983442149188215.jpg",
+          "imageWidthPx": 500,
+          "imageHeightPx": 625,
+          "pixelsPerMm": 0.6817,
+          "anchorXPercent": 52.38,
+          "anchorYPercent": 21.23,
+          "rotationDeg": 0,
+          "anchor": "top",
+          "anchorOffsetMm": 0,
+          "referenceSize": "M"
+        }
+      }
+    }
+  },
+  "fitExample": {
+    "product": "C1717",
+    "method": "Printing 2D",
+    "position": "Front",
+    "size": "M",
+    "color": "Black",
+    "designWidthMm": 190,
+    "designHeightMm": 206.5,
+    "withinBand": false,
+    "bandMaxWidthMm": 279.4,
+    "bandMaxHeightMm": 0,
+    "imageUrl": "https://storagesmsprod.blob.core.windows.net/external-media/34669_f_fm_638983442149188215.jpg",
+    "box": {
+      "size": "M",
+      "centerXPx": 261.9,
+      "centerYPx": 203.1,
+      "widthPx": 129.5,
+      "heightPx": 140.8,
+      "leftPercent": 39.43,
+      "topPercent": 21.23,
+      "widthPercent": 25.9,
+      "heightPercent": 22.52,
+      "rotationDeg": 0
+    }
+  }
+}
