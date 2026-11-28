@@ -123,7 +123,10 @@ def skill_registry(response: Response, identity: Identity, db: Database):
     if identity.worker=="muse-image-01":
         from .adaptive_v61 import REGISTRY, BUNDLE_SHA256
         candidate={**REGISTRY,"protocol":"CAM_MUSE_IMAGE_ADAPTIVE_BATCH_V6_1",
-                   "resourceId":"muse-native-imagegen-01","bundleSha256":BUNDLE_SHA256}
+                   "resourceId":"muse-native-imagegen-01","bundleSha256":BUNDLE_SHA256,
+                   "creativePlanProtocol":"CAM_IMAGE_CREATIVE_PLAN_V7",
+                   "creativePlanPreviewAllowed":True,"creativePlanRenderAllowed":False,
+                   "controlledHybridStatus":"PREVIEW_ONLY_UNVALIDATED"}
     return {**_registry(), **candidate, **_gate(identity, db),
             **({"protocol":candidate["protocol"]} if candidate else {}),
             "skillProtocol":p.PROTOCOL,
@@ -496,3 +499,32 @@ def image_qa_status(response: Response, identity: Identity, db: Database,
             previewOnly=native_record["previewOnly"],
             physicalCalibrationVerified=False)
     return result
+
+@router.get("/jobs/{listing_id}/creative-plan")
+def creative_plan_preview(response: Response,identity: Identity,db: Database,
+                          listing_id: ListingId,packId: PackId,sku: Sku):
+    _no_cache(response)
+    _require_candidate_reader(db,identity)
+    from .creative_v7_preview import preview
+    try:
+        return preview(db,identity,listing_id,packId,sku)
+    except p.Conflict as exc:
+        raise HTTPException(409,str(exc)) from None
+
+@router.post("/jobs/{listing_id}/creative-plan/inspect")
+async def creative_plan_inspect(response: Response,identity: Identity,db: Database,
+                                 listing_id: ListingId,packId: PackId,sku: Sku):
+    """Explicit, one-off source metadata analysis. Never poll this route."""
+    _no_cache(response)
+    _require_candidate_reader(db,identity)
+    from .creative_v7_preview import inspect_artwork
+    from .live_preflight import failure_metadata,retry_headers
+    try:
+        return await inspect_artwork(db,identity,listing_id,packId,sku)
+    except p.Conflict as exc:
+        raise HTTPException(409,str(exc)) from None
+    except HTTPException:
+        raise
+    except Exception as exc:
+        detail={"code":"creative_artwork_profile_unavailable",**failure_metadata(exc)}
+        raise HTTPException(503,detail,headers=retry_headers(detail)) from None

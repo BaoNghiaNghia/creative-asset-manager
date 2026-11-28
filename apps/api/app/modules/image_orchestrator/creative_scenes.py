@@ -1,0 +1,100 @@
+"""Allowlisted V7 scene vocabulary, adapted from the V13 occasion/pose skill."""
+# scene: surface, editorial style, description
+SCENES = {
+ "window":("standing","cozy_indoor","daylit window corner"),
+ "porch":("rail","candid_lifestyle","covered porch with plain rail"),
+ "cafe":("seat","candid_lifestyle","quiet cafe seating corner, no visible signs"),
+ "courtyard":("path","heritage","sheltered stone courtyard"),
+ "studio":("wall","premium_minimal","textured neutral editorial wall"),
+ "boutique":("path","urban_editorial","boutique entrance without lettering"),
+ "garden":("path","botanical","sheltered garden path"),
+ "market":("path","candid_lifestyle","quiet covered market aisle"),
+ "workshop":("standing","heritage","tidy workshop, daylight side window"),
+ "rollerdoor":("wall","urban_editorial","plain metal roller door and driveway"),
+ "garage":("standing","heritage","organized garage bay, tools behind wearer"),
+ "brick":("wall","retro_editorial","weathered brick wall under open shade"),
+ "retro_cafe":("seat","retro_editorial","retro cafe booth, no lettering"),
+ "driveway":("path","candid_lifestyle","quiet covered driveway"),
+ "living":("seat","cozy_indoor","daylit living room with restrained decor"),
+ "gift":("standing","premium_minimal","daylit gift wrapping corner"),
+ "library":("seat","heritage","quiet reading alcove, unreadable book spines"),
+ "school":("path","urban_editorial","quiet empty school corridor"),
+ "stadium":("path","urban_editorial","empty stadium concourse without logos"),
+ "bleachers":("seat","candid_lifestyle","sheltered empty spectator seating"),
+ "ranch":("rail","heritage","covered rustic ranch rail"),
+ "boardwalk":("path","candid_lifestyle","quiet covered boardwalk"),
+ "craftroom":("standing","cozy_indoor","daylit craft room, materials behind wearer"),
+ "kitchen":("standing","cozy_indoor","daylit kitchen, clean counters behind wearer"),
+ "breakroom":("seat","premium_minimal","quiet neutral staff break room"),
+ "musicroom":("standing","heritage","daylit music room, unbranded instruments"),
+ "game_room":("seat","retro_editorial","daylit lounge, unlit screen and no logos"),
+}
+# Theme maps to scene IDs and peripheral prop choices; cues are never text.
+THEMES = {
+ "christmas":("living gift porch cafe market window","evergreen sprig|matte ornament|wrapped gift|linen ribbon|plain mug|ceramic star"),
+ "nativity":("courtyard window library gift porch studio","olive sprig|matte star ornament|unlit ivory candle|linen ribbon|wooden gift box"),
+ "halloween":("porch market cafe brick living studio","mini pumpkin|dry leaf|small lantern|neutral candle|plain ribbon"),
+ "thanksgiving":("porch kitchen market living cafe window","small gourd|wheat sprig|linen napkin|wooden dish|dry leaf"),
+ "valentine":("boutique cafe gift garden courtyard window","rose sprig|blush ribbon|plain envelope|matte heart|ceramic dish"),
+ "easter":("garden porch market gift living window","pastel egg|flower stem|woven basket edge|linen ribbon|ceramic dish"),
+ "mothers_day":("garden gift cafe boutique porch window","flower stem|small gift|ribbon|unwritten card|plain mug"),
+ "fathers_day":("porch cafe driveway gift courtyard studio","plain mug|small gift|notebook|canvas tote|wooden dish"),
+ "st_patricks_day":("porch cafe market garden courtyard window","clover sprig|green ribbon|plain mug|notebook|linen"),
+ "patriotic":("porch market boardwalk courtyard cafe studio","muted red ribbon|navy ribbon|picnic napkin|canvas tote|wooden dish"),
+ "birthday":("gift living cafe porch studio window","small gift|ribbon|unwritten card|ceramic dish|matte balloon edge"),
+ "summer":("boardwalk garden porch cafe courtyard studio","sunglasses|canvas tote|small shell|straw hat edge|linen"),
+ "autumn":("porch market brick cafe window living","dry leaf|small gourd|felt hat edge|mug|wooden dish"),
+ "winter":("living window cafe library gift studio","pine sprig|knit scarf edge|plain mug|neutral wood|linen"),
+ "automotive":("garage workshop rollerdoor brick retro_cafe driveway","small unbranded spanner|plain shop rag|plain metal key|wooden tray|notebook|plain mug"),
+ "sports":("stadium bleachers porch cafe studio driveway","plain cap|unbranded sport accessory|plain cup|canvas tote|linen"),
+ "teacher_school":("school library breakroom courtyard cafe window","notebook|pencil|closed plain book|canvas tote|plain mug"),
+ "faith":("courtyard library garden window porch studio","closed unmarked book|olive sprig|linen|plain mug|wooden dish"),
+ "western":("ranch porch brick courtyard market retro_cafe","felt hat edge|leather notebook|plain bandana|rope coil|plain mug"),
+ "floral_boho":("garden boutique window courtyard cafe studio","dried flower stem|linen|small notebook|woven accessory|ceramic dish"),
+ "pet_animal":("porch garden living courtyard window studio","unbranded pet accessory|canvas tote|notebook|botanical sprig|linen"),
+ "craft":("craftroom window market boutique cafe studio","thread spool|fabric swatch|plain scissors|linen|wooden tray"),
+ "baking":("kitchen cafe market living window porch","wooden spoon|linen towel|small whisk|plain ceramic bowl|ribbon"),
+ "healthcare":("breakroom cafe window courtyard studio porch","unmarked notebook|plain pen|plain mug|linen|canvas tote"),
+ "music":("musicroom retro_cafe brick boutique studio window","unbranded guitar pick|notebook|headphones edge|linen|wooden dish"),
+ "outdoors":("garden boardwalk ranch porch courtyard window","canvas pouch|botanical sprig|wooden dish|plain mug|linen"),
+ "gaming":("game_room retro_cafe living studio window brick","unbranded controller|headphones edge|notebook|plain mug|linen"),
+ "generic_lifestyle":("window porch cafe courtyard studio boutique","linen|ceramic dish|wooden accent|dried stem|plain notebook"),
+}
+POSES = {
+ "weight_shift":("standing","relaxed staggered weight, hands low"),
+ "shoulder_asymmetry":("standing","natural asymmetric shoulders, arms down"),
+ "low_pocket":("standing","hand near pocket below shirt hem"),
+ "walk_pause":("walking","gentle walk pause, chest nearly frontal"),
+ "low_swing":("walking","natural low arm swing, no torso twist"),
+ "rail_lean":("supported","light side rail support, chest clear"),
+ "wall_lean":("supported","subtle shoulder lean, arms below ink"),
+ "seat_perch":("seated","upright perch, hem hanging freely, hands low"),
+}
+STANDING=("weight_shift","shoulder_asymmetry","low_pocket")
+COMPATIBLE={
+ "standing":STANDING,"path":STANDING+("walk_pause","low_swing"),
+ "rail":STANDING+("rail_lean",),"wall":STANDING+("wall_lean",),
+ "seat":STANDING+("seat_perch",),
+}
+LIGHTS=("soft left daylight with neutral bounce","soft right daylight with neutral bounce",
+        "gentle side-back daylight with neutral frontal fill")
+SURFACES=("matte light wood","slate-neutral tabletop","linen over wood","matte pale stone","weathered oak")
+LAYOUTS=("opposite corner accents","left-weighted cluster","right-weighted cluster","loose diagonal side accents","upper/lower edge accents")
+STYLE_NOTES={
+ "heritage":"honest tactile materials, restrained archival-editorial mood",
+ "premium_minimal":"clean composition, quiet negative space, soft neutral textures",
+ "candid_lifestyle":"relaxed natural editorial moment, subtle movement",
+ "urban_editorial":"architectural lines, contemporary street-editorial composition",
+ "botanical":"organic natural textures, soft greenery and airy composition",
+ "cozy_indoor":"intimate window-light editorial, quiet home textures",
+ "retro_editorial":"vintage-inspired surroundings without color-cast or grain on ink",
+}
+STYLE_ALTERNATIVES={
+ "heritage":("heritage","premium_minimal","candid_lifestyle","retro_editorial"),
+ "premium_minimal":("premium_minimal","heritage","candid_lifestyle"),
+ "candid_lifestyle":("candid_lifestyle","premium_minimal","heritage"),
+ "urban_editorial":("urban_editorial","premium_minimal","retro_editorial","candid_lifestyle"),
+ "botanical":("botanical","premium_minimal","candid_lifestyle","heritage"),
+ "cozy_indoor":("cozy_indoor","premium_minimal","candid_lifestyle","heritage"),
+ "retro_editorial":("retro_editorial","heritage","premium_minimal","candid_lifestyle"),
+}
