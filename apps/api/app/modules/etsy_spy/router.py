@@ -1583,6 +1583,7 @@ def listing_tiktok_skill_detail(
 
 def _listing_idea_preflight_view(db: Session, tenant: str, picked: Picked, *, draft_override=None) -> dict:
     from .listing_idea_preflight import compose, table_video_links
+    from .listing_sms_sync import audit_media, idea_plan, RECEIPT_KEY
     key = picked.listing_key
     listing = db.scalar(select(Listing).where(
         Listing.tenant_id == tenant, Listing.listing_key == key,
@@ -1601,11 +1602,20 @@ def _listing_idea_preflight_view(db: Session, tenant: str, picked: Picked, *, dr
     muse_job = db.get(CamMuseJob, (tenant, key))
     video = video_ugc_view(muse_job)
     table_links = table_video_links(muse_job, video, key)
-    image_count = db.scalar(select(func.count()).select_from(ListingImage).where(
-        ListingImage.tenant_id == tenant, ListingImage.listing_key == key)) or 0
-    return compose(listing_key=key, source=source, seo=seo, designs=designs,
-                   video_ugc=video, listing_image_count=image_count, table_links=table_links,
-                   saved=picked.listing_idea_draft if draft_override is None else draft_override)
+    image_rows = db.scalars(select(ListingImage).where(
+        ListingImage.tenant_id == tenant, ListingImage.listing_key == key)).all()
+    draft = picked.listing_idea_draft if draft_override is None else draft_override
+    draft = draft if isinstance(draft, dict) else {}
+    legacy_draft = {k: v for k, v in draft.items() if k != RECEIPT_KEY}
+    view = compose(listing_key=key, source=source, seo=seo, designs=designs,
+                   video_ugc=video, listing_image_count=len(image_rows), table_links=table_links,
+                   saved=legacy_draft)
+    view["media_integrity"] = audit_media(extraction, designs, muse_job, image_rows)
+    view["sms_sync_v2"] = idea_plan(listing_key=key, source=source, seo=seo,
+        extraction=extraction, designs=designs, muse=muse_job, table_links=table_links,
+        saved=draft)
+    view["marketplace_blockers"] = list(view["blockers"])
+    return view
 
 
 @router.get("/listings/{listing_key}/listing-idea-preflight")
@@ -1645,6 +1655,10 @@ async def save_listing_idea_preflight(
         data = validate_draft(json.loads(raw))
     except (ValueError, TypeError, RecursionError):
         raise HTTPException(422, "Invalid listing idea draft")
+    from .listing_sms_sync import RECEIPT_KEY
+    previous = picked.listing_idea_draft
+    if isinstance(previous, dict) and isinstance(previous.get(RECEIPT_KEY), dict):
+        data[RECEIPT_KEY] = previous[RECEIPT_KEY]
     view = _listing_idea_preflight_view(db, tenant, picked, draft_override=data)
     if data.get("design_sha256") and not view["selected_design"]:
         raise HTTPException(409, "Design changed or is not part of this listing")
@@ -1657,6 +1671,89 @@ async def save_listing_idea_preflight(
     picked.listing_idea_draft = data
     db.commit()
     return view
+
+
+@router.get("/listing-media-audit")
+def listing_media_audit(response: Response, after: str | None = Query(None),
+                        limit: int = Query(20, ge=1, le=50),
+                        principal: CurrentPrincipal = Depends(READ),
+                        db: Session = Depends(get_db)):
+    """Bounded, tenant-scoped read-only reconciliation; no regeneration."""
+    if after is not None and not re.fullmatch(r"[0-9]{5,20}", after):
+        raise HTTPException(422, "Invalid listing audit cursor")
+    tenant = principal.active_tenant_id
+    stmt = select(Picked).where(Picked.tenant_id == tenant)
+    if after is not None:
+        stmt = stmt.where(Picked.listing_key > after)
+    picked_rows = db.scalars(stmt.order_by(Picked.listing_key).limit(limit + 1)).all()
+    items = []
+    for picked in picked_rows[:limit]:
+        view = _listing_idea_preflight_view(db, tenant, picked)
+        plan = view["sms_sync_v2"]
+        media = view["media_integrity"]
+        items.append({"listing_key": picked.listing_key,
+                      "media_integrity": media,
+                      "ready_for_idea_review": plan["ready_for_idea_review"],
+                      "idea_blockers": plan["blockers"],
+                      "readback_state": plan["readback_state"]})
+    response.headers["Cache-Control"] = "no-store"
+    return {"policy": "CAM_SMS_SYNC_V2", "items": items, "read_only": True,
+            "next_after": picked_rows[limit - 1].listing_key if len(picked_rows) > limit else None}
+
+
+@router.post("/listings/{listing_key}/sms-sync-readback")
+async def report_sms_sync_readback(listing_key: str, request: Request, response: Response,
+                                   principal: CurrentPrincipal = Depends(MANAGE),
+                                   db: Session = Depends(get_db)):
+    """Persist attributable external SMS count evidence, never claim a live SMS fetch."""
+    from .listing_sms_sync import RECEIPT_KEY, validate_readback
+    from app.modules.auth_persistence.model import AuthAuditEventModel
+
+    response.headers["Cache-Control"] = "no-store"
+    if not re.fullmatch(r"[0-9]{5,20}", listing_key):
+        raise HTTPException(422, "Invalid Etsy Listing ID")
+    if (request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json"
+            or request.headers.get("sec-fetch-site", "").lower() == "cross-site"):
+        raise HTTPException(415, "SMS readback requires same-site JSON")
+    raw = bytearray()
+    async for chunk in request.stream():
+        if len(raw) + len(chunk) > 8192:
+            raise HTTPException(413, "SMS readback request too large")
+        raw.extend(chunk)
+    try:
+        body = json.loads(raw)
+    except (ValueError, TypeError, RecursionError):
+        raise HTTPException(422, "Invalid SMS readback") from None
+    tenant = principal.active_tenant_id
+    picked = db.scalar(select(Picked).where(Picked.tenant_id == tenant,
+        Picked.listing_key == listing_key).with_for_update())
+    if picked is None:
+        raise HTTPException(404, "Picked listing not found")
+    db.scalar(select(CamMuseJob).where(CamMuseJob.tenant_id == tenant,
+        CamMuseJob.listing_key == listing_key).with_for_update())
+    plan = _listing_idea_preflight_view(db, tenant, picked)["sms_sync_v2"]
+    try:
+        record = validate_readback(body, plan)
+    except ValueError as exc:
+        raise HTTPException(409, detail={"code": str(exc)}) from None
+    draft = dict(picked.listing_idea_draft) if isinstance(picked.listing_idea_draft, dict) else {}
+    old = draft.get(RECEIPT_KEY)
+    if isinstance(old, dict) and any(old.get(k) != record[k] for k in ("idea_id", "target_id", "idea_code")):
+        raise HTTPException(409, detail={"code": "SMS_READBACK_IDENTITY_CONFLICT"})
+    if isinstance(old, dict) and all(old.get(k) == v for k, v in record.items()):
+        return {"state": "reported_counts_match", "live_sms_verified_by_cam": False,
+                "target_video_identity_verified": False, "record": old, "changed": False}
+    record["reported_at"] = datetime.now(timezone.utc).isoformat()
+    draft[RECEIPT_KEY] = record
+    picked.listing_idea_draft = draft
+    db.add(AuthAuditEventModel(tenant_id=tenant, actor_id=principal.user_id,
+        action="sms_sync_v2_readback_reported", detail_json={
+            "listing_key": listing_key, "candidate_id": record["candidate_id"],
+            "idea_code": record["idea_code"], "target_id": record["target_id"],
+            "evidence": record["evidence"], "target_videos": record["target_videos"]}))
+    db.commit()
+    return {"state": "reported_counts_match", "live_sms_verified_by_cam": False,
+            "target_video_identity_verified": False, "record": record, "changed": True}
 
 
 @router.post("/listings/{listing_key}/sms-video-share")
