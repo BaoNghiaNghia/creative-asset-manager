@@ -1606,7 +1606,8 @@ def _listing_idea_preflight_view(db: Session, tenant: str, picked: Picked, *, dr
         ListingImage.tenant_id == tenant, ListingImage.listing_key == key)).all()
     draft = picked.listing_idea_draft if draft_override is None else draft_override
     draft = draft if isinstance(draft, dict) else {}
-    legacy_draft = {k: v for k, v in draft.items() if k != RECEIPT_KEY}
+    from .sms_mockup_incremental import KEY as mockup_progress_key, POLICY as incremental_policy
+    legacy_draft = {k: v for k, v in draft.items() if k not in (RECEIPT_KEY,mockup_progress_key)}
     view = compose(listing_key=key, source=source, seo=seo, designs=designs,
                    video_ugc=video, listing_image_count=len(image_rows), table_links=table_links,
                    saved=legacy_draft)
@@ -1618,6 +1619,18 @@ def _listing_idea_preflight_view(db: Session, tenant: str, picked: Picked, *, dr
     master_sha = (view["media_integrity"].get("video_artwork_sha256")
                   if view["media_integrity"].get("current_video_master_verified") else None)
     view["sms_mockups_v4"] = project_sms_mockups(image_rows, master_sha)
+    progress = draft.get(mockup_progress_key)
+    pending = progress.get("pending") if isinstance(progress,dict) else None
+    view["sms_mockups_v41"] = {
+        "policy":incremental_policy,
+        "packs":[{"pack_id":p["pack_id"],"garment_code":p["garment_code"],
+                  "review_sha256":p["review_sha256"],**p["incremental"]} for p in view["sms_mockups_v4"]["packs"]],
+        "received_count":len(progress.get("received",[])) if isinstance(progress,dict) else 0,
+        "pending_readback":bool(pending),
+        "pending_operation_id":pending.get("operation_id") if isinstance(pending,dict) else None,
+        "pending_expected_count":pending.get("expected_count") if isinstance(pending,dict) else None,
+        "last_warnings":progress.get("last_warnings",[]) if isinstance(progress,dict) else [],
+        "automatic_sms_writes":False}
     view["marketplace_blockers"] = list(view["blockers"])
     return view
 
@@ -1661,8 +1674,10 @@ async def save_listing_idea_preflight(
         raise HTTPException(422, "Invalid listing idea draft")
     from .listing_sms_sync import RECEIPT_KEY
     previous = picked.listing_idea_draft
-    if isinstance(previous, dict) and isinstance(previous.get(RECEIPT_KEY), dict):
-        data[RECEIPT_KEY] = previous[RECEIPT_KEY]
+    from .sms_mockup_incremental import KEY as mockup_progress_key
+    for internal_key in (RECEIPT_KEY,mockup_progress_key):
+        if isinstance(previous,dict) and isinstance(previous.get(internal_key),dict):
+            data[internal_key]=previous[internal_key]
     view = _listing_idea_preflight_view(db, tenant, picked, draft_override=data)
     if data.get("design_sha256") and not view["selected_design"]:
         raise HTTPException(409, "Design changed or is not part of this listing")
@@ -1783,8 +1798,8 @@ async def report_sms_mockup_colors(listing_key:str,request:Request,response:Resp
     tenant=principal.active_tenant_id
     pack,rows,_=_sms_mockup_pack(db,tenant,listing_key,body,lock=True)
     by_slot={r.slot:r for r in rows}
-    if set(by_slot)!=set(range(1,14)):
-        raise HTTPException(409,"Historical role contract must be verified; complete V13 required")
+    if not by_slot or not set(by_slot)<=set(range(1,14)):
+        raise HTTPException(409,"Valid saved V13 slots required")
     pending=[]
     seen=set()
     try:
@@ -1833,6 +1848,8 @@ async def prepare_sms_mockups(listing_key:str,request:Request,response:Response,
         raise HTTPException(422,"Existing empty target and live color choices required")
     tenant=principal.active_tenant_id
     pack,rows,view=_sms_mockup_pack(db,tenant,listing_key,body)
+    if view["sms_mockups_v41"]["pending_readback"] or view["sms_mockups_v41"]["received_count"]:
+        raise HTTPException(409,"Use incremental mockup reconciliation for existing progress")
     plan=view["sms_sync_v2"]
     receipt=plan.get("last_reported_readback") or {}
     if (plan.get("readback_state")!="reported_counts_match" or receipt.get("target_id")!=body["target_id"]
@@ -1856,6 +1873,98 @@ async def prepare_sms_mockups(listing_key:str,request:Request,response:Response,
         raise HTTPException(409,"SMS receipt changed during preparation")
     return {**result,"idea_id":receipt["idea_id"],"idea_code":receipt["idea_code"],
             "listing_key":listing_key,"pack_sha256":pack_sha(pack),"sms_written":False}
+
+
+@router.post("/listings/{listing_key}/sms-mockups-incremental-prepare")
+async def prepare_sms_mockups_incremental(listing_key:str,request:Request,response:Response,
+        principal:CurrentPrincipal=Depends(MANAGE),db:Session=Depends(get_db)):
+    """Reserve one operator-reviewed append; never call SMS from CAM."""
+    from . import sms_mockup_incremental as inc
+    from .sms_mockup_share import verify_incremental_originals
+    from app.modules.auth_persistence.model import AuthAuditEventModel
+    from types import SimpleNamespace
+    import httpx
+    body=await _sms_mockup_body(request)
+    response.headers["Cache-Control"]="private, no-store"
+    if (set(body)!={"confirm","pack_id","garment_code","expected_pack_sha256","target_id","shop","snapshot","allow_low_resolution"}
+        or body["shop"]!=inc.SHOP or type(body["allow_low_resolution"]) is not bool):
+        raise HTTPException(422,"Exact incremental review required")
+    tenant=principal.active_tenant_id
+    pack,rows,view=_sms_mockup_pack(db,tenant,listing_key,body)
+    plan=view["sms_sync_v2"];receipt=plan.get("last_reported_readback") or {}
+    if (plan.get("readback_state")!="reported_counts_match" or receipt.get("target_id")!=body["target_id"]
+        or plan.get("garment")!=body["garment_code"]):
+        raise HTTPException(409,"Record matching SMS Idea receipt before mockup handoff")
+    def current_progress(picked):
+        draft=picked.listing_idea_draft if isinstance(picked.listing_idea_draft,dict) else {}
+        return draft.get(inc.KEY)
+    picked=db.get(Picked,(tenant,listing_key))
+    progress=current_progress(picked)
+    opts={"idea_id":receipt["idea_id"],"target_id":body["target_id"],"shop":body["shop"],
+          "allow_low_resolution":body["allow_low_resolution"]}
+    try:
+        live=inc.snapshot(body["snapshot"])
+        slots=inc.pending_slots(pack,progress,live,**opts)
+        refs=[SimpleNamespace(slot=r.slot,output_sha256=r.output_sha256,drive_file_id=r.drive_file_id,
+                             drive_thumbnail_id=r.drive_thumbnail_id) for r in rows]
+        db.rollback()
+        evidence,total=await verify_incremental_originals(pack,refs,slots)
+        operation,initial=inc.plan_next(pack,progress,live,evidence,**opts)
+    except (ValueError,TypeError,httpx.HTTPError) as exc:
+        raise HTTPException(409,detail={"code":"SMS_MOCKUP_INCREMENTAL_BLOCKED",
+                "reason":str(exc)[:160] if isinstance(exc,ValueError) else "media_unavailable"}) from None
+    _,fresh_rows,fresh=_sms_mockup_pack(db,tenant,listing_key,body,lock=True)
+    picked=db.get(Picked,(tenant,listing_key))
+    if (current_progress(picked)!=progress or fresh["sms_sync_v2"].get("readback_state")!="reported_counts_match"
+        or fresh["sms_sync_v2"].get("last_reported_readback")!=receipt or
+        [(r.slot,r.output_sha256,r.drive_file_id,r.drive_thumbnail_id) for r in fresh_rows] !=
+        [(r.slot,r.output_sha256,r.drive_file_id,r.drive_thumbnail_id) for r in refs]):
+        raise HTTPException(409,"SMS mockup state changed during preparation")
+    if operation["state"]=="review_required":
+        draft=dict(picked.listing_idea_draft or {})
+        draft[inc.KEY]=inc.reserve(initial,operation)
+        picked.listing_idea_draft=draft
+        db.add(AuthAuditEventModel(tenant_id=tenant,actor_id=principal.user_id,
+            action="sms_mockup_incremental_reserved",detail_json={"listing_key":listing_key,
+              "operation_id":operation["operation_id"],"slots":slots}))
+        db.commit()
+    return {**operation,"original_bytes_verified":total,"sms_written":False,
+            "live_sms_verified_by_cam":False,"idea_code":receipt["idea_code"]}
+
+
+@router.post("/listings/{listing_key}/sms-mockups-incremental-readback")
+async def report_sms_mockups_incremental(listing_key:str,request:Request,response:Response,
+        principal:CurrentPrincipal=Depends(MANAGE),db:Session=Depends(get_db)):
+    """Explicit reconciliation; never retry an uncertain SMS write."""
+    from . import sms_mockup_incremental as inc
+    from app.modules.auth_persistence.model import AuthAuditEventModel
+    body=await _sms_mockup_body(request)
+    response.headers["Cache-Control"]="private, no-store"
+    if (not re.fullmatch(r"[0-9]{5,20}",listing_key) or
+        set(body)!={"confirm","operation_id","snapshot","outcome"} or
+        body["outcome"] not in ("applied","partially_applied","not_applied")):
+        raise HTTPException(422,"Exact operator readback required")
+    tenant=principal.active_tenant_id
+    picked=db.scalar(select(Picked).where(Picked.tenant_id==tenant,
+        Picked.listing_key==listing_key).with_for_update())
+    if picked is None:
+        raise HTTPException(404,"Picked listing not found")
+    draft=dict(picked.listing_idea_draft or {})
+    old=draft.get(inc.KEY)
+    try:
+        progress=inc.record(old,body["operation_id"],body["snapshot"],outcome=body["outcome"])
+    except (ValueError,TypeError) as exc:
+        raise HTTPException(409,detail={"code":str(exc)}) from None
+    draft[inc.KEY]=progress
+    picked.listing_idea_draft=draft
+    db.add(AuthAuditEventModel(tenant_id=tenant,actor_id=principal.user_id,
+        action="sms_mockup_incremental_readback",detail_json={"listing_key":listing_key,
+            "operation_id":body["operation_id"],"outcome":body["outcome"],
+            "received_count":len(progress["received"])}))
+    db.commit()
+    return {"policy":inc.POLICY,"received_count":len(progress["received"]),
+            "outcome":progress["last_outcome"],"warnings":progress.get("last_warnings",[]),
+            "sms_image_bytes_verified":False,"sms_written":False}
 
 
 @router.post("/listings/{listing_key}/sms-sync-readback")

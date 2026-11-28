@@ -75,3 +75,29 @@ async def prepare(pack,rows,choices,*,target_id,shop):
     return {**result,"original_bytes_verified":total,
             "target_color_choices_supplied_by_operator":True,
             "live_sms_verified_by_cam":False,"no_sharing_changes":True}
+
+
+async def verify_incremental_originals(pack,rows,slots):
+    """Verify only the next selected originals. A lower resolution is not a
+    thumbnail substitute: the original Drive ID and SHA must match exactly."""
+    if not slots:
+        return {},0
+    from .imagegen_root_sharing import run_root_sharing
+    if (await run_root_sharing(apply=False)).get("state")!="link_viewer":
+        raise ValueError("approved_root_not_link_viewer")
+    expected={p["slot"]:p for p in pack["photos"]}
+    by_slot={r.slot:r for r in rows}
+    if set(by_slot)!=set(expected) or len(rows)!=len(expected) or len(slots)>6:
+        raise ValueError("pack_changed")
+    evidence={};total=0
+    async with httpx.AsyncClient(timeout=httpx.Timeout(25,connect=5),trust_env=False,
+                                 follow_redirects=False,headers={"Cache-Control":"no-store"}) as client:
+        for slot in slots:
+            r=by_slot[slot]
+            if (r.output_sha256!=expected[slot]["output_sha256"] or
+                not ID.fullmatch(r.drive_file_id or "") or r.drive_file_id==r.drive_thumbnail_id):
+                raise ValueError("original_identity_changed")
+            url="https://drive.google.com/uc?export=download&id="+r.drive_file_id
+            total+=await verify_public_png(client,url,r.output_sha256,min(MAX_PNG,MAX_PACK-total))
+            evidence[slot]={"url":url,"output_sha256":r.output_sha256,"verified_original":True}
+    return evidence,total

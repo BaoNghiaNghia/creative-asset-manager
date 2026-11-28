@@ -267,3 +267,53 @@ def test_v4_operator_color_metadata_and_prepared_target(scenario,monkeypatch):
     assert called==[13] and result.json()["sms_written"] is False
     assert result.json()["idea_code"]==sms["idea_code"]
     assert client.get(PREFLIGHT).json()["sms_sync_v2"]["readback_state"]=="reported_counts_match"
+
+
+def test_v41_partial_append_reserve_readback_and_color_evidence(scenario,monkeypatch):
+    from app.modules.etsy_spy import sms_mockup_incremental as inc
+    from app.modules.etsy_spy import sms_mockup_share as share
+    from app.modules.etsy_spy import sms_mockup_sync as v
+    client,db,principal=scenario
+    base=BASE+"/listings/"+KEY
+    endpoint=base+"/sms-mockups-incremental-prepare"
+    report=base+"/sms-mockups-incremental-readback"
+    pre=client.get(PREFLIGHT).json()
+    pack=pre["sms_mockups_v4"]["packs"][0]
+    assert pack["incremental"]["can_prepare_incremental"] and not pack["ready_for_mockup_review"]
+    candidate=pre["sms_sync_v2"]["candidate_id"]
+    receipt=payload(candidate)
+    live={"files":[],"gallery":None,"colors":None,"color_choices":[]}
+    body={"confirm":True,"pack_id":pack["pack_id"],"garment_code":"C1717",
+          "expected_pack_sha256":pack["review_sha256"],"target_id":receipt["target_id"],"shop":SHOP,
+          "snapshot":live,"allow_low_resolution":True}
+    assert client.post(endpoint,json=body).status_code==409
+    assert client.post(REPORT,json=receipt).status_code==200
+    async def verify(pack,rows,slots):
+        assert slots in ([2],[])
+        return ({2:{"url":"https://drive.google.com/uc?export=download&id=exampleImage123",
+                    "output_sha256":"e"*64,"verified_original":True}} if slots else {}),100 if slots else 0
+    monkeypatch.setattr(share,"verify_incremental_originals",verify)
+    principal.effective_permissions=frozenset({"etsy_spy.read"})
+    assert client.post(endpoint,json=body).status_code==403
+    principal.effective_permissions=frozenset({"etsy_spy.read","etsy_spy.manage"})
+    assert client.post(endpoint,json=body,headers={"Sec-Fetch-Site":"cross-site"}).status_code==415
+    r=client.post(endpoint,json=body)
+    assert r.status_code==200,r.text
+    plan=r.json()
+    assert plan["expected_count"]==1 and plan["expected_gallery"]==1
+    assert plan["sms_written"] is False
+    assert client.post(endpoint,json=body).status_code==409
+    assert client.get(PREFLIGHT).json()["sms_mockups_v41"]["pending_readback"]
+    observed={**live,"files":[{"position":1,"file":"mockup2.png"}],"gallery":1}
+    rb={"confirm":True,"operation_id":plan["operation_id"],"snapshot":observed,"outcome":"applied"}
+    assert client.post(report,json={**rb,"snapshot":live}).status_code==409
+    assert client.post(report,json=rb).json()["received_count"]==1
+    assert client.get(PREFLIGHT).json()["sms_mockups_v41"]["received_count"]==1
+    assert client.post(endpoint,json={**body,"snapshot":observed}).json()["state"]=="nothing_to_send"
+    assert inc.KEY not in client.get(PREFLIGHT).json()["saved"]
+    # Partial V13 color evidence: explicit operator confirms this slot and SHA.
+    color={"confirm":True,"pack_id":pack["pack_id"],"garment_code":"C1717",
+           "expected_pack_sha256":pack["review_sha256"],"role_contract":v.CONTRACT,
+           "images":[{"slot":2,"output_sha256":"e"*64,"color_name":"Bay"}]}
+    assert client.post(base+"/sms-mockups-color-evidence",json=color).json()["updated"]==1
+    assert client.get(PREFLIGHT).json()["sms_mockups_v41"]["received_count"]==1

@@ -126,7 +126,9 @@ def project(rows,master_sha):
             "preview_only_count":sum(p["preview_only"] for p in photos),
             "missing_metadata_slots":[p["slot"] for p in photos if p["metadata"] is None],
             "photos":photos})
+    from .sms_mockup_incremental import advisory
     for pack in packs:
+        pack["incremental"]=advisory(pack)
         pack["review_sha256"]=pack_sha(pack)
     return {"policy":POLICY,"palette_sha256":digest(catalog()),"packs":packs,
             "requires_live_target_color_choices":True,"requires_verified_original_image_links":True,
