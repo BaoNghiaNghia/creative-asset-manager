@@ -54,6 +54,20 @@ describe("Design modal retry latest extraction flow", () => {
     fetchSpy.mockReset();
   });
 
+  it("labels two same-front couple designs by garment group", async () => {
+    const meta = {inventory_version: 3 as const, listing_type: "couple_set",
+      design_evidence_id: "e".repeat(64), artwork_id: "D01",
+      ink_variant_id: "I01", garment_group_id: "G01", set_id: "S01",
+      view_side: "front", region: "front_center", observation_count: 1};
+    const a = {...design(), inventory_v3: meta};
+    const b = {...design(), id: "b".repeat(24), variant: 2,
+      inventory_v3: {...meta, artwork_id: "D02", garment_group_id: "G02"}};
+    await open(listing([a, b]), false);
+    expect(document.body.querySelector(".etsy-design-gallery-eyebrow")?.textContent).toContain("Couple");
+    const labels = Array.from(document.body.querySelectorAll(".etsy-design-gallery-variant-label")).map(x=>x.textContent);
+    expect(labels).toEqual(["Áo A · Mẫu 1", "Áo B · Mẫu 2"]);
+  });
+
   it("does not offer editing without manage permission", async () => {
     await open(listing(), false);
     expect(button()).toBeNull();

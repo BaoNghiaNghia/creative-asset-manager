@@ -255,7 +255,17 @@ def project_design_assets(job: Any) -> list[dict]:
                 size = raw.get(key)
                 if type(size) is int and 256 <= size <= 4096:
                     mapped[key] = size
-        # No image reads, extra SQL, or analysis on the hot Picked listing path.
+        # No image reads or extra SQL. Metadata is bounded and source-validated.
+        from .design_inventory_v3 import validate_design_inventory_v3
+        try:
+            inventory = validate_design_inventory_v3(raw.get("inventory_v3"), raw.get("source_sha256"), raw["position"])
+        except ValueError:
+            inventory = None
+        if inventory is not None:
+            mapped["inventory_v3"] = {key: inventory[key] for key in
+                ("inventory_version", "listing_type", "design_evidence_id", "artwork_id",
+                 "ink_variant_id", "garment_group_id", "set_id", "view_side", "region")}
+            mapped["inventory_v3"]["observation_count"] = len(inventory["observations"])
         colors = _validated_color_match(raw, digest)
         if colors:
             mapped["color_match"] = colors

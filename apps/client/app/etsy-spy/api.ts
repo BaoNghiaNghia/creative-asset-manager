@@ -60,6 +60,11 @@ export type DesignAsset = {
   thumbnail_url: string; original_url: string;
   print_ready: false; rights_status: "unverified";
   manual_qa_required: true; created_at?: string | null;
+  inventory_v3?: {
+    inventory_version: 3; listing_type: string; design_evidence_id: string;
+    artwork_id: string; ink_variant_id: string; garment_group_id: string;
+    set_id: string | null; view_side: string; region: string; observation_count: number;
+  };
   color_match?: {
     version: "colormatch-pixel-v1" | "colormatch-pixel-v2" | "colormatch-pixel-v3" | "colormatch-sms-c1717-v4" | "colormatch-sms-c1717-v5" | "colormatch-sms-c1717-v6" | "colormatch-sms-c1717-v7" | "colormatch-sms-c1717-v8" | "colormatch-sms-c1717-v9" | "colormatch-sms-c1717-v10"; output_sha256: string;
     recommended: string[]; method: "thumbnail_pixel_contrast" | "thumbnail_pixel_contrast_sales_prior" | "thumbnail_ink_readability_sales_prior" | "design_region_alpha_sales_prior" | "design_region_alpha_sales_prior_ten" | "design_region_alpha_quality_first" | "role_aware_salience_ciede2000_v10";

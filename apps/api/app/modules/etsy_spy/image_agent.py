@@ -1300,6 +1300,11 @@ async def upload_design_mapping(
         raise HTTPException(422, "Design position must be verified against source evidence")
     if any(data.get(key) is not False for key in ("print_ready", "rights_verified", "ocr_verified")):
         raise HTTPException(422, "Design requires print, OCR and rights review")
+    from .design_inventory_v3 import validate_design_inventory_v3
+    try:
+        inventory_v3 = validate_design_inventory_v3(data.get("inventory_v3"), source_sha, position)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
     digest = str(data.get("output_sha256") or "")
     if not re.fullmatch(r"[0-9a-f]{64}", digest):
         raise HTTPException(422, "Invalid design SHA256")
@@ -1323,8 +1328,9 @@ async def upload_design_mapping(
     assets = payload.get("design_assets") if isinstance(payload.get("design_assets"), list) else []
     for current in assets:
         if current.get("position") == position and current.get("variant") == variant:
-            if current.get("output_sha256") != digest or current.get("method") != method:
-                raise HTTPException(409, "Position/variant already has another immutable PNG")
+            if (current.get("output_sha256") != digest or current.get("method") != method or
+                    (inventory_v3 is not None and current.get("inventory_v3") != inventory_v3)):
+                raise HTTPException(409, "Position/variant already has another immutable PNG or inventory")
             return {"ok": True, "job_id": job.id, "design_id": current["id"],
                     "status": "needs_review", "already_mapped": True}
     if len(assets) >= MAX_DESIGNS_PER_JOB:
@@ -1356,7 +1362,8 @@ async def upload_design_mapping(
     assets = payload.get("design_assets") if isinstance(payload.get("design_assets"), list) else []
     for current in assets:
         if current.get("position") == position and current.get("variant") == variant:
-            if current.get("output_sha256") != digest or current.get("method") != method:
+            if (current.get("output_sha256") != digest or current.get("method") != method or
+                    (inventory_v3 is not None and current.get("inventory_v3") != inventory_v3)):
                 raise HTTPException(409, "Drive mapping identity changed")
             db.commit()
             return {"ok": True, "job_id": task_id, "design_id": current["id"],
@@ -1367,6 +1374,7 @@ async def upload_design_mapping(
         "id": asset_id, "position": position, "variant": variant,
         "method": method, "output_sha256": digest,
         "source_sha256": source_sha, "position_verified": position != "unknown",
+        **({"inventory_v3": inventory_v3} if inventory_v3 is not None else {}),
         "status": "needs_review", "created_at": utcnow().isoformat(),
         "print_ready": False, "rights_status": "unverified",
     }

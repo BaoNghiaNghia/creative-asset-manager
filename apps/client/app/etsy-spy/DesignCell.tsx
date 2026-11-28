@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import { spyFetch, type Listing } from "./api";
+import { spyFetch, type Listing, type DesignAsset } from "./api";
 import { sharedGarmentColors } from "./productColorMatch";
 import { EtsyDeferredImage } from "./EtsyDeferredImage";
 import { DesignZoomStage } from "./DesignZoomStage";
@@ -107,8 +107,24 @@ function positionKey(value: string) {
 function positionLabel(key: string) {
   return POSITION_LABELS[key] ?? key.replace(/_/g, " ").slice(0, 36);
 }
-function variantLabel(value: number, ordinal: number) {
-  return Number.isInteger(value) && value > 0 ? `Mẫu ${value}` : `Mẫu ${ordinal}`;
+function inventoryKindLabel(design?: DesignAsset) {
+  const kind = design?.inventory_v3?.listing_type;
+  return kind ? ({
+    couple_set: "Couple", family_set: "Family", two_sided: "In hai mặt",
+    repeated_view: "Nhiều góc chụp", multiple_variants: "Nhiều mẫu",
+    multiple_placements: "Nhiều vị trí", single_design: "Một design",
+    mixed: "Nhiều nhóm áo", uncertain: "Chưa đủ bằng chứng",
+  } as Record<string, string>)[kind] : undefined;
+}
+function variantLabel(value: number, ordinal: number, design?: DesignAsset) {
+  const meta = design?.inventory_v3;
+  const variant = Number.isInteger(value) && value > 0 ? value : ordinal;
+  if (meta?.set_id && /^G[0-9]{2}$/.test(meta.garment_group_id)) {
+    const group = Number(meta.garment_group_id.slice(1));
+    const label = group >= 1 && group <= 26 ? String.fromCharCode(64 + group) : meta.garment_group_id.slice(1);
+    return `Áo ${label} · Mẫu ${variant}`;
+  }
+  return `Mẫu ${variant}`;
 }
 
 export function DesignCell({ item, onPreviewStart, canRetry = false, onRetryQueued }: {
@@ -285,7 +301,7 @@ export function DesignCell({ item, onPreviewStart, canRetry = false, onRetryQueu
   });
   const selectedPosition = grouped.get(positionKey(preview.position)) ?? positions[0];
   const selectedOrdinal = selectedPosition.entries.findIndex(entry => entry.index === selected) + 1;
-  const selectedVariant = variantLabel(preview.variant, selectedOrdinal);
+  const selectedVariant = variantLabel(preview.variant, selectedOrdinal, preview);
   const colorKey = designChoiceKey(preview);
   const suggestions = recommendedColors(preview);
   const productAdvice = sharedGarmentColors(designs, selected);
@@ -385,7 +401,7 @@ export function DesignCell({ item, onPreviewStart, canRetry = false, onRetryQueu
       <div className="etsy-product-hover-preview etsy-design-hover-preview"
         role="tooltip" data-listing-key={item.listingKey}
         data-design-index={hovered}>
-        <span className="etsy-product-preview-label">Ảnh Design {hovered! + 1}/{designs.length}</span>
+        <span className="etsy-product-preview-label">Ảnh Design {hovered! + 1}/{designs.length}{inventoryKindLabel(hoveredDesign) ? ` · ${inventoryKindLabel(hoveredDesign)}` : ""}{hoveredDesign.inventory_v3 ? ` · ${positionLabel(positionKey(hoveredDesign.position))}` : ""}</span>
         <img src={failedOriginalId === hoveredDesign.id
           ? hoveredDesign.thumbnail_url : hoveredDesign.original_url}
           alt={`Thiết kế ${hovered! + 1} của ${item.pageTitle}`}
@@ -411,7 +427,7 @@ export function DesignCell({ item, onPreviewStart, canRetry = false, onRetryQueu
           style={{ "--etsy-gallery-bg": selectedBackground.color ?? "#fff" } as CSSProperties}>
           <header className="etsy-design-gallery-header">
             <div className="etsy-design-gallery-heading">
-              <span className="etsy-design-gallery-eyebrow">DESIGN PREVIEW</span>
+              <span className="etsy-design-gallery-eyebrow">DESIGN PREVIEW{inventoryKindLabel(preview) ? ` · ${inventoryKindLabel(preview)}` : ""}</span>
               <h2>Thiết kế theo vị trí in</h2>
               <p title={item.pageTitle}>{item.pageTitle}</p>
             </div>
@@ -505,14 +521,14 @@ export function DesignCell({ item, onPreviewStart, canRetry = false, onRetryQueu
                     <button key={entry.design.job_id + ":" + entry.design.id} type="button"
                       className={entry.index === selected ? "active" : ""}
                       onClick={() => { setActive(entry.index); }}
-                      aria-label={`Xem thiết kế ${entry.index + 1}, ${selectedPosition.label}, ${variantLabel(entry.design.variant, ordinal + 1)}`}
+                      aria-label={`Xem thiết kế ${entry.index + 1}, ${selectedPosition.label}, ${variantLabel(entry.design.variant, ordinal + 1, entry.design)}`}
                       aria-pressed={entry.index === selected}>
                       <span className="etsy-design-gallery-variant-artwork">
                         <EtsyDeferredImage src={entry.design.thumbnail_url} alt=""
                           width={88} height={88} />
                       </span>
                       <span className="etsy-design-gallery-variant-label">
-                        {variantLabel(entry.design.variant, ordinal + 1)}
+                        {variantLabel(entry.design.variant, ordinal + 1, entry.design)}
                       </span>
                     </button>
                   ))}
