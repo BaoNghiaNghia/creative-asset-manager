@@ -218,6 +218,38 @@ class ApprovalTests(unittest.TestCase):
         with self.assertRaisesRegex(p.Conflict,"image_qa_or_source_unverified"):
             self.prepare(g,rid,role=4)
 
+    def test_preview_canary_commits_receipt_without_commercial_gallery(self):
+        from dataclasses import replace
+        from app.modules.etsy_spy.model import EtsySpyPicked as Picked,EtsySpyListingImage as Gallery,EtsySpyListingImageDeletion as Deleted
+        from app.modules.image_orchestrator.storage import DriveEvidence,project_gallery
+        Base.metadata.create_all(self.engine,tables=[Picked.__table__,Gallery.__table__,Deleted.__table__])
+        with Session(self.engine) as db,db.begin():
+            db.add(Picked(tenant_id=TENANT,listing_key=self.pack.listing))
+        self.evidence["executionEvidence"]={"scope":"single_pack",
+            "resourceEvidenceSha256":"a"*64,"cronNativeEvidenceSha256":"b"*64,
+            "driveEvidenceSha256":"c"*64,"backupReceiptSha256":"d"*64,
+            "restoreEvidenceSha256":None,"backupOnlyCanary":True,
+            "serverOnlyLegacyFence":True,"legacyClientDrainVerified":False,
+            "nativeOutputPx":1600,"previewOnlyCanary":True}
+        g=self.start()
+        rid=self.review()
+        ticket=self.prepare(g,rid)["ticket"]
+        self.assertTrue(ticket.preview_only_canary)
+        receipt=p.StoredReceipt(IMG,1600,1600,"fixture_drive_id",IMG,"pass",True,
+            self.pack.placement_sha,preview_only_canary=True)
+        self.assertFalse(replace(receipt,width=2000,height=2000).publication_ready)
+        ev=DriveEvidence("fixture_drive_id","fixture_thumbnail","fixture_folder_id","fixture_thumb_folder","e"*64)
+        with self.assertRaisesRegex(p.Conflict,"preview_canary_scope_mismatch"):
+            self.op(lambda svc,_:svc.accept_storage(self.scope,g["imageLease"],NOW,ticket,
+                replace(receipt,preview_only_canary=False)))
+        result=self.op(lambda svc,_:svc.accept_storage(self.scope,g["imageLease"],NOW,ticket,receipt,
+            project=lambda db,t,r:project_gallery(db,t,r,ev)))
+        self.assertTrue(result["previewOnly"])
+        self.assertTrue(result["storageVerified"])
+        with Session(self.engine) as db:
+            self.assertIsNone(db.get(Gallery,(TENANT,self.pack.listing,ticket.gallery_id,1)))
+            self.assertTrue(db.get(ImageRole,(TENANT,self.pack.pack_id,1)).receipt_state["preview_only_canary"])
+
     def test_successful_storage_with_trusted_qa_stays_preview(self):
         g=self.start()
         rid=self.review()

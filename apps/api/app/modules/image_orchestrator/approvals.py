@@ -152,6 +152,16 @@ def _bound_qa(pack, role, attempt_id, image_sha, verdict, evidence, reviewer):
         return False
 
 
+def preview_canary(db,pack):
+    """The immutable operator approval, not a worker-supplied preview flag."""
+    approval=db.get(ImagePlanApproval,(pack.tenant_id,pack.pack_id))
+    return bool(approval is not None and not approval.revoked
+        and approval.plan_sha256==pack.plan_sha256
+        and _plan_evidence(pack,approval.evidence)
+        and execution_evidence_valid(approval.evidence.get("executionEvidence"))
+        and approval.evidence["executionEvidence"]["previewOnlyCanary"])
+
+
 def publication_scope(db,identity,pack,role,image_sha,qa_id,width,height):
     """Resolve publication policy from the trusted immutable QA ledger."""
     profile=native.profile_from_plan(pack.approved_plan)

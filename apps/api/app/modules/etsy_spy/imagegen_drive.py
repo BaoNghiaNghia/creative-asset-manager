@@ -366,6 +366,7 @@ async def store_listing_output_to_drive(
     listing_id: str, design_sha256: str, placement: str, garment_code: str,
     main_revision_number: int = 0, expected_slots: int = 10,
     role_contract: str | None = None,
+    preview_pack_id: str | None = None,
 ) -> dict:
     """Store a verified output below listing/design/target-garment hierarchy.
 
@@ -375,6 +376,8 @@ async def store_listing_output_to_drive(
     if role_contract is not None and (role_contract != _CENTRAL_ROLE_CONTRACT or
                                       expected_slots != 13 or main_revision_number != 0):
         raise HTTPException(422, "Invalid central image role contract")
+    if preview_pack_id is not None and (role_contract != _CENTRAL_ROLE_CONTRACT or preview_pack_id != pack_id):
+        raise HTTPException(422,"Invalid preview pack scope")
     role_files = (_CENTRAL_ROLE_FILES if role_contract == _CENTRAL_ROLE_CONTRACT else
                   _ROLE_FILES_V13 if expected_slots == 13 else _ROLE_FILES)
     if (expected_slots not in (10, 13) or not 1 <= slot <= expected_slots or
@@ -399,6 +402,7 @@ async def store_listing_output_to_drive(
         provider=provider, root_folder_id=folder, tenant_id=tenant_id,
         listing_id=listing_id, design_sha256=design_sha256,
         placement=placement, garment_code=garment_code,
+        **({'preview_pack_id':preview_pack_id} if preview_pack_id is not None else {}),
     )
 
     revision_suffix = (f":rev-{main_revision_number:04d}"

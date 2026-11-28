@@ -112,6 +112,7 @@ class StoredReceipt:
     generation_method: str | None = None
     qa_record_sha: str | None = None
     operator_policy_receipt_sha: str | None = None
+    preview_only_canary: bool = False
 
     @property
     def publication_scope(self):
@@ -126,7 +127,7 @@ class StoredReceipt:
                 and self.publication_minimum_px in (1600,PUBLICATION_MIN_NATIVE)
                 and valid_sha(self.qa_record_sha)
                 and valid_sha(self.operator_policy_receipt_sha))
-        return bool((legacy or native) and self.storage_verified is True and self.qa_status=="pass"
+        return bool(self.preview_only_canary is False and (legacy or native) and self.storage_verified is True and self.qa_status=="pass"
                     and self.width==self.height and self.width>=self.publication_minimum_px)
 
 

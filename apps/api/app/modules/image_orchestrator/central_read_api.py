@@ -393,7 +393,9 @@ def image_status(response: Response, identity: Identity, db: Database,
                     "calls":[{"callId":v["callId"],"role":v["role"],
                         "attemptId":v["attempt"],"generationMethod":v["method"]}
                         for v in info["calls"].values()]}
-        payload.update(roles=mapped,waveCommands=wave_commands,activeBatch=active_batch,
+        payload.update(roles=mapped,
+            waveCommands={wave:detail["status"] for wave,detail in wave_commands.items()},
+            waveCommandDetails=wave_commands,activeBatch=active_batch,
             reconciliationRequired=any(r["status"] in
                 ("dispatch_uncertain","upload_pending","reconcile_required") for r in roles),
             batchWave2Allowed=payload["wave2Allowed"],

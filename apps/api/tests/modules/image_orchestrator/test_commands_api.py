@@ -17,7 +17,7 @@ from app.modules.image_orchestrator.commands import (Runtime,command_id,ensure_c
     gallery_pack_id)
 from app.modules.image_orchestrator.identity import ImageIdentity,image_identity
 from app.modules.image_orchestrator.model import (ImageBatch,ImagePack,ImageRole,ImageFlowControl,
-    ImageCommand,ImageCapabilityState,ImageUploadIntent)
+    ImageCommand,ImageCapabilityState,ImageUploadIntent,ImagePlanApproval)
 from app.modules.image_orchestrator import write_api as api
 from app.modules.render_resources.model import RenderResource
 
@@ -42,7 +42,7 @@ class CommandApiTests(unittest.TestCase):
         def fk(conn,_):
             conn.execute("PRAGMA foreign_keys=ON")
         tables=[ImageBatch,ImagePack,ImageRole,ImageFlowControl,ImageCommand,
-                ImageCapabilityState,ImageUploadIntent,RenderResource]
+                ImageCapabilityState,ImageUploadIntent,ImagePlanApproval,RenderResource]
         Base.metadata.create_all(self.engine,tables=[m.__table__ for m in tables])
         self.pack=p.PackIdentity(TENANT,"123456789","a"*64,SKU,1,"b"*64,"c"*64)
         self.other=p.PackIdentity(TENANT,"123456790","a"*64,SKU,1,"b"*64,"c"*64)

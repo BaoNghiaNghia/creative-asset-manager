@@ -117,6 +117,7 @@ async def ensure_listing_output_folders(
     *, provider, root_folder_id: str, tenant_id: str,
     listing_id: str, design_sha256: str, placement: str,
     garment_code: str, transport: httpx.AsyncBaseTransport | None = None,
+    preview_pack_id: str | None = None,
 ) -> dict[str, str]:
     """Return stable private Drive folders after exact folder provenance checks.
 
@@ -126,6 +127,8 @@ async def ensure_listing_output_folders(
                      placement, garment_code)
     if not tenant_id or len(tenant_id) > 255:
         raise HTTPException(422, "ImageGen tenant identity required")
+    if preview_pack_id is not None and (not isinstance(preview_pack_id,str) or not re.fullmatch(r'sp-[a-f0-9]{40}',preview_pack_id)):
+        raise HTTPException(422,"Invalid preview pack identity")
     token = await provider.get_access_token()
     headers = {"Authorization": f"Bearer {token}"}
     async with httpx.AsyncClient(
@@ -144,12 +147,13 @@ async def ensure_listing_output_folders(
              "cam_listing": listing_id, "cam_design_sha": design_sha256,
              "cam_placement": placement},
         )
-        garment = await _ensure_child(
-            client, design, garment_code,
-            {"cam_imagegen_node": "garment-v1", "cam_tenant": tenant_id,
-             "cam_listing": listing_id, "cam_design_sha": design_sha256,
-             "cam_target": garment_code},
-        )
+        name=garment_code if preview_pack_id is None else garment_code+'-preview-'+preview_pack_id
+        garment_props={"cam_imagegen_node":"garment-v1" if preview_pack_id is None else "preview-pack-v1",
+            "cam_tenant":tenant_id,"cam_listing":listing_id,"cam_design_sha":design_sha256,
+            "cam_target":garment_code}
+        if preview_pack_id is not None:
+            garment_props["cam_preview_pack"]=preview_pack_id
+        garment = await _ensure_child(client,design,name,garment_props)
         thumbnails = await _ensure_child(
             client, garment, "thumbnails",
             {"cam_imagegen_node": "thumbnail-v1", "cam_tenant": tenant_id,
@@ -160,7 +164,7 @@ async def ensure_listing_output_folders(
             "garment_folder_id": garment, "thumbnail_folder_id": thumbnails,
             "relative_path": (
                 f"listing_{listing_id}/design_{design_sha256[:16]}_{placement}/"
-                f"{garment_code}"
+                f"{name}"
             )}
 
 async def ensure_listing_video_folder(

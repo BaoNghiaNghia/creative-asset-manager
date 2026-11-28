@@ -50,12 +50,21 @@ def project_gallery(db: Session,ticket: UploadTicket,receipt: p.StoredReceipt,
               receipt.image_sha==ticket.image_sha and
               receipt.drive_file_id==evidence.drive_file_id and
               receipt.storage_verified is True and
-              ticket.publication_scope==receipt.publication_scope,"gallery_receipt_mismatch")
+              ticket.publication_scope==receipt.publication_scope and
+              ticket.preview_only_canary==receipt.preview_only_canary,"gallery_receipt_mismatch")
     if ticket.generation_method is not None:
         p.require(receipt.publication_ready,"native_qa_publication_ineligible")
     picked=db.scalar(select(Picked).where(Picked.tenant_id==ticket.tenant,
                         Picked.listing_key==ticket.listing).with_for_update())
     p.require(picked is not None,"listing_not_picked")
+    if ticket.preview_only_canary:
+        from .model import ImagePack
+        from .approvals import preview_canary
+        pack=db.get(ImagePack,(ticket.tenant,ticket.pack_id))
+        p.require(pack is not None and preview_canary(db,pack)
+                  and not receipt.publication_ready,"preview_canary_scope_mismatch")
+        # Central receipt commits, but no gallery or SMS projection.
+        return
     key=(ticket.tenant,ticket.listing,ticket.gallery_id,ticket.role)
     p.require(db.get(Deleted,(*key,ticket.image_sha)) is None,"gallery_output_deleted")
     source_job="cam-image-"+ticket.pack_id
@@ -116,7 +125,8 @@ async def store_central_output(ticket: UploadTicket,png: bytes) -> SavedOutput:
         tenant_id=ticket.tenant,pack_id=ticket.gallery_id,slot=ticket.role,
         digest=ticket.image_sha,png=png,listing_id=ticket.listing,
         design_sha256=ticket.artwork_sha,placement=ticket.storage_placement,
-        garment_code=ticket.sku,expected_slots=13,role_contract=p.ROLE_CONTRACT)
+        garment_code=ticket.sku,expected_slots=13,role_contract=p.ROLE_CONTRACT,
+        **({'preview_pack_id':ticket.gallery_id} if ticket.preview_only_canary else {}))
     p.require((remote.get("native_width"),remote.get("native_height"))==
               (ticket.width,ticket.height),"drive_native_dimensions_mismatch")
     evidence=DriveEvidence(**{key:remote[key] for key in DriveEvidence.__dataclass_fields__})
@@ -131,7 +141,7 @@ async def store_central_output(ticket: UploadTicket,png: bytes) -> SavedOutput:
         p.require(hashlib.sha256(saved).hexdigest()==sha,"drive_checksum_mismatch")
     receipt=p.StoredReceipt(ticket.image_sha,ticket.width,ticket.height,
         evidence.drive_file_id,ticket.image_sha,"pass",True,ticket.placement_sha,
-        *ticket.publication_scope)
+        *ticket.publication_scope,preview_only_canary=ticket.preview_only_canary)
     def project(db,t,r):
         p.require(t==ticket and r==receipt,"gallery_projection_identity_mismatch")
         project_gallery(db,t,r,evidence)

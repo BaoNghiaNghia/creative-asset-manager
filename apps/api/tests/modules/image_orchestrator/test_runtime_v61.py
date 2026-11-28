@@ -114,6 +114,8 @@ class RuntimeV61Tests(unittest.TestCase):
         self.assertEqual(r.status_code,200,r.text)
         data=r.json(); entry=data["roles"]["1"]
         self.assertEqual(data["packProgress"],"1/13")
+        self.assertEqual(data["waveCommands"]["1"],"pending")
+        self.assertEqual(data["waveCommandDetails"]["1"]["commandId"],f.cid)
         self.assertEqual(entry["imageSha256"],sha)
         self.assertTrue(entry["storageVerified"])
         self.assertTrue(p.valid_sha(entry["storageReceiptId"]))

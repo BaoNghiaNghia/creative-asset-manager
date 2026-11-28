@@ -90,6 +90,7 @@ class UploadTicket:
     generation_method: str | None = None
     qa_record_sha: str | None = None
     operator_policy_receipt_sha: str | None = None
+    preview_only_canary: bool = False
 
     @property
     def publication_scope(self):
@@ -332,7 +333,7 @@ class CommandService:
             p.require(self.runtime.authorize_plan(self.db,self.identity,row) and
                       self.runtime.authorize_qa(self.db,self.identity,row,role,image_sha,qa_id),
                       "image_qa_or_source_unverified")
-            from .approvals import publication_scope
+            from .approvals import publication_scope,preview_canary
             publication=publication_scope(self.db,self.identity,row,role,image_sha,qa_id,width,height)
             storage_placement=row.approved_plan.get('storagePlacement')
             p.require(storage_placement in ('front','back'),'storage_placement_unverified')
@@ -344,7 +345,7 @@ class CommandService:
                 self.tenant,row.listing_key,scope.pack_id,gallery_pack_id(scope.pack_id),
                 scope.sku,role,attempt,epoch,pack.identity.artwork_sha,
                 pack.identity.source_sha,pack.identity.placement_sha,storage_placement,image_sha,width,height,
-                *publication)}
+                *publication,preview_only_canary=preview_canary(self.db,row))}
         return self._transition(scope,row,apply)
 
     def accept_storage(self,scope: Scope,token: str,now: int,ticket: UploadTicket,
@@ -367,11 +368,13 @@ class CommandService:
                       self.runtime.authorize_qa(self.db,self.identity,row,ticket.role,
                                                 receipt.image_sha,intent.qa_receipt_id),
                       "image_qa_or_source_unverified")
-            from .approvals import publication_scope
+            from .approvals import publication_scope,preview_canary
             publication=publication_scope(self.db,self.identity,row,ticket.role,
                 receipt.image_sha,intent.qa_receipt_id,receipt.width,receipt.height)
             p.require(ticket.publication_scope==publication==receipt.publication_scope,
                       "native_publication_scope_mismatch")
+            p.require(ticket.preview_only_canary==receipt.preview_only_canary==preview_canary(self.db,row),
+                      "preview_canary_scope_mismatch")
             if ticket.generation_method is not None:
                 p.require(receipt.publication_ready,"native_qa_publication_ineligible")
             result=p.verify_role(pack,self.worker,ticket.epoch,token,now,ticket.role,

@@ -22,24 +22,26 @@ from .write_api import (Backend, CommandQuery, ListingPath, PackHeader, SkuHeade
                         perform, service, scope, now, private, check_token)
 
 PROTOCOL = "CAM_MUSE_IMAGE_ADAPTIVE_BATCH_V6_1"
-BUNDLE_SHA256 = "22133be6ce727ed001d266926a78344594f7fe093d11cb5139970a6a8364791a"
+BUNDLE_SHA256 = "5095e32e2e84f201fc9a81a569b6c91d841bf8d3abe5ab93a2e0d1b1fb33501e"
 REGISTRY = {
-    # Exact uploaded 200956-byte ZIP inspected by CAM, CRC valid, 53 entries,
-    # 51/51 manifest payloads and external manifest match. No runtime proof implied.
+    # Exact uploaded 226905-byte recovery ZIP inspected by CAM, CRC valid,
+    # 55 entries, 53/53 manifest payloads and external manifest match.
     "bundlePinEvidence": "CAM_VERIFIED_ZIP_MANIFEST_20261128",
     "bundleBytesVerifiedByCAM": True,
     "localRejectionProtocol": "CAM_IMAGE_LOCAL_REJECT_V1",
-    "bundleReportedBytes": 200956,
+    "bundleReportedBytes": 226905,
+    "recoveryStateSha256": "e599598da0fd95ab94ac838fab8291215af2bff0e1ac9349c58d40a9968a9c24",
+    "previewCanaryStoragePolicy": "CENTRAL_RECEIPTS_ONLY_NO_GALLERY_V1",
     "adaptiveBatchPolicy": PROTOCOL, "batchPlannerVersion": PROTOCOL,
-    "batchPlannerSha256": "f722928c8ad62edb62cc5812fb964eb8b3627a34e7c1ff23a50acb5af179ee4c",
-    "packRunnerSha256": "fc362f49dd388431da90eb705a65cc093c7e57f15f6b3f25326ff473cee30919",
+    "batchPlannerSha256": "c43aee9c096c9fce9dd2a7be2d6cbc66f1eb812de0fb3680ab38144ada61d16c",
+    "packRunnerSha256": "e35d253e9dc042a4d0d8860e4775120418e51ee4cc175bcb4e166d7749d63b42",
     "nativeRunnerVersion": "CAM_MUSE_IMAGE_NATIVE_V1",
-    "nativeRunnerSha256": "84c3ab466572f3a16682ff73a4e3ce69fe048a3144efff10fd3e5a9309d524b1",
+    "nativeRunnerSha256": "432602ca6b582294cdb804e7cfaeac7e9f30d57754e673c0259ce4ff3dc77de5",
     "nativePromptTemplateSha256": "455ee7cdc86e6bcbe62e4a68baad566908b98082bfce486f178c1303269db8df",
-    "clientSha256": "1b4f3c73c8343929e8f057adaa49b31e404deaf6aa559b89d40ac65aef09d1ff",
+    "clientSha256": "25de2c39a7f4b614337d2464695fee001e9392d9ce8dea37ba9f06749ff9536a",
     "transportSha256": "27a2b9c2f53a1213c575107bae1b8709206d36290d10eef89ea362bf0a1fce9f",
     "rendererSha256": "6eabb012c418565f5ed2684d6e61c31a347c655eae287349e240317982cb4281",
-    "qaSha256": "a577a715313b094c2a25dd75b38b7195f43068de4a234579d66c35343c2117a8",
+    "qaSha256": "e0879cc91ea59bcad17aebfff1185095f96cde417157ae020f09af3b466f862a",
     "outboxSha256": "3fe5d400be9c84b427bed16d621b853f5905ed1f3e0c8f5729422f1f7da7bd4d",
     "maxBatchRoles": 13, "multiOutputSupported": False,
     "multiOutputEvidenceSha256": None, "nativeMinimumPx": 1600,

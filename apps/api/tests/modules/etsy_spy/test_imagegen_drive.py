@@ -292,3 +292,18 @@ def test_publicly_writable_folder_is_rejected_before_any_upload(monkeypatch):
             assert "another Google account" in wrong.value.detail
 
     asyncio.run(verify())
+
+def test_central_preview_hierarchy_separate_from_publication():
+    from app.modules.etsy_spy import listing_drive_folders as folders
+    provider=SimpleNamespace(get_access_token=AsyncMock(return_value="fixture-credential"))
+    alias="sp-"+"b"*40
+    child=AsyncMock(side_effect=["listing_folder_id","design_folder_id","preview_folder_id","thumb_folder_id"])
+    with patch.object(folders,"_ensure_child",child):
+        result=asyncio.run(folders.ensure_listing_output_folders(provider=provider,
+            root_folder_id=folders.ROOT_FOLDER_ID,tenant_id=TENANT,listing_id="123456789",
+            design_sha256="a"*64,placement="front",garment_code="C1717",preview_pack_id=alias))
+    assert child.await_args_list[2].args[2]=="C1717-preview-"+alias
+    assert child.await_args_list[2].args[3]["cam_imagegen_node"]=="preview-pack-v1"
+    assert child.await_args_list[2].args[3]["cam_preview_pack"]==alias
+    assert result["garment_folder_id"]=="preview_folder_id"
+    assert result["relative_path"].endswith("C1717-preview-"+alias)
