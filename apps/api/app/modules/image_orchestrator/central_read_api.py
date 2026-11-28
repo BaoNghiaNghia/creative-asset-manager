@@ -92,18 +92,26 @@ def _gate(identity: ImageIdentity, db: Session) -> dict:
     blockers = list(BLOCKERS)
     if not evidence["centralSchemaReady"]:
         blockers.insert(0, "CENTRAL_SCHEMA_NOT_MIGRATED")
-    return {**evidence,
+    from .live_runtime import readiness
+    state=readiness(db,identity) if evidence["centralSchemaReady"] else {}
+    allowed=state.get("claimAllowed") is True
+    # Capability rows are writable only by trusted CAM operators. They must
+    # not be enabled until the actual recovery, provider and cutover checks
+    # have been completed. An authenticated worker is not that authority.
+    if allowed:
+        blockers=[]
+    return {**evidence,**state,
         "protocol": ("CAM_MUSE_IMAGE_ADAPTIVE_BATCH_V6_1"
                      if identity.worker=="muse-image-01" else p.PROTOCOL),
         "jobType": "image",
         "workerId": identity.worker,
         "workerKind": identity.kind,
-        "claimEnabled": False,
-        "imageClaimAllowed": False,
-        "liveClaimEnabled": False,
+        "claimEnabled": allowed,
+        "imageClaimAllowed": allowed,
+        "liveClaimEnabled": allowed,
         "rendererCalled": False,
-        "rendererAllowed": False,
-        "status": "PREPARED_DISABLED",
+        "rendererAllowed": allowed,
+        "status": "READY" if allowed else "PREPARED_DISABLED",
         "blockers": blockers,
     }
 
@@ -118,6 +126,7 @@ def skill_registry(response: Response, identity: Identity, db: Database):
                    "resourceId":"muse-native-imagegen-01","bundleSha256":BUNDLE_SHA256}
     return {**_registry(), **candidate, **_gate(identity, db),
             **({"protocol":candidate["protocol"]} if candidate else {}),
+            "skillProtocol":p.PROTOCOL,
             "registryStatus": "candidate",
             "paletteVerified": False,
             "printBoxAuthority": "CAM_PRINT_BOX_SINGLE_AUTHORITY_V1",
@@ -153,11 +162,43 @@ async def image_source_proof(response: Response,identity: Identity,db: Database,
     return await verify_original(db,identity.tenant,listing_id,artworkSha256)
 
 
+@router.post("/jobs/{listing_id}/image-runtime-preflight")
+async def image_runtime_preflight(response: Response,identity: Identity,db: Database,
+                                  listing_id: ListingId,
+                                  artworkSha256: Annotated[str,Query(pattern=r"^[a-f0-9]{64}$")]):
+    _no_cache(response)
+    _require_candidate_reader(db,identity)
+    from .live_preflight import preflight
+    try:
+        return await preflight(db,identity.tenant,listing_id,artworkSha256)
+    except HTTPException:
+        raise
+    except p.Conflict as exc:
+        raise HTTPException(409,str(exc)) from None
+    except Exception:
+        raise HTTPException(503,"image_preflight_provider_unavailable") from None
+
+
+@router.get("/jobs/{listing_id}/image-original")
+async def image_original(identity: Identity,db: Database,listing_id: ListingId,
+                         artworkSha256: Annotated[str,Query(pattern=r"^[a-f0-9]{64}$")]):
+    _require_candidate_reader(db,identity)
+    from .candidate_discovery import load_original
+    response,_=await load_original(db,identity.tenant,listing_id,artworkSha256)
+    return response
+
+
 @router.get("/image-commands")
 def image_commands(response: Response, identity: Identity, db: Database,
                    limit: Annotated[int, Query(ge=1, le=20)] = 20):
     _no_cache(response)
-    return {**_gate(identity, db), "items": [], "commands": [],
+    gate=_gate(identity,db)
+    if gate["imageClaimAllowed"]:
+        from .live_runtime import descriptors
+        items=descriptors(db,identity,limit)
+        return {**gate,"items":items,"commands":items,"queueAuthoritative":True,
+                "counterScope":"admitted_central_packs_only","limit":limit}
+    return {**gate, "items": [], "commands": [],
             "queueAuthoritative": False, "reason": "IMAGE_CLAIMS_DISABLED",
             "limit": limit}
 
@@ -178,9 +219,11 @@ def image_work(response: Response, identity: Identity, db: Database,
         ImagePack.tenant_id == tenant)) or 0
     roles = dict(db.execute(select(ImageRole.status, func.count()).where(
         ImageRole.tenant_id == tenant).group_by(ImageRole.status)).all())
+    from .live_runtime import descriptors
+    items=descriptors(db,identity,limit) if gate["imageClaimAllowed"] else []
     return {**gate,
             "flowRunningRequested": bool(flow and flow.running),
-            "flowRunning": False, "items": [], "limit": limit,
+            "flowRunning": gate["imageClaimAllowed"], "items": items, "limit": limit,
             "centralPackCount": packs,
             "centralRoleCounts": {key: int(roles.get(key, 0)) for key in (
                 "pending", "dispatch_uncertain", "upload_pending",
@@ -198,9 +241,12 @@ def _owned_pack(db: Session, identity: ImageIdentity, listing: str,
         ImagePack.tenant_id == identity.tenant,
         ImagePack.listing_key == listing,
         ImagePack.pack_id == pack_id,
-        ImagePack.garment_sku == sku,
-        ImagePack.owner == identity.worker))
-    if row is None:
+        ImagePack.garment_sku == sku))
+    permitted=bool(row and row.owner==identity.worker)
+    if row is not None and row.owner is None and identity.worker=="muse-image-01":
+        from .live_runtime import can_bind,admission_ready
+        permitted=can_bind(db,identity) and admission_ready(db,identity,row)
+    if not permitted:
         raise HTTPException(404, "image_pack_not_found")
     return row
 
@@ -318,12 +364,15 @@ def image_status(response: Response, identity: Identity, db: Database,
         for row,item in zip(rows,roles):
             receipt=item["receipt"]
             entry={"status":item["status"],"attemptCount":item["attempts"],
-                   "storageVerified":False,"lastOutcome":row.failure_code}
+                   "attempts":item["attempts"],"storageVerified":False,
+                   "qaStatus":None,"lastOutcome":row.failure_code}
             if receipt is not None:
                 entry.update(receipt)
+                entry["qaStatus"]="pass"
                 entry["storageReceiptId"]=storage_receipt_id(pack,row)
             mapped[str(row.role)]=entry
-        payload.update(roles=mapped,packProgress=f"{len(verified)}/13",
+        payload.update(roles=mapped,batchWave2Allowed=payload["wave2Allowed"],
+            packProgress=f"{len(verified)}/13",
             currentWave=2 if wave1 else 1,
             barrier=barrier_snapshot(identity.tenant,packId,pack.owner,wave1,batch.release_decision))
     return payload

@@ -111,7 +111,7 @@ def discover(db,tenant,after="",limit=50):
         "candidateOnly":True,"queueAuthoritative":False,"claimAllowed":False}
 
 
-async def verify_original(db,tenant,listing,expected_sha):
+async def load_original(db,tenant,listing,expected_sha):
     item=inspect_listing(db,tenant,listing)
     if (item.get("sourceMetadataVerified") is not True
             or item.get("artworkSha256")!=expected_sha):
@@ -138,6 +138,11 @@ async def verify_original(db,tenant,listing,expected_sha):
     fresh=inspect_listing(db,tenant,listing)
     if fresh.get("artworkSha256")!=expected_sha or fresh.get("sourceJobId")!=item["sourceJobId"]:
         raise HTTPException(409,"candidate_artwork_changed")
-    return {**fresh,"originalBytesVerified":True,"nativeWidth":w,"nativeHeight":h,
+    return response,{**fresh,"originalBytesVerified":True,"nativeWidth":w,"nativeHeight":h,
             "originalByteCount":len(raw),"sourceVisualQaVerified":False,
             "proofScope":"SHA_BOUND_ORIGINAL_BYTES_ONLY"}
+
+
+async def verify_original(db,tenant,listing,expected_sha):
+    _,proof=await load_original(db,tenant,listing,expected_sha)
+    return proof

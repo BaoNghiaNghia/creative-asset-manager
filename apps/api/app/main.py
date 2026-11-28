@@ -67,6 +67,7 @@ from app.modules.image_orchestrator.central_read_api import router as image_orch
 from app.modules.image_orchestrator.adaptive_v61 import router as image_orchestrator_batch_router
 from app.modules.image_orchestrator.write_api import router as image_orchestrator_write_router
 from app.modules.image_orchestrator.lite_api import router as muse_image_lite_router
+from app.modules.image_orchestrator.operator_admission import router as image_operator_router
 from app.modules.muse_bridge import observability as muse_observability
 from app.modules.etsy_spy.service import prune_system_logs
 from app.modules.etsy_spy.request_metrics import ETSY_PERFORMANCE, route_label
@@ -415,6 +416,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(image_orchestrator_batch_router)
     api.include_router(image_orchestrator_write_router)
     api.include_router(muse_image_lite_router)
+    api.include_router(image_operator_router)
     api.include_router(metadata_router, prefix="/api")
     api.include_router(processing_policy_router)
     api.include_router(asset_details_router)

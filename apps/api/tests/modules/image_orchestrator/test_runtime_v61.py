@@ -120,3 +120,51 @@ class RuntimeV61Tests(unittest.TestCase):
         self.assertTrue(entry["previewOnly"])
         self.assertFalse(data["barrier"]["wave2Open"])
         self.assertFalse(data["claimEnabled"])
+
+    def test_live_review_runs_before_storage(self):
+        f=self.f
+        self.assertEqual(self.submit().status_code,200)
+        calls=[]
+        async def reviewer(ctx,png):
+            calls.append(ctx.image_sha)
+            self.assertEqual(hashlib.sha256(png).hexdigest(),ctx.image_sha)
+            self.assertEqual(ctx.qa_record_sha,SHA)
+            with Session(f.engine) as db:
+                self.assertIsNone(db.get(ImageQAApproval,(fixture.TENANT,self.rid)))
+            return "pass",{"policy":approvals.QA_POLICY,"reviewEvidenceSha256":"a"*64,
+                "checks":{key:True for key in approvals.QA_CHECKS},
+                "physicalCalibration":"unverified"}
+        f.app.dependency_overrides[write_api.get_adapters]=lambda:write_api.Adapters(
+            Runtime(lambda db,identity,row:True,approvals.authorize_qa,test_sqlite=True),
+            f.backend.store,reviewer)
+        with patch("app.modules.image_orchestrator.admission.inspect_current",
+                   return_value={"jobId":"fixture-job","assetId":"fixture-asset"}):
+            result=self.upload()
+        self.assertEqual(result.status_code,200,result.text)
+        self.assertEqual(len(calls),1)
+        self.assertEqual(f.writes,1)
+        with Session(f.engine) as db:
+            self.assertEqual(db.get(ImageQAApproval,(fixture.TENANT,self.rid)).verdict,"pass")
+
+    def test_independent_rejection_requeues_without_drive_write(self):
+        f=self.f
+        self.assertEqual(self.submit().status_code,200)
+        async def reviewer(ctx,png):
+            checks={key:True for key in approvals.QA_CHECKS}
+            checks["artworkFidelity"]=False
+            return "hold",{"policy":approvals.QA_POLICY,"reviewEvidenceSha256":"b"*64,
+                "checks":checks,"physicalCalibration":"unverified"}
+        f.app.dependency_overrides[write_api.get_adapters]=lambda:write_api.Adapters(
+            Runtime(lambda db,identity,row:True,approvals.authorize_qa,test_sqlite=True),
+            f.backend.store,reviewer)
+        with patch("app.modules.image_orchestrator.admission.inspect_current",
+                   return_value={"jobId":"fixture-job","assetId":"fixture-asset"}):
+            result=self.upload()
+        self.assertEqual(result.status_code,409,result.text)
+        self.assertEqual(result.json()["detail"],"image_independent_qa_rejected")
+        self.assertEqual(f.writes,0)
+        with Session(f.engine) as db:
+            r=db.get(ImageRole,(fixture.TENANT,f.pack.pack_id,1))
+            self.assertEqual(r.status,"pending")
+            self.assertEqual(r.failure_code,"independent_qa_rejected")
+            self.assertEqual(db.get(ImageQAApproval,(fixture.TENANT,self.rid)).verdict,"hold")

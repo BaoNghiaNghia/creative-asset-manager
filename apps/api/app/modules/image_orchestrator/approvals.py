@@ -25,6 +25,29 @@ def _locked(db,model,**conditions):
         .execution_options(populate_existing=True))
 
 
+def execution_evidence_valid(value):
+    """Operator-only, immutable canary scope; never a worker assertion."""
+    keys={"scope","resourceEvidenceSha256","cronNativeEvidenceSha256",
+        "driveEvidenceSha256","backupReceiptSha256","restoreEvidenceSha256",
+        "backupOnlyCanary","serverOnlyLegacyFence","legacyClientDrainVerified",
+        "nativeOutputPx","previewOnlyCanary"}
+    if not isinstance(value,dict) or set(value)!=keys or value["scope"]!="single_pack":
+        return False
+    if not all(p.valid_sha(value[k]) for k in ("resourceEvidenceSha256",
+            "cronNativeEvidenceSha256","driveEvidenceSha256","backupReceiptSha256")):
+        return False
+    if any(type(value[k]) is not bool for k in ("backupOnlyCanary","serverOnlyLegacyFence",
+            "legacyClientDrainVerified","previewOnlyCanary")):
+        return False
+    if value["backupOnlyCanary"]:
+        if value["restoreEvidenceSha256"] is not None:return False
+    elif not p.valid_sha(value["restoreEvidenceSha256"]):return False
+    if not (value["serverOnlyLegacyFence"] or value["legacyClientDrainVerified"]):return False
+    size=value["nativeOutputPx"]
+    return (type(size) is int and 1600<=size<=4000 and
+            (size>=2000 or value["previewOnlyCanary"]))
+
+
 def _plan_evidence(pack,evidence):
     try:
         profile=native.profile_from_plan(pack.approved_plan)
@@ -34,7 +57,8 @@ def _plan_evidence(pack,evidence):
     if profile is not None:
         required.add("operatorPolicyReceiptSha256")
     return (isinstance(evidence,dict) and
-        set(evidence)==required and
+        set(evidence) in (required,required|{"executionEvidence"}) and
+        ("executionEvidence" not in evidence or execution_evidence_valid(evidence["executionEvidence"])) and
         all(p.valid_sha(evidence[k]) for k in required) and
         evidence["originalBytesSha256"]==pack.artwork_sha256 and
         evidence["paletteEvidenceSha256"]==admission.PALETTE_SHA and

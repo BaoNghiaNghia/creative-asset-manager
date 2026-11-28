@@ -34,10 +34,21 @@ class Adapters:
     # Must resolve QA/source proof, store through CAM's shared Drive adapter
     # and return server-verified receipt, not a renderer's claimed upload.
     store: Callable[[UploadTicket,bytes],Awaitable[SavedOutput]]
+    review: Callable|None = None
 
 
-def get_adapters() -> Adapters:
-    raise HTTPException(503,"image_execution_adapters_unverified")
+def get_adapters(identity: Identity,db: Database) -> Adapters:
+    from .live_runtime import can_bind,runtime_plan_authorized
+    from .approvals import authorize_qa
+    from .storage import store_central_output
+    from .live_review import review_exact
+    # The operator-owned resource record is the actual integration gate,
+    # not a new environment flag or a renderer assertion. STOP is enforced
+    # at claim/start; an already authorized upload can still reconcile.
+    if not can_bind(db,identity):
+        raise HTTPException(503,"image_execution_adapters_unverified")
+    return Adapters(Runtime(runtime_plan_authorized,authorize_qa),
+                    store_central_output,review_exact)
 
 
 class RedactedRoute(APIRoute):
@@ -228,6 +239,24 @@ async def upload(listing_id: ListingPath,role: RolePath,commandId: CommandQuery,
     png=bytes(data)
     w,h=await run_in_threadpool(inspect_png,png,sha)
     command_scope=scope(commandId,pack,sku,listing_id)
+    if backend.review is not None:
+        from .live_review import review_transition
+        def fenced_review(review=None):
+            return review_transition(service(db,identity,backend),command_scope,epoch,
+                token,int(role),attempt,now(),sha,w,h,artwork,placement,qa_id,
+                source_sha,skill_sha,batch_id,output_index,generation_method,
+                qa_record_sha,review=review)
+        ctx=perform(db,fenced_review)
+        if ctx is not None:
+            try:
+                verdict,evidence=await backend.review(ctx,png)
+            except Exception:
+                # No false QA approval or storage write on provider timeout.
+                # Preserve the attempt for the same-PNG reconciliation.
+                raise HTTPException(503,"image_independent_review_unavailable") from None
+            committed=perform(db,lambda:fenced_review((ctx,verdict,evidence)))
+            if committed is not None and committed!="pass":
+                raise HTTPException(409,"image_independent_qa_rejected")
     prepared=perform(db,lambda:service(db,identity,backend).prepare_upload(
         command_scope,epoch,token,int(role),attempt,now(),sha,w,h,artwork,placement,qa_id,
         source_sha,skill_sha,batch_id=batch_id,output_index=output_index,

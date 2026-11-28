@@ -79,6 +79,19 @@ def project_gallery(db: Session,ticket: UploadTicket,receipt: p.StoredReceipt,
                   previous.native_width==ticket.width and previous.native_height==ticket.height,
                   "immutable_gallery_slot")
         return
+    color_meta=None
+    if db.get_bind().dialect.name=="postgresql":
+        from .model import ImagePack
+        from .admission import PALETTE
+        from app.modules.etsy_spy.sms_mockup_sync import metadata
+        pack=db.get(ImagePack,(ticket.tenant,ticket.pack_id))
+        p.require(pack is not None and isinstance(pack.approved_plan,dict),
+                  "gallery_color_plan_missing")
+        color_name=None if ticket.role==13 else PALETTE[
+            pack.approved_plan["roleColors"][f"{ticket.role:02d}"]][0]
+        color_meta=metadata(sku=ticket.sku,slot=ticket.role,
+            design_sha=ticket.artwork_sha,image_sha=ticket.image_sha,
+            color_name=color_name,source="verified_muse_plan")
     db.add(ListingImage(tenant_id=ticket.tenant,listing_key=ticket.listing,
         pack_id=ticket.gallery_id,slot=ticket.role,garment_code=ticket.sku,
         design_sha256=ticket.artwork_sha,source_sha256=ticket.source_sha,
@@ -86,7 +99,8 @@ def project_gallery(db: Session,ticket: UploadTicket,receipt: p.StoredReceipt,
         drive_thumbnail_folder_id=evidence.drive_thumbnail_folder_id,
         drive_file_id=evidence.drive_file_id,drive_thumbnail_id=evidence.drive_thumbnail_id,
         output_sha256=ticket.image_sha,thumbnail_sha256=evidence.thumbnail_sha256,
-        native_width=ticket.width,native_height=ticket.height,source_job_id=source_job))
+        native_width=ticket.width,native_height=ticket.height,source_job_id=source_job,
+        sms_color_metadata=color_meta))
     db.flush()
 
 

@@ -159,7 +159,23 @@ def current_asset(db, job):
 def reservation_blocks_legacy(db, tenant, listing):
     rows=list(db.scalars(job_query(tenant).where(Job.entity_id==listing,
             Job.status.in_(("pending","processing"))).limit(2)))
-    return any(isinstance(j.payload_json.get("legacyFence"),dict) for j in rows)
+    if any(isinstance(j.payload_json.get("legacyFence"),dict) for j in rows):
+        return True
+    # The central operator admission holds this same tenant advisory lock.
+    # Preserve the old Extension endpoint and protect only admitted listings.
+    if db.get_bind().dialect.name=="postgresql":
+        from .readiness import schema_evidence
+        if schema_evidence(db)["centralSchemaReady"]:
+            from .model import ImagePack,ImagePlanApproval
+            from .approvals import execution_evidence_valid
+            for approval in db.scalars(select(ImagePlanApproval).join(ImagePack,
+                    (ImagePlanApproval.tenant_id==ImagePack.tenant_id)&
+                    (ImagePlanApproval.pack_id==ImagePack.pack_id))
+                    .where(ImagePack.tenant_id==tenant,ImagePack.listing_key==listing,
+                           ImagePlanApproval.revoked.is_(False))):
+                if execution_evidence_valid(approval.evidence.get("executionEvidence")):
+                    return True
+    return False
 
 
 def no_gallery(db, job):
