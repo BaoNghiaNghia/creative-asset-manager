@@ -64,6 +64,8 @@ from app.modules.etsy_spy.router import router as etsy_spy_router
 from app.modules.muse_bridge.router import router as muse_bridge_router
 from app.modules.muse_bridge import model as muse_bridge_model
 from app.modules.image_orchestrator.read_api import router as image_orchestrator_read_router
+from app.modules.image_orchestrator.adaptive_v61 import router as image_orchestrator_batch_router
+from app.modules.image_orchestrator.write_api import router as image_orchestrator_write_router
 from app.modules.image_orchestrator.lite_api import router as muse_image_lite_router
 from app.modules.muse_bridge import observability as muse_observability
 from app.modules.etsy_spy.service import prune_system_logs
@@ -408,6 +410,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     api.include_router(etsy_spy_router)
     api.include_router(muse_bridge_router)
     api.include_router(image_orchestrator_read_router)
+    # V6.1 candidate: literal batch routes precede dynamic role upload paths.
+    # get_adapters is fail-closed; schema and live execution remain disabled.
+    api.include_router(image_orchestrator_batch_router)
+    api.include_router(image_orchestrator_write_router)
     api.include_router(muse_image_lite_router)
     api.include_router(metadata_router, prefix="/api")
     api.include_router(processing_policy_router)

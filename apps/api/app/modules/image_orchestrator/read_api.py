@@ -99,7 +99,15 @@ def _gate(identity: ImageIdentity) -> dict:
 @router.get("/skill-registry")
 def skill_registry(response: Response, identity: Identity):
     _no_cache(response)
-    return {**_registry(), **_gate(identity),
+    # V6.1 bundle pins are visible for discovery; this is not execution readiness.
+    from .adaptive_v61 import REGISTRY as adaptive_registry, BUNDLE_SHA256
+    candidate = {key: value for key, value in adaptive_registry.items()
+                 if key not in {"protocol", "workerId", "claimEnabled", "rendererAllowed", "status"}}
+    return {**_registry(), **candidate, **_gate(identity),
+            "bundleSha256": BUNDLE_SHA256,
+            "candidateWorkerId": "muse-image-01",
+            "candidateResourceId": "muse-native-imagegen-01",
+            "adaptiveBatchProtocol": adaptive_registry["adaptiveBatchPolicy"],
             "registryStatus": "candidate",
             "paletteVerified": False,
             "printBoxAuthority": "CAM_PRINT_BOX_SINGLE_AUTHORITY_V1",

@@ -108,11 +108,26 @@ class StoredReceipt:
     qa_status: str
     storage_verified: bool
     placement_sha: str
+    publication_minimum_px: int = PUBLICATION_MIN_NATIVE
+    generation_method: str | None = None
+    qa_record_sha: str | None = None
+    operator_policy_receipt_sha: str | None = None
+
+    @property
+    def publication_scope(self):
+        return (self.publication_minimum_px,self.generation_method,
+                self.qa_record_sha,self.operator_policy_receipt_sha)
 
     @property
     def publication_ready(self) -> bool:
-        return (self.storage_verified and self.qa_status == "pass"
-                and self.width == self.height and self.width >= PUBLICATION_MIN_NATIVE)
+        legacy=self.publication_scope==(PUBLICATION_MIN_NATIVE,None,None,None)
+        native=(self.generation_method=="NATIVE_IMAGEGEN"
+                and type(self.publication_minimum_px) is int
+                and self.publication_minimum_px in (1600,PUBLICATION_MIN_NATIVE)
+                and valid_sha(self.qa_record_sha)
+                and valid_sha(self.operator_policy_receipt_sha))
+        return bool((legacy or native) and self.storage_verified is True and self.qa_status=="pass"
+                    and self.width==self.height and self.width>=self.publication_minimum_px)
 
 
 @dataclass
@@ -132,6 +147,10 @@ class Lease:
     expires_at: int
     command_hash: str = field(repr=False)
     image_hash: str = field(repr=False)
+    # Historical leases lack a baseline and cannot be refunded.
+    verified_at_claim: int | None = None
+    # V6.1: only bounded manifest metadata, never raw lease credentials.
+    adaptive_batches: dict = field(default_factory=dict, repr=False)
 
 
 @dataclass(frozen=True)
@@ -223,7 +242,8 @@ def claim(pack: Pack, worker: str, wave: int, now: int, *,
     pack.epoch += 1
     pack.owner = worker
     pack.wave_claims[wave] += 1
-    pack.lease = Lease(worker, wave, pack.epoch, now + LEASE_SECONDS, digest(c), digest(i))
+    pack.lease = Lease(worker, wave, pack.epoch, now + LEASE_SECONDS, digest(c), digest(i),
+                       sum(pack.roles[n].status == "verified" for n in WAVES[wave]))
     return Grant(pack.epoch, pack.lease.expires_at, c, i)
 
 
@@ -340,8 +360,17 @@ def complete(pack: Pack, worker: str, epoch: int, command_token: str,
     require(not pack.uncertain, "reconciliation_required")
     expected = "success" if not missing else "partial" if verified else "failed"
     require(outcome == expected, "outcome_receipt_mismatch")
+    # Refund a claim only for new, durable verified roles. A failed or empty
+    # slice still consumes the existing five-claim no-progress budget.
+    baseline = lease.verified_at_claim
+    progress = type(baseline) is int and 0 <= baseline < len(verified)
+    if progress:
+        require(pack.wave_claims[lease.wave] > 0, "wave_claim_state_invalid")
+        pack.wave_claims[lease.wave] -= 1
     result = {"outcome": outcome, "wave": lease.wave, "verifiedRoles": verified,
-              "missingRoles": missing, "packComplete": pack.complete}
+              "missingRoles": missing, "packComplete": pack.complete,
+              "productiveSlice": progress,
+              "remainingNoProgressClaims": MAX_WAVE_CLAIMS - pack.wave_claims[lease.wave]}
     pack.acks = {k: v for k, v in pack.acks.items() if v["expires_at"] >= now}
     pack.acks[key] = {"expires_at": now + ACK_REPLAY_SECONDS, "result": result}
     pack.lease = None
