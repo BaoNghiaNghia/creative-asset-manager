@@ -366,12 +366,13 @@ def image_status(response: Response, identity: Identity, db: Database,
         from .adaptive_v61 import barrier_snapshot
         from .qa_submission import storage_receipt_id
         mapped={}
+        repair=(pack.ack_state or {}).get(p.REPAIR_METADATA_KEY)
         for row,item in zip(rows,roles):
             receipt=item["receipt"]
-            entry={"status":item["status"],"attemptCount":item["attempts"],
-                   "attempts":item["attempts"],"storageVerified":False,
+            stats=p.attempt_stats(item["status"],row.attempts,repair,row.role)
+            entry={"status":item["status"],"attempts":stats["attemptCount"],"storageVerified":False,
                    "attemptId":row.attempt_id,"qaStatus":None,"lastOutcome":row.failure_code,
-                   "retryAllowed":item["status"]=="pending" and row.attempts<p.MAX_ROLE_ATTEMPTS}
+                   **stats}
             if receipt is not None:
                 entry.update(receipt)
                 entry["qaStatus"]="pass"
@@ -393,7 +394,7 @@ def image_status(response: Response, identity: Identity, db: Database,
                     "calls":[{"callId":v["callId"],"role":v["role"],
                         "attemptId":v["attempt"],"generationMethod":v["method"]}
                         for v in info["calls"].values()]}
-        payload.update(roles=mapped,
+        payload.update(roles=mapped,repairGrant=repair,packEpoch=pack.epoch,
             waveCommands={wave:detail["status"] for wave,detail in wave_commands.items()},
             waveCommandDetails=wave_commands,activeBatch=active_batch,
             reconciliationRequired=any(r["status"] in

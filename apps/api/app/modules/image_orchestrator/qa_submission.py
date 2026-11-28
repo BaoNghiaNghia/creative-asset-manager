@@ -169,6 +169,6 @@ def reject_local(svc,sc,ts,*,role,epoch,token,attempt,batch_id,candidate_sha,qa_
         return {"status":"local_rejection_recorded","role":role,"attemptId":attempt,
             "batchId":batch_id,"candidateSha256":candidate_sha,"qaRecordSha256":qa_sha,
             "rejectionSha256":envelope_sha,"roleStatus":rr.status,
-            "attemptCount":rr.attempts,"retryAllowed":rr.status=="pending" and
-            rr.attempts<p.MAX_ROLE_ATTEMPTS,"storageWritePerformed":False}
+            **p.attempt_stats(rr.status,rr.attempts,pack.repair_grant,role),
+            "storageWritePerformed":False}
     return svc._transition(sc,row,apply)

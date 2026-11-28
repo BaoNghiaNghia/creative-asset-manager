@@ -29,6 +29,10 @@ REGISTRY = {
     "bundlePinEvidence": "CAM_VERIFIED_ZIP_MANIFEST_20261128",
     "bundleBytesVerifiedByCAM": True,
     "localRejectionProtocol": "CAM_IMAGE_LOCAL_REJECT_V1",
+    "wornRepairProtocol": p.REPAIR_PROTOCOL,
+    # Remains closed until CAM independently verifies corrected prompt +
+    # runner repair support and pins that exact new bundle.
+    "wornRepairBundleVerified": False,
     "bundleReportedBytes": 230951,
     "bundleManifestSha256": "9959176449ecf2fda82b38bbf4203bef6256785201be9b2febeb4270963a355c",
     "bundleRegistrySha256": "dee1a39c8cb4e5f87fe0975cde92cd60f5ec3b68cd56a16b76b9251798fed2e7",
@@ -109,8 +113,7 @@ def claim_manifest(pack, worker, command_token, epoch, ts, manifest, sha,
         # Each batch contains only eligible roles. No partial subset is silently
         # authorized; refresh image-status and replan on a conflict.
         accepted = [role for _,role,_,_ in rows]
-        p.require(all(pack.roles[role].status == "pending"
-                      and pack.roles[role].attempts < p.MAX_ROLE_ATTEMPTS
+        p.require(all(p.role_can_start(pack,role)
                       and attempt not in pack.used_attempt_ids
                       for _,role,attempt,_ in rows), "v61_role_not_claimable")
         # No second manifest may reuse a previous batch's attempt or call ID.

@@ -8,6 +8,7 @@ No worker-controlled fields are accepted as authoritative proof here.
 from __future__ import annotations
 
 from dataclasses import asdict
+from copy import deepcopy
 from typing import Callable, TypeVar
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -87,6 +88,8 @@ def _load(db: Session, row: ImagePack) -> tuple[p.Pack, list[ImageRole]]:
                               row.garment_sku, row.pack_revision, row.placement_sha256,
                               row.source_sha256, row.skill_sha256)
     p.require(identity.pack_id == row.pack_id, "pack_identity_corrupt")
+    acks=deepcopy(row.ack_state)
+    repair=acks.pop(p.REPAIR_METADATA_KEY,None)
     pack = p.Pack(identity=identity, owner=row.owner, epoch=row.epoch,
                   lease=p.Lease(**row.lease_state) if row.lease_state else None,
                   roles={r.role: p.Role(status=r.status, attempts=r.attempts,
@@ -94,8 +97,44 @@ def _load(db: Session, row: ImagePack) -> tuple[p.Pack, list[ImageRole]]:
                                       receipt=p.StoredReceipt(**r.receipt_state) if r.receipt_state else None,
                                       failure_code=r.failure_code) for r in roles},
                   wave_claims={int(k): v for k, v in row.wave_claims.items()},
-                  acks=dict(row.ack_state), used_attempt_ids=set(row.used_attempt_ids))
+                  acks=acks, used_attempt_ids=set(row.used_attempt_ids), repair_grant=repair)
+    validate_repair(pack)
     return pack, roles
+
+
+def validate_repair(pack):
+    grant=pack.repair_grant
+    if grant is None:return
+    p.require(isinstance(grant,dict) and set(grant)=={"protocol","grantId","packId","planSha256",
+              "previousBatchId","issuedAt","expectedEpoch","bundleSha256","promptEvidenceSha256","roles"}
+              and grant["protocol"]==p.REPAIR_PROTOCOL and grant["packId"]==pack.identity.pack_id
+              and all(p.valid_sha(grant[k]) for k in ("grantId","planSha256","bundleSha256","promptEvidenceSha256"))
+              and isinstance(grant["roles"],dict) and set(grant["roles"])=={"1","3"},
+              "repair_grant_corrupt")
+    immutable=deepcopy(grant)
+    expected=immutable.pop("grantId")
+    for slot in immutable["roles"].values():
+        p.require(isinstance(slot,dict),"repair_grant_corrupt")
+        slot["repairAttemptId"]=None
+    p.require(p.canonical_sha(immutable)==expected and
+              type(grant["expectedEpoch"]) is int and 1<=grant["expectedEpoch"]<=pack.epoch
+              and type(grant["issuedAt"]) is int and grant["issuedAt"]>=0,
+              "repair_grant_corrupt")
+    for role in (1,3):
+        slot=grant["roles"][str(role)]
+        r=pack.roles[role]
+        p.require(isinstance(slot,dict) and set(slot)=={"priorAttemptIds","repairAttemptId"}
+                  and isinstance(slot["priorAttemptIds"],list)
+                  and len(set(slot["priorAttemptIds"]))==len(slot["priorAttemptIds"])==p.MAX_ROLE_ATTEMPTS
+                  and set(slot["priorAttemptIds"])<=pack.used_attempt_ids
+                  and r.attempts==p.MAX_ROLE_ATTEMPTS,"repair_grant_corrupt")
+        extra=slot["repairAttemptId"]
+        if extra is None:
+            p.require(r.status=="pending" and r.attempt_id in slot["priorAttemptIds"],
+                      "repair_grant_role_state_corrupt")
+        else:
+            p.require(extra in pack.used_attempt_ids and extra not in slot["priorAttemptIds"]
+                      and extra==r.attempt_id and r.status!="pending","repair_grant_role_state_corrupt")
 
 
 def _store(row: ImagePack, pack: p.Pack, roles: list[ImageRole]):
@@ -111,7 +150,21 @@ def _store(row: ImagePack, pack: p.Pack, roles: list[ImageRole]):
         p.require(p.valid_sha(row.lease_state["command_hash"])
                   and p.valid_sha(row.lease_state["image_hash"]), "invalid_lease_hash")
     row.wave_claims = {str(k): v for k, v in pack.wave_claims.items()}
-    row.ack_state = dict(pack.acks)
+    validate_repair(pack)
+    previous=(row.ack_state or {}).get(p.REPAIR_METADATA_KEY)
+    if previous is not None:
+        p.require(pack.repair_grant is not None,"repair_grant_immutable")
+        old=deepcopy(previous)
+        new=deepcopy(pack.repair_grant)
+        for role in ("1","3"):
+            before=old["roles"][role].pop("repairAttemptId")
+            after=new["roles"][role].pop("repairAttemptId")
+            p.require(before is None or before==after,"repair_attempt_immutable")
+        p.require(old==new,"repair_grant_immutable")
+    if pack.repair_grant is not None:
+        p.require(pack.repair_grant["planSha256"]==row.plan_sha256,"repair_grant_plan_changed")
+    row.ack_state = {**pack.acks,**({p.REPAIR_METADATA_KEY:deepcopy(pack.repair_grant)}
+                     if pack.repair_grant is not None else {})}
     row.used_attempt_ids = sorted(pack.used_attempt_ids)
     for r in roles:
         state = pack.roles[r.role]

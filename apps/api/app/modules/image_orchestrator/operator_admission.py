@@ -217,3 +217,33 @@ async def admit(body:Admit,tenant:Operator,db:Database):
     except Exception:
         db.rollback()
         raise HTTPException(503,"image_admission_provider_unavailable") from None
+
+class WornRepair(BaseModel):
+    model_config=ConfigDict(extra="forbid")
+    listingId:str=Field(pattern=r"^[0-9]{5,20}$")
+    packId:str=Field(pattern=SHA)
+    expectedEpoch:int=Field(ge=1,strict=True)
+    bundleSha256:str=Field(pattern=SHA)
+    promptEvidenceSha256:str=Field(pattern=SHA)
+
+@router.post("/repair-held-preview")
+def repair_held_preview(body:WornRepair,tenant:Operator,db:Database):
+    from . import worn_repair
+    if not schema_evidence(db)["centralSchemaReady"] or not image_worker_configured():
+        raise HTTPException(503,"image_runtime_not_configured")
+    try:
+        # Keep the route disabled until the *corrected* bundle and its
+        # exact prompt/recovery evidence have independently been pinned.
+        worn_repair.verify_bundle(body.bundleSha256,body.promptEvidenceSha256)
+        backup_receipt()
+        lock_tenant(db,tenant)
+        result=worn_repair.grant(db,tenant,body.listingId,body.packId,body.expectedEpoch,
+            body.bundleSha256,body.promptEvidenceSha256,int(time.time()))
+        db.commit()
+        return result
+    except (p.Conflict,KeyError,ValueError,TypeError) as exc:
+        db.rollback()
+        raise HTTPException(409,str(exc) if isinstance(exc,p.Conflict) else "image_repair_invalid") from None
+    except Exception:
+        db.rollback()
+        raise HTTPException(503,"image_repair_unavailable") from None

@@ -53,8 +53,20 @@ def can_bind(db,identity):
     return cap is not None and resource is not None and active_approval(db,identity) is not None
 
 
+def pending_repair_bundle_matches(pack):
+    grant=(pack.ack_state or {}).get(p.REPAIR_METADATA_KEY)
+    if not grant:return True
+    if not any(slot.get("repairAttemptId") is None for slot in grant.get("roles",{}).values()):
+        return True
+    from .adaptive_v61 import REGISTRY,BUNDLE_SHA256
+    return (REGISTRY.get("wornRepairBundleVerified") is True
+            and grant.get("bundleSha256")==BUNDLE_SHA256
+            and grant.get("promptEvidenceSha256")==REGISTRY.get("wornRepairEvidenceSha256"))
+
+
 def runtime_plan_authorized(db,identity,pack):
-    if identity.worker!=WORKER or identity.kind!="muse" or not approvals.authorize_plan(db,identity,pack):
+    if (identity.worker!=WORKER or identity.kind!="muse" or not pending_repair_bundle_matches(pack)
+            or not approvals.authorize_plan(db,identity,pack)):
         return False
     approval=db.get(ImagePlanApproval,(identity.tenant,pack.pack_id))
     if (pack.owner not in (None,identity.worker) or not approval or
@@ -91,7 +103,7 @@ def admission_ready(db,identity,pack):
         admission.inspect_current(db,identity.tenant,pack)
     except (p.Conflict,TypeError,ValueError):
         return False
-    return pack.owner in (None,identity.worker)
+    return pack.owner in (None,identity.worker) and pending_repair_bundle_matches(pack)
 
 
 def readiness(db,identity):
@@ -143,8 +155,9 @@ def descriptors(db,identity,limit=20):
         from .adaptive_v61 import barrier_snapshot,PROTOCOL
         barrier=barrier_snapshot(identity.tenant,pack.pack_id,pack.owner,wave1,batch.release_decision)
         if cmd.wave==2 and not barrier["wave2Open"]:continue
+        repair=(pack.ack_state or {}).get(p.REPAIR_METADATA_KEY)
         missing=[x.role for x in roles if x.role in p.WAVES[cmd.wave]
-                 and x.status=="pending" and x.attempts<p.MAX_ROLE_ATTEMPTS]
+                 and p.attempt_stats(x.status,x.attempts,repair,x.role)["retryAllowed"]]
         if not missing: continue
         title=db.scalar(select(EtsySpyListing.title).where(
             EtsySpyListing.tenant_id==identity.tenant,EtsySpyListing.listing_key==pack.listing_key)
@@ -161,6 +174,7 @@ def descriptors(db,identity,limit=20):
             "planSha256":pack.plan_sha256,"skillRegistry":{"skillSha256":p.SKILL_SHA256},
             "imageJobClaim":{"body":{"wave":cmd.wave}},
             "imageOriginalPath":f"/api/v1/muse-bridge/jobs/{pack.listing_key}/image-original?artworkSha256={pack.artwork_sha256}",
-            "allowedRoles":missing,"barrier":barrier,"publicationMinimumPx":p.PUBLICATION_MIN_NATIVE})
+            "allowedRoles":missing,"barrier":barrier,"publicationMinimumPx":p.PUBLICATION_MIN_NATIVE,
+            **({"repairGrant":repair,"expectedPreviousEpoch":pack.epoch} if repair else {})})
         if len(result)>=limit:break
     return result

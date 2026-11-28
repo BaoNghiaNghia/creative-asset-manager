@@ -29,6 +29,8 @@ HEARTBEAT_SECONDS = 60
 BARRIER_SECONDS = 86400
 ACK_REPLAY_SECONDS = 86400
 MAX_ROLE_ATTEMPTS = 3  # one first attempt + two verified-failure retries
+REPAIR_PROTOCOL = "CAM_IMAGE_WORN_REPAIR_V1"
+REPAIR_METADATA_KEY = "_operatorRepairGrantV1"
 MAX_WAVE_CLAIMS = 5
 PILOT_MIN_NATIVE = 1600
 PUBLICATION_MIN_NATIVE = 2000
@@ -173,6 +175,9 @@ class Pack:
     # Bounded durable ACK metadata; never retain raw tokens.
     acks: dict[str, dict] = field(default_factory=dict, repr=False)
     used_attempt_ids: set[str] = field(default_factory=set, repr=False)
+    # Separate from expiring ACKs. Only a trusted operator may create this
+    # one-use preview repair grant; normal attempt counters never reset.
+    repair_grant: dict | None = field(default=None, repr=False)
 
     def wave_complete(self, wave: int) -> bool:
         return all(self.roles[i].status == "verified" for i in WAVES[wave])
@@ -266,6 +271,31 @@ def heartbeat(pack: Pack, worker: str, epoch: int, command_token: str, now: int)
     return lease.expires_at
 
 
+def repair_slot(grant, role):
+    if not isinstance(grant, dict):
+        return None
+    if grant.get("protocol") != REPAIR_PROTOCOL:
+        return None
+    slots=grant.get("roles")
+    return slots.get(str(role)) if isinstance(slots,dict) else None
+
+
+def attempt_stats(status, base_attempts, grant, role):
+    """The original three-attempt counter remains immutable at exhaustion."""
+    slot=repair_slot(grant,role)
+    extra=bool(slot is not None)
+    consumed=bool(extra and slot.get("repairAttemptId"))
+    count=base_attempts+int(consumed)
+    limit=MAX_ROLE_ATTEMPTS+int(extra)
+    return {"baseAttemptCount":base_attempts,"attemptCount":count,
+            "attemptLimit":limit,"retryAllowed":status=="pending" and count<limit}
+
+
+def role_can_start(pack,role):
+    r=pack.roles[role]
+    return attempt_stats(r.status,r.attempts,pack.repair_grant,role)["retryAllowed"]
+
+
 def role_start(pack: Pack, worker: str, epoch: int, image_token: str, now: int,
                role: int, attempt_id: str, *, flow_running: bool = False,
                resource_granted: bool = False) -> bool:
@@ -279,13 +309,19 @@ def role_start(pack: Pack, worker: str, epoch: int, image_token: str, now: int,
         return False
     require(flow_running and resource_granted, "image_start_disabled")
     require(not pack.uncertain, "reconciliation_required")
-    require(r.status == "pending" and r.attempts < MAX_ROLE_ATTEMPTS, "role_not_pending")
+    require(role_can_start(pack,role), "role_not_pending")
     require(attempt_id not in pack.used_attempt_ids, "attempt_id_reused")
     if role == 13:
         require(all(pack.roles[i].status == "verified" and pack.roles[i].receipt
                     and pack.roles[i].receipt.qa_status == "pass"
                     for i in INFOGRAPHIC_DEPENDENCIES), "infographic_dependencies_missing")
-    r.attempts += 1
+    if r.attempts < MAX_ROLE_ATTEMPTS:
+        r.attempts += 1
+    else:
+        slot=repair_slot(pack.repair_grant,role)
+        require(slot is not None and slot.get("repairAttemptId") is None,
+                "repair_attempt_exhausted")
+        slot["repairAttemptId"]=attempt_id
     pack.used_attempt_ids.add(attempt_id)
     r.attempt_id = attempt_id
     r.status = "dispatch_uncertain"  # commit BEFORE invoking renderer
