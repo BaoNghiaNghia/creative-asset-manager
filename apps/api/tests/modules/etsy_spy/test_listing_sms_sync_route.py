@@ -209,3 +209,61 @@ def test_invalid_stage_fails_closed(scenario, tmp_path, monkeypatch):
         stage.stage_path(TENANT).write_text(json.dumps(doc | bad))
         assert client.get(BASE+"/sms-sync-stage").status_code==503
     assert db.scalars(select(AuthAuditEventModel)).all()==[]
+
+
+def test_v4_operator_color_metadata_and_prepared_target(scenario,monkeypatch):
+    from app.modules.etsy_spy import sms_mockup_sync as v
+    from app.modules.etsy_spy import sms_mockup_share as share
+    client,db,principal=scenario
+    endpoint=BASE+"/listings/"+KEY+"/sms-mockups-color-evidence"
+    prepare=BASE+"/listings/"+KEY+"/sms-mockups-prepare"
+    pack="sp-"+"a"*40
+    existing=db.get(EtsySpyListingImage,(TENANT,KEY,pack,2))
+    existing.native_width=existing.native_height=2000
+    existing.output_sha256=f"{2:064x}"
+    for i in range(1,14):
+        if i==2:continue
+        db.add(EtsySpyListingImage(tenant_id=TENANT,listing_key=KEY,pack_id=pack,slot=i,
+            garment_code="C1717",design_sha256=MASTER,source_sha256="d"*64,placement="front_center",
+            drive_folder_id="exampleImageFolder",drive_thumbnail_folder_id="exampleThumbFolder",
+            output_sha256=f"{i:064x}",thumbnail_sha256=f"{100+i:064x}",
+            drive_file_id=f"exampleOriginal{i:03}",drive_thumbnail_id=f"exampleThumb{i:03}",
+            native_width=2000,native_height=2000))
+    db.commit()
+    view=client.get(PREFLIGHT).json()
+    projected=view["sms_mockups_v4"]["packs"][0]
+    assert projected["color_metadata_count"]==0 and not projected["ready_for_mockup_review"]
+    names=["Bay","Ivory","White","Pepper","Chambray","Blue Jean","Moss","Denim","Blossom"]
+    evidence={"confirm":True,"pack_id":pack,"garment_code":"C1717",
+              "expected_pack_sha256":projected["review_sha256"],"role_contract":v.CONTRACT,
+              "images":[{"slot":i,"output_sha256":f"{i:064x}",
+                         "color_name":None if i==13 else names[0 if i<=4 else i-4]} for i in range(1,14)]}
+    principal.effective_permissions=frozenset({"etsy_spy.read"})
+    assert client.post(endpoint,json=evidence).status_code==403
+    principal.effective_permissions=frozenset({"etsy_spy.read","etsy_spy.manage"})
+    assert client.post(endpoint,json=evidence,headers={"Sec-Fetch-Site":"cross-site"}).status_code==415
+    bad={**evidence,"images":[{**evidence["images"][0],"output_sha256":"f"*64}]}
+    assert client.post(endpoint,json=bad).status_code==409
+    assert client.post(endpoint,json=evidence).json()["updated"]==13
+    view=client.get(PREFLIGHT).json()
+    current=view["sms_mockups_v4"]["packs"][0]
+    assert current["ready_for_mockup_review"] and current["unique_color_count"]==9
+    assert client.post(endpoint,json=evidence).status_code==409
+    sms=payload(view["sms_sync_v2"]["candidate_id"])
+    body={"confirm":True,"pack_id":pack,"garment_code":"C1717","expected_pack_sha256":current["review_sha256"],
+          "target_id":sms["target_id"],"shop":SHOP,"color_choices":names,"current_mockups":0}
+    assert client.post(prepare,json=body).status_code==409
+    assert client.post(REPORT,json=sms).status_code==200
+    called=[]
+    async def fake_prepare(pack,rows,choices,*,target_id,shop):
+        called.append(len(rows))
+        assert choices==names and target_id==sms["target_id"]
+        return {"policy":v.POLICY,"chunks":[],"live_sms_verified_by_cam":False}
+    monkeypatch.setattr(share,"prepare",fake_prepare)
+    assert client.post(prepare,json={**body,"current_mockups":1}).status_code==422
+    assert client.post(prepare,json={**body,"target_id":JOB}).status_code==409
+    result=client.post(prepare,json=body)
+    assert result.status_code==200,result.text
+    assert called==[13] and result.json()["sms_written"] is False
+    assert result.json()["idea_code"]==sms["idea_code"]
+    assert client.get(PREFLIGHT).json()["sms_sync_v2"]["readback_state"]=="reported_counts_match"

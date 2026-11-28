@@ -630,12 +630,16 @@ async def upload(cid:str,request:Request,identity:Identity,db:Db,
     check(db.scalar(select(Picked).where(Picked.tenant_id==identity.tenant,
                 Picked.listing_key==listing).with_for_update()) is not None,"listing_not_picked")
     current_asset(db,job);no_gallery(db,job)
+    from app.modules.etsy_spy.sms_mockup_sync import metadata as sms_color_metadata
+    color_name = admission.PALETTE[plan["roleColors"]["01"]][0]
+    color_meta = sms_color_metadata(sku="C1717",slot=1,design_sha=plan["artworkSha256"],
+        image_sha=sha,color_name=color_name,source="verified_muse_plan")
     db.add(Gallery(tenant_id=identity.tenant,listing_key=listing,pack_id=gallery_id,slot=1,
         garment_code="C1717",design_sha256=plan["artworkSha256"],source_sha256=plan["sourceSha256"],
         placement="front",output_sha256=sha,thumbnail_sha256=remote["thumbnail_sha256"],
         drive_file_id=remote["drive_file_id"],drive_thumbnail_id=remote["drive_thumbnail_id"],
         drive_folder_id=remote["drive_folder_id"],drive_thumbnail_folder_id=remote["drive_thumbnail_folder_id"],
-        native_width=width,native_height=height,source_job_id=job.id))
+        native_width=width,native_height=height,source_job_id=job.id,sms_color_metadata=color_meta))
     receipt={"imageSha256":sha,"width":width,"height":height,"storageVerified":True,
              "qaReceiptId":qa_receipt,"publicationReady":True,"previewOnly":False,
              "galleryPackId":gallery_id,"role":1}

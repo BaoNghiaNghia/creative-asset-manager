@@ -1614,6 +1614,10 @@ def _listing_idea_preflight_view(db: Session, tenant: str, picked: Picked, *, dr
     view["sms_sync_v2"] = idea_plan(listing_key=key, source=source, seo=seo,
         extraction=extraction, designs=designs, muse=muse_job, table_links=table_links,
         saved=draft)
+    from .sms_mockup_sync import project as project_sms_mockups
+    master_sha = (view["media_integrity"].get("video_artwork_sha256")
+                  if view["media_integrity"].get("current_video_master_verified") else None)
+    view["sms_mockups_v4"] = project_sms_mockups(image_rows, master_sha)
     view["marketplace_blockers"] = list(view["blockers"])
     return view
 
@@ -1718,6 +1722,140 @@ def sms_sync_stage(response: Response, principal: CurrentPrincipal = Depends(MAN
     records = db.execute(select(Picked.listing_key, Picked.listing_idea_draft).where(
         Picked.tenant_id == tenant, Picked.listing_key.in_(keys))).all()
     return project_stage(stage, dict(records))
+
+
+async def _sms_mockup_body(request):
+    if (request.headers.get("content-type","").split(";")[0].strip().lower()!="application/json"
+            or request.headers.get("sec-fetch-site","").lower()=="cross-site"):
+        raise HTTPException(415,"SMS mockup review requires same-site JSON")
+    raw=bytearray()
+    async for chunk in request.stream():
+        if len(raw)+len(chunk)>16384:
+            raise HTTPException(413,"SMS mockup request too large")
+        raw.extend(chunk)
+    try:
+        body=json.loads(raw)
+    except (ValueError,TypeError,RecursionError):
+        raise HTTPException(422,"Invalid SMS mockup request") from None
+    if not isinstance(body,dict) or body.get("confirm") is not True:
+        raise HTTPException(422,"Explicit mockup review confirmation required")
+    return body
+
+
+def _sms_mockup_pack(db, tenant, listing_key, body, *, lock=False):
+    from .sms_mockup_sync import pack_sha, SHA
+    if (not re.fullmatch(r"[0-9]{5,20}", listing_key)
+            or not isinstance(body.get("pack_id"),str)
+            or not re.fullmatch(r"sp-[a-f0-9]{40}",body["pack_id"])
+            or body.get("garment_code") not in ("C1717","G500","G180","G185")
+            or not isinstance(body.get("expected_pack_sha256"),str)
+            or not SHA.fullmatch(body["expected_pack_sha256"])):
+        raise HTTPException(422,"Invalid SMS mockup pack identity")
+    stmt=select(Picked).where(Picked.tenant_id==tenant,Picked.listing_key==listing_key)
+    picked=db.scalar(stmt.with_for_update() if lock else stmt)
+    if picked is None:
+        raise HTTPException(404,"Picked listing not found")
+    view=_listing_idea_preflight_view(db,tenant,picked)
+    matches=[p for p in view["sms_mockups_v4"]["packs"] if p["pack_id"]==body["pack_id"]
+             and p["garment_code"]==body["garment_code"]]
+    if (len(matches)!=1 or not matches[0]["matches_current_master"]
+            or pack_sha(matches[0])!=body["expected_pack_sha256"]):
+        raise HTTPException(409,"SMS mockup pack changed or current master unavailable")
+    stmt=select(ListingImage).where(ListingImage.tenant_id==tenant,
+            ListingImage.listing_key==listing_key,ListingImage.pack_id==body["pack_id"],
+            ListingImage.garment_code==body["garment_code"]).order_by(ListingImage.slot)
+    rows=list(db.scalars(stmt.with_for_update() if lock else stmt))
+    return matches[0],rows,view
+
+
+@router.post("/listings/{listing_key}/sms-mockups-color-evidence")
+async def report_sms_mockup_colors(listing_key:str,request:Request,response:Response,
+        principal:CurrentPrincipal=Depends(MANAGE),db:Session=Depends(get_db)):
+    """Operator-confirmed color backfill for a verified current V13 image, not image QA."""
+    from .sms_mockup_sync import metadata,CONTRACT
+    from app.modules.auth_persistence.model import AuthAuditEventModel
+    body=await _sms_mockup_body(request)
+    response.headers["Cache-Control"]="private, no-store"
+    if set(body)!={"confirm","pack_id","garment_code","expected_pack_sha256","role_contract","images"} or body["role_contract"]!=CONTRACT:
+        raise HTTPException(422,"Exact V13 color evidence required")
+    if not isinstance(body["images"],list) or not 1<=len(body["images"])<=13:
+        raise HTTPException(422,"Invalid color evidence size")
+    tenant=principal.active_tenant_id
+    pack,rows,_=_sms_mockup_pack(db,tenant,listing_key,body,lock=True)
+    by_slot={r.slot:r for r in rows}
+    if set(by_slot)!=set(range(1,14)):
+        raise HTTPException(409,"Historical role contract must be verified; complete V13 required")
+    pending=[]
+    seen=set()
+    try:
+        for item in body["images"]:
+            if (not isinstance(item,dict) or set(item)!={"slot","output_sha256","color_name"}
+                    or type(item["slot"]) is not int or item["slot"] not in by_slot or item["slot"] in seen):
+                raise ValueError("invalid_color_evidence")
+            r=by_slot[item["slot"]]
+            seen.add(r.slot)
+            if r.output_sha256!=item["output_sha256"]:
+                raise ValueError("image_changed")
+            m=metadata(sku=r.garment_code,slot=r.slot,design_sha=r.design_sha256,
+                       image_sha=r.output_sha256,color_name=item["color_name"],source="operator_verified")
+            if r.sms_color_metadata is not None:
+                if any(r.sms_color_metadata.get(key)!=m[key] for key in ("schema","role_contract","color_name","output_sha256","design_sha256")):
+                    raise ValueError("existing_color_metadata_conflict")
+                continue
+            pending.append((r,m))
+    except (ValueError,TypeError,AttributeError) as exc:
+        raise HTTPException(409,detail={"code":str(exc)}) from None
+    for r,m in pending:
+        r.sms_color_metadata=m
+    if pending:
+        db.add(AuthAuditEventModel(tenant_id=tenant,actor_id=principal.user_id,
+            action="sms_mockup_color_evidence_reported",detail_json={
+                "listing_key":listing_key,"pack_id":pack["pack_id"],"slots":[r.slot for r,_ in pending],
+                "source":"operator_verified"}))
+        db.commit()
+    return {"updated":len(pending),"sms_written":False,"visual_qa_certified":False}
+
+
+@router.post("/listings/{listing_key}/sms-mockups-prepare")
+async def prepare_sms_mockups(listing_key:str,request:Request,response:Response,
+        principal:CurrentPrincipal=Depends(MANAGE),db:Session=Depends(get_db)):
+    """Prepare exact update-only review payload for an existing SMS Idea."""
+    from .sms_mockup_share import prepare
+    from .sms_mockup_sync import pack_sha
+    from types import SimpleNamespace
+    import httpx
+    body=await _sms_mockup_body(request)
+    response.headers["Cache-Control"]="private, no-store"
+    if (set(body)!={"confirm","pack_id","garment_code","expected_pack_sha256","target_id","shop","color_choices","current_mockups"}
+            or body["shop"]!="Tiktok_McGowanshopdesigns" or type(body["current_mockups"]) is not int or body["current_mockups"]!=0
+            or not isinstance(body["color_choices"],list) or not 1<=len(body["color_choices"])<=100
+            or any(not isinstance(c,str) or not 1<=len(c)<=64 for c in body["color_choices"])):
+        raise HTTPException(422,"Existing empty target and live color choices required")
+    tenant=principal.active_tenant_id
+    pack,rows,view=_sms_mockup_pack(db,tenant,listing_key,body)
+    plan=view["sms_sync_v2"]
+    receipt=plan.get("last_reported_readback") or {}
+    if (plan.get("readback_state")!="reported_counts_match" or receipt.get("target_id")!=body["target_id"]
+            or plan.get("garment")!=body["garment_code"]):
+        raise HTTPException(409,"Record matching SMS Idea receipt before mockup handoff")
+    # Snapshot only necessary original-file identities; release DB transaction
+    # before bounded Drive network I/O, then recheck pack and receipt.
+    refs=[SimpleNamespace(slot=r.slot,output_sha256=r.output_sha256,drive_file_id=r.drive_file_id,
+                          drive_thumbnail_id=r.drive_thumbnail_id) for r in rows]
+    db.rollback()
+    try:
+        result=await prepare(pack,refs,body["color_choices"],target_id=body["target_id"],shop=body["shop"])
+    except (ValueError,TypeError,httpx.HTTPError) as exc:
+        raise HTTPException(409,detail={"code":"SMS_MOCKUP_PREPARE_BLOCKED","reason":str(exc)[:160] if isinstance(exc,ValueError) else "media_unavailable"}) from None
+    _,fresh_rows,fresh=_sms_mockup_pack(db,tenant,listing_key,body)
+    if ([(r.slot,r.output_sha256,r.drive_file_id,r.drive_thumbnail_id) for r in fresh_rows] !=
+        [(r.slot,r.output_sha256,r.drive_file_id,r.drive_thumbnail_id) for r in refs]):
+        raise HTTPException(409,"Original file identity changed during preparation")
+    if (fresh["sms_sync_v2"].get("readback_state")!="reported_counts_match"
+            or fresh["sms_sync_v2"].get("last_reported_readback")!=receipt):
+        raise HTTPException(409,"SMS receipt changed during preparation")
+    return {**result,"idea_id":receipt["idea_id"],"idea_code":receipt["idea_code"],
+            "listing_key":listing_key,"pack_sha256":pack_sha(pack),"sms_written":False}
 
 
 @router.post("/listings/{listing_key}/sms-sync-readback")

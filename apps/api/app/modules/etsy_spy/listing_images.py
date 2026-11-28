@@ -168,6 +168,12 @@ async def save_listing_output(
         raise HTTPException(422, "SHA-bound design and Drive root identity required")
     if db.get(Picked, (agent.tenant_id, listing)) is None:
         raise HTTPException(409, "Listing is not currently Picked")
+    from .sms_mockup_sync import input_metadata
+    try:
+        color_meta = input_metadata(payload.get("color_metadata"), sku=garment, slot=slot,
+                                    design_sha=design_sha, image_sha=sha, expected_slots=expected_slots)
+    except (ValueError, TypeError):
+        raise HTTPException(422, "Invalid SHA-bound listing image color metadata") from None
     # Main-only revision is explicit compare-and-swap, never a normal resend.
     replace_sha = payload.get("replace_slot_sha256")
     revision_number = payload.get("main_revision_number")
@@ -200,6 +206,10 @@ async def save_listing_output(
             if replace_sha is None or previous.output_sha256 != replace_sha:
                 raise HTTPException(409, "Immutable ImageGen output slot changed")
         else:
+            # Replays cannot alter an existing color claim. Legacy rows remain
+            # unknown until the operator explicitly reconciles them.
+            if color_meta is not None and previous.sms_color_metadata != color_meta:
+                raise HTTPException(409, "Listing image color metadata requires reconciliation")
             manifest = await _ensure_pack_manifest(
                 db, agent.tenant_id, listing, pack, garment,
                 design_sha, source_sha, placement,
@@ -277,6 +287,7 @@ async def save_listing_output(
             drive_thumbnail_folder_id=remote["drive_thumbnail_folder_id"],
             native_width=width, native_height=height,
             source_job_id=source_job or None,
+            sms_color_metadata=color_meta,
         ))
         if changed.rowcount != 1:
             db.rollback()
@@ -299,7 +310,7 @@ async def save_listing_output(
             drive_file_id=remote["drive_file_id"],
             drive_thumbnail_id=remote["drive_thumbnail_id"],
             native_width=width, native_height=height,
-            source_job_id=source_job or None)
+            source_job_id=source_job or None, sms_color_metadata=color_meta)
         db.add(row)
     db.commit()
     manifest = await _ensure_pack_manifest(
@@ -656,6 +667,7 @@ def read_listing_gallery(
                 row.native_width, row.native_height),
             "width": row.native_width, "height": row.native_height,
             "savedAt": row.created_at,
+            "colorMetadata": row.sms_color_metadata,
             "thumbnailUrl": f"/api/v1/etsy-spy/listing-images/{row.pack_id}/{row.slot}/thumbnail?v={row.thumbnail_sha256[:12]}",
             "previewUrl": f"/api/v1/etsy-spy/listing-images/{row.pack_id}/{row.slot}/preview?v={row.output_sha256[:12]}-w720v1",
             "originalUrl": f"/api/v1/etsy-spy/listing-images/{row.pack_id}/{row.slot}/original?v={row.output_sha256[:12]}",

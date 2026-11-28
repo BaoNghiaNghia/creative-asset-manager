@@ -1,0 +1,1020 @@
+{
+  "schema": "CAM_SMS_MOCKUP_PALETTE_V1",
+  "snapshot_date": "2026-11-28",
+  "garments": {
+    "C1717": {
+      "product_id": "09c03cd2-bc4d-419e-618e-08db4f76128a",
+      "colors": [
+        {
+          "name": "True Navy",
+          "hex": "#041E42"
+        },
+        {
+          "name": "White",
+          "hex": "#ffffff"
+        },
+        {
+          "name": "Light Green",
+          "hex": "#5C7F71"
+        },
+        {
+          "name": "Black",
+          "hex": "#25282A"
+        },
+        {
+          "name": "Orchid",
+          "hex": "#C7B2DE"
+        },
+        {
+          "name": "Grey",
+          "hex": "#716E6A"
+        },
+        {
+          "name": "Denim",
+          "hex": "#425563"
+        },
+        {
+          "name": "Sage",
+          "hex": "#3E4827"
+        },
+        {
+          "name": "Flo Blue",
+          "hex": "#5576D1"
+        },
+        {
+          "name": "Chalky Mint",
+          "hex": "#5CB8B2"
+        },
+        {
+          "name": "Navy",
+          "hex": "#0C2340"
+        },
+        {
+          "name": "Seafoam",
+          "hex": "#487A7B"
+        },
+        {
+          "name": "Bay",
+          "hex": "#94A596"
+        },
+        {
+          "name": "Blue Jean",
+          "hex": "#647692"
+        },
+        {
+          "name": "Blue Spruce",
+          "hex": "#004C45"
+        },
+        {
+          "name": "Lagoon",
+          "hex": "#05C3DE"
+        },
+        {
+          "name": "Ivory",
+          "hex": "#E7CEB5"
+        },
+        {
+          "name": "Violet",
+          "hex": "#7474C1"
+        },
+        {
+          "name": "Pepper",
+          "hex": "#4E4B48"
+        },
+        {
+          "name": "Watermelon",
+          "hex": "#F4364C"
+        },
+        {
+          "name": "Chambray",
+          "hex": "#BDD6E6"
+        },
+        {
+          "name": "Crimson",
+          "hex": "#A4123F"
+        },
+        {
+          "name": "Terracotta",
+          "hex": "#E3775E"
+        },
+        {
+          "name": "Espresso",
+          "hex": "#533625"
+        },
+        {
+          "name": "Mustard",
+          "hex": "#F2CD00"
+        },
+        {
+          "name": "Butter",
+          "hex": "#F5E1A4"
+        },
+        {
+          "name": "Berry",
+          "hex": "#7E4966"
+        },
+        {
+          "name": "Blossom",
+          "hex": "#F8BED6"
+        },
+        {
+          "name": "Khaki",
+          "hex": "#A09074"
+        },
+        {
+          "name": "Sandstone",
+          "hex": "#A69F88"
+        },
+        {
+          "name": "Moss",
+          "hex": "#22372B"
+        },
+        {
+          "name": "Granite",
+          "hex": "#7C878E"
+        },
+        {
+          "name": "Ice Blue",
+          "hex": "#5B7F95"
+        },
+        {
+          "name": "Burnt Orange",
+          "hex": "#FF6900"
+        },
+        {
+          "name": "Washed Denim",
+          "hex": "#6787B7"
+        },
+        {
+          "name": "Red",
+          "hex": "#C8102E"
+        },
+        {
+          "name": "Hemp",
+          "hex": "#1C4220"
+        },
+        {
+          "name": "Royal Caribe",
+          "hex": "#0082BA"
+        },
+        {
+          "name": "Bright Salmon",
+          "hex": "#FF6D6A"
+        },
+        {
+          "name": "Chili",
+          "hex": "#893C47"
+        },
+        {
+          "name": "Graphite",
+          "hex": "#1D252D"
+        },
+        {
+          "name": "Island Reef",
+          "hex": "#8FE2B0"
+        },
+        {
+          "name": "Yam",
+          "hex": "#BE531C"
+        },
+        {
+          "name": "Banana",
+          "hex": "#F1E6B2"
+        },
+        {
+          "name": "Brick",
+          "hex": "#8A1538"
+        },
+        {
+          "name": "Crunchberry",
+          "hex": "#EF4A81"
+        },
+        {
+          "name": "Dusk",
+          "hex": "#735B6A"
+        },
+        {
+          "name": "Emerald",
+          "hex": "#00685E"
+        },
+        {
+          "name": "Grape",
+          "hex": "#211551"
+        },
+        {
+          "name": "Grass",
+          "hex": null
+        },
+        {
+          "name": "Hydrangea",
+          "hex": "#A7BCD6"
+        },
+        {
+          "name": "Neon Pink",
+          "hex": "#F04E98"
+        },
+        {
+          "name": "Neon Red Orange",
+          "hex": "#FF585D"
+        },
+        {
+          "name": "Peachy",
+          "hex": "#d46c36"
+        },
+        {
+          "name": "Sapphire",
+          "hex": "#007DBA"
+        },
+        {
+          "name": "Topaz Blue",
+          "hex": null
+        }
+      ],
+      "reference_variant": {
+        "name": "C1717-Print-No Custom",
+        "id": "d0e07b0b-5dc6-44da-62a0-08df3cac561b",
+        "version": 3,
+        "colors": [
+          "Blue Spruce",
+          "Pepper",
+          "Light Green",
+          "Moss",
+          "Espresso",
+          "Ivory",
+          "Ice Blue",
+          "Denim",
+          "Blue Jean",
+          "Berry",
+          "Red",
+          "Seafoam",
+          "White",
+          "Butter",
+          "Chambray",
+          "Bay",
+          "Khaki",
+          "Granite",
+          "Violet",
+          "Washed Denim",
+          "Navy",
+          "Blossom",
+          "Black",
+          "Sage",
+          "Grey",
+          "Chalky Mint",
+          "Crimson",
+          "Orchid",
+          "True Navy",
+          "Watermelon",
+          "Terracotta",
+          "Mustard",
+          "Sandstone",
+          "Flo Blue",
+          "Lagoon",
+          "Sapphire"
+        ]
+      }
+    },
+    "G500": {
+      "product_id": "19c47372-e64b-49ca-9922-08da5f0a1a0f",
+      "colors": [
+        {
+          "name": "White",
+          "hex": "#FFFFFF"
+        },
+        {
+          "name": "Black",
+          "hex": "#25282A"
+        },
+        {
+          "name": "Dark Heather",
+          "hex": "#425563"
+        },
+        {
+          "name": "Navy",
+          "hex": "#263147"
+        },
+        {
+          "name": "Sport Gray",
+          "hex": "#97999B"
+        },
+        {
+          "name": "Charcoal",
+          "hex": "#66676C"
+        },
+        {
+          "name": "Maroon",
+          "hex": "#5B2B42"
+        },
+        {
+          "name": "Light Pink",
+          "hex": "#E4C6D4"
+        },
+        {
+          "name": "Military Green",
+          "hex": "#5E7461"
+        },
+        {
+          "name": "Sand",
+          "hex": "#CABFAD"
+        },
+        {
+          "name": "Light Blue",
+          "hex": "#A4C8E1"
+        },
+        {
+          "name": "Forest Green",
+          "hex": "#273B33"
+        },
+        {
+          "name": "Natural",
+          "hex": "#E7CEB5"
+        },
+        {
+          "name": "Ash",
+          "hex": "#C8C9C7"
+        },
+        {
+          "name": "Heather red",
+          "hex": "#BF0D3E"
+        },
+        {
+          "name": "Heather Military Green",
+          "hex": "#7E7F74"
+        },
+        {
+          "name": "Royal",
+          "hex": "#224D8F"
+        },
+        {
+          "name": "Indigo Blue",
+          "hex": "#486D87"
+        },
+        {
+          "name": "Red",
+          "hex": "#BA0C2F"
+        },
+        {
+          "name": "Dark Chocolate",
+          "hex": "#382F2D"
+        },
+        {
+          "name": "Heather Navy",
+          "hex": "#333F48"
+        },
+        {
+          "name": "Graphite Heather",
+          "hex": "#707372"
+        },
+        {
+          "name": "Purple",
+          "hex": "#464E7E"
+        },
+        {
+          "name": "Orange",
+          "hex": "#F4633A"
+        },
+        {
+          "name": "Carolina Blue",
+          "hex": "#7ba4db"
+        },
+        {
+          "name": "Antique Cherry Red",
+          "hex": "#971B2F"
+        },
+        {
+          "name": "Heliconia",
+          "hex": "#DB3E79"
+        },
+        {
+          "name": "Safety Pink",
+          "hex": "#E16F8F"
+        },
+        {
+          "name": "Gold",
+          "hex": "#FFA300"
+        },
+        {
+          "name": "Violet",
+          "hex": "#8094DD"
+        },
+        {
+          "name": "Lilac",
+          "hex": "#563D82"
+        },
+        {
+          "name": "Cobalt",
+          "hex": "#171C8F"
+        },
+        {
+          "name": "Daisy",
+          "hex": "#fed141"
+        },
+        {
+          "name": "Gravel",
+          "hex": "#888B8D"
+        },
+        {
+          "name": "Heather Sapphire",
+          "hex": "#0076A8"
+        },
+        {
+          "name": "Midnight",
+          "hex": "#005670"
+        },
+        {
+          "name": "Sky",
+          "hex": "#71c5e8"
+        },
+        {
+          "name": "Turf Green",
+          "hex": "#007A3E"
+        },
+        {
+          "name": "Antique Irish Green",
+          "hex": "#00843D"
+        },
+        {
+          "name": "Antique Sapphire",
+          "hex": "#006A8E"
+        },
+        {
+          "name": "Aquatic",
+          "hex": "#6DA29E"
+        },
+        {
+          "name": "Berry",
+          "hex": "#7F2952"
+        },
+        {
+          "name": "Blue Dusk",
+          "hex": "#253746"
+        },
+        {
+          "name": "Brown Savana",
+          "hex": "#7A6855"
+        },
+        {
+          "name": "Cardinal",
+          "hex": "#8A1538"
+        },
+        {
+          "name": "Cornsilk",
+          "hex": "#f0ec74"
+        },
+        {
+          "name": "Dusty Rose",
+          "hex": "#E1BBB4"
+        },
+        {
+          "name": "Fan Dark Green",
+          "hex": "#205C40"
+        },
+        {
+          "name": "Fan Deep Royal",
+          "hex": "#21366E"
+        },
+        {
+          "name": "Garnet",
+          "hex": "#7D2935"
+        },
+        {
+          "name": "Heather Radiant Orchid",
+          "hex": "#A15A95"
+        },
+        {
+          "name": "Irish Green",
+          "hex": "#00A74A"
+        },
+        {
+          "name": "Kiwi",
+          "hex": "#89A84F"
+        },
+        {
+          "name": "Mint Green",
+          "hex": "#A0CFA8"
+        },
+        {
+          "name": "Neon Green",
+          "hex": "#93DA49"
+        },
+        {
+          "name": "Prairie Dust",
+          "hex": "#7A7256"
+        },
+        {
+          "name": "Sapphire",
+          "hex": "#0077B5"
+        },
+        {
+          "name": "Sunset",
+          "hex": "#DC6B2F"
+        },
+        {
+          "name": "Tangerine",
+          "hex": "#FF8A3D"
+        },
+        {
+          "name": "Tropical Blue",
+          "hex": "#00859B"
+        },
+        {
+          "name": "Yellow Haze",
+          "hex": "#F5E1A4"
+        }
+      ],
+      "reference_variant": {
+        "name": "G500-Print-No custom",
+        "id": "a4b63e22-86f8-42ae-ad64-08df3e0af325",
+        "version": 2,
+        "colors": [
+          "Black",
+          "White",
+          "Sand",
+          "Sport Gray",
+          "Navy",
+          "Violet",
+          "Dark Chocolate",
+          "Forest Green",
+          "Light Blue",
+          "Light Pink",
+          "Red",
+          "Dark Heather",
+          "Maroon",
+          "Charcoal",
+          "Carolina Blue",
+          "Gold",
+          "Royal",
+          "Natural",
+          "Turf Green",
+          "Purple",
+          "Sky",
+          "Military Green",
+          "Heliconia",
+          "Indigo Blue",
+          "Orange",
+          "Sunset",
+          "Mint Green",
+          "Heather Navy",
+          "Berry",
+          "Heather Military Green",
+          "Gravel",
+          "Garnet",
+          "Heather red",
+          "Heather Sapphire",
+          "Daisy",
+          "Yellow Haze",
+          "Antique Cherry Red",
+          "Safety Pink",
+          "Irish Green",
+          "Ash",
+          "Tangerine",
+          "Midnight",
+          "Graphite Heather",
+          "Antique Irish Green",
+          "Cobalt",
+          "Kiwi",
+          "Brown Savana",
+          "Lilac",
+          "Sapphire",
+          "Neon Green",
+          "Antique Sapphire",
+          "Cardinal",
+          "Dusty Rose",
+          "Tropical Blue",
+          "Fan Dark Green",
+          "Blue Dusk",
+          "Cornsilk",
+          "Heather Radiant Orchid",
+          "Prairie Dust",
+          "Aquatic",
+          "Fan Deep Royal"
+        ]
+      }
+    },
+    "G180": {
+      "product_id": "10a53e10-e13d-4ccc-1c9d-08da4ce39a11",
+      "colors": [
+        {
+          "name": "Black",
+          "hex": "#25282A"
+        },
+        {
+          "name": "Sand",
+          "hex": "#CABFAD"
+        },
+        {
+          "name": "Ash",
+          "hex": "#C8C9C7"
+        },
+        {
+          "name": "Military Green",
+          "hex": "#5E7461"
+        },
+        {
+          "name": "Sport Gray",
+          "hex": "#97999B"
+        },
+        {
+          "name": "Navy",
+          "hex": "#263147"
+        },
+        {
+          "name": "Forest Green",
+          "hex": "#273B33"
+        },
+        {
+          "name": "Dark Chocolate",
+          "hex": "#382F2D"
+        },
+        {
+          "name": "Heather Scarlet Red",
+          "hex": "#B83A4B"
+        },
+        {
+          "name": "Light Pink",
+          "hex": "#E4C6D4"
+        },
+        {
+          "name": "Light Blue",
+          "hex": "#A4C8E1"
+        },
+        {
+          "name": "Heather Dark Green",
+          "hex": "#43695B"
+        },
+        {
+          "name": "Graphite Heather",
+          "hex": "#707372"
+        },
+        {
+          "name": "Charcoal",
+          "hex": "#66676C"
+        },
+        {
+          "name": "Red",
+          "hex": "#BA0C2F"
+        },
+        {
+          "name": "Indigo Blue",
+          "hex": "#486D87"
+        },
+        {
+          "name": "Heather Dark Maroon",
+          "hex": "#651D32"
+        },
+        {
+          "name": "Irish Green",
+          "hex": "#00A74A"
+        },
+        {
+          "name": "Dark Heather",
+          "hex": "#425563"
+        },
+        {
+          "name": "Purple",
+          "hex": "#464E7E"
+        },
+        {
+          "name": "Maroon",
+          "hex": "#5B2B42"
+        },
+        {
+          "name": "Heather Dark Navy",
+          "hex": "#595478"
+        },
+        {
+          "name": "Heather Royal",
+          "hex": "#1D4F91"
+        },
+        {
+          "name": "Antique Cherry Red",
+          "hex": "#AC2B37"
+        },
+        {
+          "name": "Royal",
+          "hex": "#224D8F"
+        },
+        {
+          "name": "White",
+          "hex": "#FFFFFF"
+        },
+        {
+          "name": "Heliconia",
+          "hex": "#DB3E79"
+        },
+        {
+          "name": "Orange",
+          "hex": "#F4633A"
+        },
+        {
+          "name": "Carolina Blue",
+          "hex": "#7ba4db"
+        },
+        {
+          "name": "Safety Pink",
+          "hex": "#E16F8F"
+        },
+        {
+          "name": "Gold",
+          "hex": "#FFA300"
+        },
+        {
+          "name": "Cardinal Red",
+          "hex": "#8A1538"
+        },
+        {
+          "name": "Sapphire",
+          "hex": "#0077B5"
+        },
+        {
+          "name": "Garnet",
+          "hex": "#7D2935"
+        },
+        {
+          "name": "Fan Dark Green",
+          "hex": "#205C40"
+        },
+        {
+          "name": "Fan Charcoal Heather",
+          "hex": "#646667"
+        },
+        {
+          "name": "Fan Deep Royal",
+          "hex": "#21366E"
+        },
+        {
+          "name": "Neon Blue",
+          "hex": "#0C51A3"
+        }
+      ],
+      "reference_variant": {
+        "name": "G180-No custom",
+        "id": "31a849ce-5867-4ed1-5e1a-08df2911624d",
+        "version": 4,
+        "colors": [
+          "Maroon",
+          "Forest Green",
+          "Charcoal",
+          "Black",
+          "Sand",
+          "White",
+          "Military Green",
+          "Dark Chocolate",
+          "Light Pink",
+          "Light Blue",
+          "Carolina Blue",
+          "Ash",
+          "Sport Grey",
+          "Navy",
+          "Dark Heather",
+          "Graphite Heather",
+          "Sport Gray",
+          "Red",
+          "Royal",
+          "Gold",
+          "Purple",
+          "Orange",
+          "Irish Green",
+          "Heliconia",
+          "Sapphire",
+          "Safety Pink",
+          "Indigo Blue",
+          "Heather Dark Green",
+          "Antique Cherry Red",
+          "Heather Scarlet Red",
+          "Heather Dark Maroon",
+          "Heather Royal",
+          "Heather Dark Navy",
+          "Cardinal Red",
+          "Garnet",
+          "Fan Deep Royal",
+          "Fan Charcoal Heather",
+          "Neon Blue",
+          "Fan Dark Green"
+        ]
+      }
+    },
+    "G185": {
+      "product_id": "3317bf9a-8044-4494-53b8-08da4ce4de7f",
+      "colors": [
+        {
+          "name": "Sand",
+          "hex": "#CABFAD"
+        },
+        {
+          "name": "White",
+          "hex": "#FFFFFF"
+        },
+        {
+          "name": "Indigo Blue",
+          "hex": "#486D87"
+        },
+        {
+          "name": "Ash",
+          "hex": "#C8C9C7"
+        },
+        {
+          "name": "Charcoal",
+          "hex": "#66676C"
+        },
+        {
+          "name": "Heather Scarlet Red",
+          "hex": "#B83A4B"
+        },
+        {
+          "name": "Sport Gray",
+          "hex": "#97999B"
+        },
+        {
+          "name": "Black",
+          "hex": "#25282A"
+        },
+        {
+          "name": "Dark Heather",
+          "hex": "#425563"
+        },
+        {
+          "name": "Forest Green",
+          "hex": "#273B33"
+        },
+        {
+          "name": "Dark Chocolate",
+          "hex": "#382F2D"
+        },
+        {
+          "name": "Maroon",
+          "hex": "#5B2B42"
+        },
+        {
+          "name": "Light Pink",
+          "hex": "#E4C6D4"
+        },
+        {
+          "name": "Heather Royal",
+          "hex": "#1D4F91"
+        },
+        {
+          "name": "Light Blue",
+          "hex": "#A4C8E1"
+        },
+        {
+          "name": "Navy",
+          "hex": "#263147"
+        },
+        {
+          "name": "Heather Dark Navy",
+          "hex": "#595478"
+        },
+        {
+          "name": "Military Green",
+          "hex": "#5E7461"
+        },
+        {
+          "name": "Heather Dark Maroon",
+          "hex": "#651D32"
+        },
+        {
+          "name": "Irish Green",
+          "hex": "#00A74A"
+        },
+        {
+          "name": "Red",
+          "hex": "#BA0C2F"
+        },
+        {
+          "name": "Purple",
+          "hex": "#464E7E"
+        },
+        {
+          "name": "Heather Dark Green",
+          "hex": "#43695B"
+        },
+        {
+          "name": "Royal",
+          "hex": "#224D8F"
+        },
+        {
+          "name": "Antique Cherry Red",
+          "hex": "#971B2F"
+        },
+        {
+          "name": "Orange",
+          "hex": "#F4633A"
+        },
+        {
+          "name": "Heliconia",
+          "hex": "#DB3E79"
+        },
+        {
+          "name": "Gold",
+          "hex": "#FFA300"
+        },
+        {
+          "name": "Carolina Blue",
+          "hex": "#7ba4db"
+        },
+        {
+          "name": "Garnet",
+          "hex": "#7D2935"
+        },
+        {
+          "name": "Mint Green",
+          "hex": "#A0CFA8"
+        },
+        {
+          "name": "Violet",
+          "hex": "#8094DD"
+        },
+        {
+          "name": "Orchid",
+          "hex": "#c5b4e3"
+        },
+        {
+          "name": "Graphite Heather",
+          "hex": "#707372"
+        },
+        {
+          "name": "Cardinal Red",
+          "hex": "#8A1538"
+        },
+        {
+          "name": "Old Gold",
+          "hex": "#C39367"
+        },
+        {
+          "name": "Azalea",
+          "hex": "#DD74A1"
+        },
+        {
+          "name": "safety Pink",
+          "hex": "#E16F8F"
+        },
+        {
+          "name": "Sapphire",
+          "hex": "#0077B5"
+        },
+        {
+          "name": "Antique Sapphire",
+          "hex": "#006A8E"
+        },
+        {
+          "name": "Fan Dark Green",
+          "hex": "#205C40"
+        },
+        {
+          "name": "Safety Green",
+          "hex": "#C6D219"
+        }
+      ],
+      "reference_variant": {
+        "name": "G185-Print-No Custom",
+        "id": "f5b01468-c6a3-4053-f6aa-08df3e03094d",
+        "version": 1,
+        "colors": [
+          "Black",
+          "White",
+          "Sand",
+          "Sport Gray",
+          "Forest Green",
+          "Dark Chocolate",
+          "Light Pink",
+          "Navy",
+          "Light Blue",
+          "Dark Heather",
+          "Maroon",
+          "Red",
+          "Old Gold",
+          "Royal",
+          "Irish Green",
+          "Orange",
+          "Purple",
+          "Gold",
+          "Sapphire",
+          "Heliconia",
+          "Violet",
+          "Orchid",
+          "Charcoal",
+          "Graphite Heather",
+          "Military Green",
+          "Indigo Blue",
+          "Ash",
+          "Carolina Blue",
+          "Heather Scarlet Red",
+          "safety Pink",
+          "Heather Dark Maroon",
+          "Heather Dark Navy",
+          "Heather Royal",
+          "Antique Cherry Red",
+          "Mint Green",
+          "Antique Sapphire",
+          "Heather Dark Green",
+          "Azalea",
+          "Cardinal Red",
+          "Garnet",
+          "Safety Green",
+          "Fan Dark Green"
+        ]
+      }
+    }
+  }
+}

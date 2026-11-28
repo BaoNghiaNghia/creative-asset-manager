@@ -128,6 +128,7 @@ class EtsySpyListingImage(Base):
     native_width: Mapped[int | None] = mapped_column(Integer())
     native_height: Mapped[int | None] = mapped_column(Integer())
     source_job_id: Mapped[str | None] = mapped_column(String(128))
+    sms_color_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
