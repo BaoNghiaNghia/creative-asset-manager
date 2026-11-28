@@ -71,6 +71,7 @@ from . import progress_watch
 from . import latest_artwork
 from . import renderer_canary
 from . import shared_video_policy
+from . import banked_video_repair
 
 
 class MuseObservedRoute(APIRoute):
@@ -310,6 +311,7 @@ from .story_lite import (
     LITE_DURATION_BOUNDS, lite_story_spec, worker_policy as lite_worker_policy,
     PRINT_SCALE_POLICY, apply_hero_print_scale,
     HERO_REALISM_POLICY, apply_hero_realism,
+    HEAD_PROPORTION_QA_POLICY, apply_head_proportion_qa,
 )
 
 
@@ -646,6 +648,18 @@ def _story_candidate_v33(job) -> dict | None:
             saved = _verified_video_ratios(job)
             story = apply_hero_realism(
                 story, [ratio for ratio in realism_ratios if ratio not in saved])
+        if active:
+            head_qa_ratios = (scope.get("headProportionQaAspects", [])
+                              if isinstance(scope, dict)
+                              and scope.get("headProportionQaPolicyVersion") == HEAD_PROPORTION_QA_POLICY
+                              else [])
+        elif job.status in ("pending", "claimed"):
+            head_qa_ratios = realism_ratios
+        else:
+            head_qa_ratios = []
+        if reference_first and head_qa_ratios:
+            story = apply_head_proportion_qa(story, [
+                ratio for ratio in head_qa_ratios if ratio not in _verified_video_ratios(job)])
         return story
     except ValueError:
         return None
@@ -1942,6 +1956,7 @@ def muse_worker_shared_config(
     config["v33SavedVideosRequireIndependentQa"] = not _story_lite_enabled()
     config["storyLiteEnabled"] = _story_lite_enabled()
     config["storyLitePolicy"] = lite_worker_policy() if _story_lite_enabled() else None
+    config["bankedVideoReplacementPolicy"] = banked_video_repair.config()
     if _story_lite_enabled():
         config.update({
             "newVideoClaimRequiresStoryAndPlacementAck": False,
@@ -3183,6 +3198,9 @@ def claim(listing_id: str, payload: ClaimRequest, request: Request,
         receipts["videoWorkScope"]["heroRealismPolicyVersion"] = HERO_REALISM_POLICY
         receipts["videoWorkScope"]["heroRealismAspects"] = list(
             receipts["videoWorkScope"]["heroPrintScaleAspects"])
+        receipts["videoWorkScope"]["headProportionQaPolicyVersion"] = HEAD_PROPORTION_QA_POLICY
+        receipts["videoWorkScope"]["headProportionQaAspects"] = list(
+            receipts["videoWorkScope"]["heroPrintScaleAspects"])
     if _muse_dual_enabled():
         receipts["museWorkerOwner"] = _muse_identity(request)
     row.output_receipts = receipts
@@ -4313,6 +4331,9 @@ async def upload_ugc_video(
         "artwork_sha256": expected_artwork_sha,
         "aspect": aspect, "mp4": bytes(parts),
     }
+    storage_revision = (existing_receipts.get("videoStorageRevisionByAspect") or {}).get(ratio)
+    if storage_revision is not None:
+        storage_kwargs["storage_revision"] = storage_revision
     # Native Story Lite output goes directly to storage. Strict historical
     # contracts retain their existing declared duration requirement.
     if strict_story or action_pin:
@@ -4469,6 +4490,58 @@ def _operator(authorization: str | None = Header(default=None)):
                                hashlib.sha256(secret.encode()).digest()):
         raise HTTPException(401, "Unauthorized operator")
     return tenant
+
+
+@router.post("/banked-video-repairs/{listing_id}/{aspect}/operator", status_code=202,
+             include_in_schema=False)
+def authorize_banked_video_repair(
+    listing_id: str, aspect: Literal["vertical", "horizontal"],
+    payload: banked_video_repair.StageRequest,
+    tenant: str = Depends(_operator), db: Session = Depends(get_db),
+):
+    return banked_video_repair.stage(db, tenant, listing_id, aspect, payload)
+
+
+@router.get("/banked-video-repairs/{listing_id}/{aspect}")
+def read_banked_video_repair(
+    listing_id: str, aspect: Literal["vertical", "horizontal"],
+    request: Request, response: Response,
+    tenant: str = Depends(_muse), db: Session = Depends(get_db),
+):
+    response.headers["Cache-Control"] = "private, no-store"
+    return banked_video_repair.status(db, tenant, listing_id, aspect, _muse_identity(request))
+
+
+@router.post("/banked-video-repairs/{listing_id}/{aspect}/{request_id}/upload")
+async def upload_banked_video_repair(
+    listing_id: str, aspect: Literal["vertical", "horizontal"], request_id: str,
+    request: Request, x_cam_video_sha256: str | None = Header(default=None),
+    x_cam_artwork_sha256: str | None = Header(default=None),
+    x_cam_banked_qa: str | None = Header(default=None),
+    x_cam_story_output_contract: str | None = Header(default=None),
+    x_cam_motion_version: str | None = Header(default=None),
+    tenant: str = Depends(_muse), db: Session = Depends(get_db),
+):
+    """Storage-only, one exact operator-approved repair; never a video claim."""
+    from .video_storage import MAX_VIDEO_BYTES
+    if (not re.fullmatch(r"[a-f0-9]{32}", request_id)
+            or request.headers.get("content-type", "").split(";")[0].lower() != "video/mp4"):
+        raise HTTPException(422, "Banked repair requires native video/mp4")
+    worker = _muse_identity(request)
+    banked_video_repair.read(db, tenant, listing_id, aspect, worker, request_id=request_id)
+    db.rollback()
+    parts = bytearray()
+    async for chunk in request.stream():
+        parts.extend(chunk)
+        if len(parts) > MAX_VIDEO_BYTES:
+            raise HTTPException(413, "MP4 exceeds 40 MiB limit")
+    if len(parts) < 2048:
+        raise HTTPException(422, "Missing MP4")
+    return await banked_video_repair.upload(
+        db, tenant, listing_id, aspect, request_id, worker,
+        mp4=bytes(parts), video_sha=x_cam_video_sha256,
+        artwork_sha=x_cam_artwork_sha256, qa_attestation=x_cam_banked_qa,
+        output_contract=x_cam_story_output_contract, motion_version=x_cam_motion_version)
 
 
 @router.post("/video-policy/proposals")

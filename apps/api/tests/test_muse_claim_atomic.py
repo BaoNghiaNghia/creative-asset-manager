@@ -253,6 +253,7 @@ class AtomicClaimTests(TestCase):
         before=claim["storySpecV33"]["aspectPlans"]["9:16"]
         self.assertIn("referenceImagePrompt",before)
         self.assertEqual(before["heroRealismPolicy"]["version"],"CAM_VIDEO_HERO_REALISM_V1")
+        self.assertEqual(before["headProportionQaPolicy"]["version"],"CAM_HEAD_PROPORTION_QA_ENFORCEMENT_V1")
         self.assertEqual(before["heroPrintScalePolicy"]["oversizedReferenceLinearScalePercent"],80)
         self.assertEqual(claim["body"]["storyOutputContract"],m.LITE_OUTPUT)
         response=self.video_claim(claim["body"])
@@ -268,6 +269,8 @@ class AtomicClaimTests(TestCase):
             self.assertTrue(scope["referenceFirst"])
             self.assertEqual(scope["heroRealismPolicyVersion"],"CAM_VIDEO_HERO_REALISM_V1")
             self.assertEqual(scope["heroRealismAspects"],["9:16"])
+            self.assertEqual(scope["headProportionQaPolicyVersion"],"CAM_HEAD_PROPORTION_QA_ENFORCEMENT_V1")
+            self.assertEqual(scope["headProportionQaAspects"],["9:16"])
         recovered=self.client.get(PREFIX+"/jobs/"+LID+"/story-contract?aspect=vertical",
                                   headers=self.headers())
         self.assertEqual(recovered.status_code,200,recovered.text)

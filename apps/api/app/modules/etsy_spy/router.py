@@ -3065,7 +3065,11 @@ async def read_muse_ugc_video(
     remote_id = str(video.get("drive_file_id") or "")
     folder_id = str(video.get("drive_folder_id") or "")
     sha = str(video.get("sha256") or "")
-    expected_asset_id = f"muse-ugc:{listing_id}:{job.artwork_sha256}:{aspect}"
+    from app.modules.muse_bridge.video_asset_identity import video_asset_id
+    try:
+        expected_asset_id = video_asset_id(listing_id, job.artwork_sha256, aspect, video.get("storageRevision"))
+    except ValueError as exc:
+        raise HTTPException(404, "Video metadata invalid") from exc
     if (not re.fullmatch(r"[A-Za-z0-9_-]{10,128}", remote_id)
             or not re.fullmatch(r"[A-Za-z0-9_-]{10,128}", folder_id)
             or not re.fullmatch(r"[a-f0-9]{64}", sha)):
@@ -3220,6 +3224,7 @@ async def read_muse_ugc_poster(
         payload = await read_drive_poster(
             tenant=tenant, listing_id=listing_id, artwork_sha=artwork_sha,
             sha=sha, aspect=aspect, remote_id=remote_id, folder_id=folder_id, size=size,
+            **({"storage_revision": video["storageRevision"]} if "storageRevision" in video else {}),
         )
         if payload is None:
             raise HTTPException(404, "Video poster unavailable")

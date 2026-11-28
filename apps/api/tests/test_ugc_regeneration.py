@@ -275,6 +275,8 @@ def test_compact_print_only_updates_missing_hero_not_saved_receipts(setup, monke
     realism=plan["heroRealismPolicy"]
     assert realism==worker_policy()["heroRealismPolicy"]
     assert realism["version"]=="CAM_VIDEO_HERO_REALISM_V1"
+    assert plan["headProportionQaPolicy"]==worker_policy()["headProportionQaPolicy"]
+    assert "headProportionQaPolicy" not in story["aspectPlans"]["9:16"]
     assert plan["prompt"]==old["aspectPlans"]["16:9"]["prompt"]+" "+realism["motionInstructions"]
     assert "reduce ONLY the ink box once" in plan["referenceImagePrompt"]
     assert "mid-thighs or knees" in plan["referenceImagePrompt"]
@@ -313,6 +315,7 @@ def test_compact_print_respects_old_and_new_active_lease_scope(setup):
     assert new["aspectPlans"]["16:9"]["heroPrintScalePolicy"]==story["aspectPlans"]["16:9"]["heroPrintScalePolicy"]
     assert new["aspectPlans"]["16:9"]["heroRealismPolicy"]["additionalServerQaGate"] is False
     assert "Animate only the person" in new["aspectPlans"]["16:9"]["prompt"]
+    assert all("headProportionQaPolicy" not in p for p in new["aspectPlans"].values())
     remote.assert_not_awaited()
 
 
@@ -324,3 +327,80 @@ def test_compact_print_preserves_completed_story(setup):
     assert all("heroRealismPolicy" not in p for p in story["aspectPlans"].values())
     assert muse._verified_video_ratios(job)==set(RATIOS)
     remote.assert_not_awaited()
+
+
+def test_banked_repair_keeps_old_until_verified_and_never_renders(setup, monkeypatch):
+    import hashlib
+    from copy import deepcopy
+    from app.modules.muse_bridge import banked_video_repair as banked
+    from app.modules.muse_bridge.video_asset_identity import video_asset_id
+    db,job,remote=setup
+    pin_lite(db,job)
+    job.status="submitted"
+    job.output_receipts={**job.output_receipts,"videoContentQa":"pending_review",
+        "camLinked":True,"videoLastStoredAtUtc":"prior-render"}
+    db.commit()
+    monkeypatch.setattr(muse.latest_artwork,"current",lambda *args:True)
+    old=deepcopy(job.output_receipts["drive_uploads"])
+    payload=banked.StageRequest(expectedVideoSha256=SHAS["16:9"],expectedArtworkSha256=ART,
+        workerId="muse-01",reasonCode="HEAD_PROPORTION_DRIFT")
+    request=banked.stage(db,TENANT,LID,"horizontal",payload)
+    rid=request["requestId"]
+    assert request["state"]=="pending_upload" and not request["renderAllowed"]
+    assert banked.stage(db,TENANT,LID,"horizontal",payload)["requestId"]==rid
+    assert job.output_receipts["drive_uploads"]==old and job.attempts==2
+    assert not db.scalars(select(CamMuseCommand)).all()
+    with pytest.raises(HTTPException) as err:
+        banked.status(db,TENANT,LID,"horizontal","muse-02")
+    assert err.value.status_code==404
+    with pytest.raises(HTTPException) as err:
+        call(db,{"16:9":SHAS["16:9"]})
+    assert err.value.status_code==409
+    def box(kind,payload):
+        return (8+len(payload)).to_bytes(4,"big")+kind+payload
+    mvhd=bytes(12)+(1000).to_bytes(4,"big")+(10000).to_bytes(4,"big")+bytes(80)
+    matrix=(65536).to_bytes(4,"big")+bytes(12)+(65536).to_bytes(4,"big")+bytes(16)
+    tkhd=bytes(40)+matrix+(512*65536).to_bytes(4,"big")+(288*65536).to_bytes(4,"big")
+    moov=box(b"mvhd",mvhd)+box(b"trak",box(b"tkhd",tkhd)+box(b"mdia",box(b"hdlr",bytes(8)+b"vide"+bytes(12))))
+    mp4=box(b"ftyp",b"isom0000")+box(b"mdat",b"x"*4096)+box(b"moov",moov)
+    sha=hashlib.sha256(mp4).hexdigest()
+    kwargs=dict(mp4=mp4,video_sha=sha,artwork_sha=ART,qa_attestation="worker_visual_pass",
+        output_contract=muse.LITE_OUTPUT,motion_version=muse.STORY_VERSION)
+    store=AsyncMock(side_effect=HTTPException(503,"Drive unavailable"))
+    monkeypatch.setattr(banked,"store_muse_video",store)
+    def upload(**overrides):
+        return asyncio.run(banked.upload(db,TENANT,LID,"horizontal",rid,"muse-01",**{**kwargs,**overrides}))
+    with pytest.raises(HTTPException) as err:
+        upload(video_sha="f"*64)
+    assert err.value.status_code==422
+    store.assert_not_awaited()
+    with pytest.raises(HTTPException) as err:
+        upload()
+    assert err.value.status_code==503
+    assert job.output_receipts["drive_uploads"]==old
+    assert job.output_receipts[banked.MARKER]["16:9"]["replacementSha256"]==sha
+    with pytest.raises(HTTPException) as err:
+        other=mp4.replace(b"x"*4096,b"y"*4096)
+        upload(mp4=other,video_sha=hashlib.sha256(other).hexdigest())
+    assert err.value.status_code==409
+    store.side_effect=None
+    store.return_value={**old["16:9"],"sha256":sha,"storageRevision":rid,
+        "nativeBytesPreserved":True,"aspectRatio":"16:9","drive_file_id":"new_banked_file_123"}
+    result=upload()
+    assert result["state"]=="uploaded" and result["storageVerified"] is True
+    assert job.output_receipts["drive_uploads"]["9:16"]==old["9:16"]
+    assert job.output_receipts["drive_uploads"]["16:9"]["sha256"]==sha
+    assert job.output_receipts["rejectedVideoHistoryByAspect"]["16:9"][-1]["receipt"]==old["16:9"]
+    assert job.output_receipts["videoLastStoredAtUtc"]=="prior-render"
+    assert job.status=="submitted" and job.attempts==2 and job.output_receipts["videoContentQa"]=="pending_review"
+    assert not db.scalars(select(CamMuseCommand)).all()
+    assert store.await_args.kwargs["mp4"]==mp4 and store.await_args.kwargs["storage_revision"]==rid
+    assert upload()["reused"] is True and store.await_count==2
+    assert banked.stage(db,TENANT,LID,"horizontal",payload)["requestId"]==rid
+    remote.assert_not_awaited()
+    assert video_asset_id(LID,ART,"horizontal",rid)!=video_asset_id(LID,ART,"horizontal")
+    assert video_asset_id(LID,ART,"horizontal",rid)==video_asset_id(LID,ART,"horizontal",rid)
+    result=call(db,{"16:9":sha})
+    assert result["queued"]
+    assert job.output_receipts["videoStorageRevisionByAspect"]["16:9"]!=rid
+    assert job.output_receipts["drive_uploads"]["9:16"]==old["9:16"]

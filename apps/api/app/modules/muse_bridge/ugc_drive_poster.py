@@ -82,7 +82,7 @@ def encode_poster(payload: bytes, size: int) -> bytes | None:
 
 async def read_drive_poster(*, tenant: str, listing_id: str, artwork_sha: str,
                             sha: str, aspect: str, remote_id: str,
-                            folder_id: str, size: int) -> bytes | None:
+                            folder_id: str, size: int, storage_revision: str | None = None) -> bytes | None:
     """Caller MUST authorize active tenant and current Picked receipt first.
     Google metadata supplies the real video preview; the MP4 is never read.
     This fallback has no R2 PUT, Drive write or database mutation.
@@ -91,6 +91,11 @@ async def read_drive_poster(*, tenant: str, listing_id: str, artwork_sha: str,
             not _TENANT.fullmatch(tenant) or not _LISTING.fullmatch(listing_id) or
             not _SHA.fullmatch(artwork_sha) or not _SHA.fullmatch(sha) or
             not _ID.fullmatch(remote_id) or not _ID.fullmatch(folder_id)):
+        return None
+    from .video_asset_identity import video_asset_id
+    try:
+        asset_id = video_asset_id(listing_id, artwork_sha, aspect, storage_revision)
+    except ValueError:
         return None
     key = (tenant, ":".join((listing_id, artwork_sha, aspect, folder_id, remote_id, sha)), str(size))
     cached = _CACHE.get(key)
@@ -114,7 +119,7 @@ async def read_drive_poster(*, tenant: str, listing_id: str, artwork_sha: str,
                 return None
             await verify_listing_file_provenance(
                 provider=provider, remote_file_id=remote_id, folder_id=folder_id,
-                tenant_id=tenant, asset_id=f"muse-ugc:{listing_id}:{artwork_sha}:{aspect}",
+                tenant_id=tenant, asset_id=asset_id,
                 sha256=sha,
             )
             token = await provider.get_access_token()

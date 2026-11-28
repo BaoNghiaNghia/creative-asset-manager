@@ -144,6 +144,56 @@ def apply_hero_realism(story: dict, ratios) -> dict:
     return story
 
 
+HEAD_PROPORTION_QA_POLICY = "CAM_HEAD_PROPORTION_QA_ENFORCEMENT_V1"
+
+
+def head_proportion_qa_policy() -> dict:
+    return {
+        "version": HEAD_PROPORTION_QA_POLICY,
+        "scope": "newly_claimed_missing_story_lite_aspects",
+        "sourceFraming": "full_head_to_mid_thigh_or_knees_with_safe_crop_clearance",
+        "sourceFrameSampleSeconds": 0.5,
+        "endFrameSampleSecondsBeforeEnd": 0.5,
+        "knownDriftMotion": "minimal_in_place_posture_shift",
+        "additionalServerQaGate": False,
+        "heroInstructions": (
+            "Leave comfortable crop clearance around the full head, shoulders, "
+            "entire shirt hem and visible trousers. Use sufficient camera distance "
+            "and natural adult proportions from the start; never enlarge the face, "
+            "compress the torso or shrink the body to fit the artwork. Inspect the "
+            "whole photograph and its perspective before using it as a hero."
+        ),
+        "qaInstructions": (
+            "Use the existing sampled-frame review. Compare the approved hero to "
+            "the first representative frame around 0.5 seconds, then compare that "
+            "frame to the final representative frame around duration minus 0.5 "
+            "seconds (9.5 seconds for a 10-second video). Check head-to-shoulder "
+            "and head-to-torso proportions, framing, person-to-scene scale and "
+            "lighting consistency. Reject obvious source-to-start distortion or "
+            "within-clip drift even if the print is exact. For a listing/aspect "
+            "with documented prior framing or anatomy drift, prefer minimal "
+            "in-place posture movement with locked camera. Use at most the "
+            "existing correction budget; no extra renders or fixed body-ratio "
+            "measurement. Natural expressions, blinking and individual body "
+            "variation are not defects. Never report independent QA from a "
+            "worker's visual check."
+        ),
+    }
+
+
+def apply_head_proportion_qa(story: dict, ratios) -> dict:
+    policy = head_proportion_qa_policy()
+    for ratio in ratios:
+        plan = story["aspectPlans"].get(ratio)
+        if not isinstance(plan, dict) or "referenceImagePrompt" not in plan:
+            continue
+        if plan.get("headProportionQaPolicy", {}).get("version") == HEAD_PROPORTION_QA_POLICY:
+            continue
+        plan["headProportionQaPolicy"] = policy
+        plan["referenceImagePrompt"] += " " + policy["heroInstructions"]
+    return story
+
+
 # Keep motion low-complexity and grounded in the existing source.
 # Never require a prop, another person, a location change or a hand action.
 THEME_CONTEXT = {
@@ -318,6 +368,7 @@ def worker_policy() -> dict:
         "referenceSelectionAdvisory": True,
         "heroPrintScalePolicy": hero_print_scale_policy(),
         "heroRealismPolicy": hero_realism_policy(),
+        "headProportionQaPolicy": head_proportion_qa_policy(),
         "instructions": (
             "For a command whose videoJobClaim.creativePolicy matches this policy, "
             "POST its exact claim body. For new Lite work, reuse a visually suitable "
@@ -327,6 +378,8 @@ def worker_policy() -> dict:
             "the live aspect plan carries heroPrintScalePolicy. When the aspect also "
             "carries heroRealismPolicy, follow its ink-only edit, coherent anatomy, "
             "framing and environment guidance, including the existing visual check. "
+            "Follow headProportionQaPolicy on new aspect plans: compare hero, "
+            "early and near-final frames using the existing visual review. "
             "Do not apply a newer "
             "policy to an already active lease lacking that marker. If unsuitable, "
             "use the separate referenceImagePrompt "

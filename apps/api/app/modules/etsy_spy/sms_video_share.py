@@ -28,11 +28,13 @@ class Proof:
     digest: str
     file: str
     folder: str
+    storage_revision: str | None = None
 
     @property
     def asset(self):
         slug = "vertical" if self.aspect == "9:16" else "horizontal"
-        return f"muse-ugc:{self.listing}:{self.artwork}:{slug}"
+        from app.modules.muse_bridge.video_asset_identity import video_asset_id
+        return video_asset_id(self.listing, self.artwork, slug, self.storage_revision)
 
     @property
     def url(self):
@@ -61,7 +63,12 @@ def select_proof(job, tenant, listing, req):
         raise ShareError("SMS_VIDEO_PROOF_INVALID")
     if req["expected_sha256"] != s or req["expected_file_id"] != f:
         raise ShareError("SMS_VIDEO_CHANGED")
-    return Proof(tenant,listing,req["aspect"],job.artwork_sha256,s,f,d)
+    p = Proof(tenant,listing,req["aspect"],job.artwork_sha256,s,f,d,row.get("storageRevision"))
+    try:
+        p.asset
+    except ValueError as exc:
+        raise ShareError("SMS_VIDEO_PROOF_INVALID") from exc
+    return p
 
 def metadata_check(data,p):
     props = data.get("appProperties") or {}

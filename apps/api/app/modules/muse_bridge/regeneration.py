@@ -83,7 +83,12 @@ async def delete_drive_videos(tenant, listing_id, artwork_sha, selected, *, arch
                             ("drive_file_id", "drive_folder_id", "sha256"))
         if not DRIVE_ID.fullmatch(fid) or not DRIVE_ID.fullmatch(parent) or not SHA.fullmatch(sha):
             raise HTTPException(409, "Invalid verified video receipt")
-        targets.append((fid, parent, sha, f"muse-ugc:{listing_id}:{artwork_sha}:{SLUGS[ratio]}"))
+        from .video_asset_identity import video_asset_id
+        try:
+            aid = video_asset_id(listing_id, artwork_sha, SLUGS[ratio], video.get("storageRevision"))
+        except ValueError as exc:
+            raise HTTPException(409, "Invalid video storage revision") from exc
+        targets.append((fid, parent, sha, aid))
     if len({t[0] for t in targets}) != len(targets):
         raise HTTPException(409, "Shared video file references")
     base = "https://www.googleapis.com/drive/v3/files/"
@@ -159,6 +164,9 @@ async def regenerate(db: Session, tenant: str, listing_id: str, expected: dict[s
     if job.status == "claimed" or any(c.status == "claimed" for c in commands):
         raise HTTPException(409, "Muse đang xử lý listing này. Hãy thử lại khi job kết thúc.")
     old = dict(job.output_receipts or {})
+    from . import banked_video_repair as banked
+    if any(banked.pending_request(old, ratio, muse._utc()) for ratio in expected):
+        raise HTTPException(409, "A banked upload replacement is already authorized for this aspect")
     uploads = dict(old.get("drive_uploads") or {})
     verified = muse._verified_video_ratios(job)
     if any(r not in verified or uploads[r].get("sha256") != sha for r, sha in expected.items()):
@@ -221,6 +229,17 @@ async def regenerate(db: Session, tenant: str, listing_id: str, expected: dict[s
     # aspect failed. Its original receipt and pinned hero plan stay unchanged.
     if "rejectedVideoHistoryByAspect" in old:
         receipts["rejectedVideoHistoryByAspect"] = old["rejectedVideoHistoryByAspect"]
+    # Revision-bound replacements retain their prior Drive objects. Subsequent
+    # regeneration must never rediscover one of those older canonical objects.
+    storage_revisions = dict(old.get("videoStorageRevisionByAspect") or {})
+    for ratio in selected:
+        if ratio in storage_revisions or selected[ratio].get("storageRevision"):
+            storage_revisions[ratio] = revision
+    if storage_revisions:
+        receipts["videoStorageRevisionByAspect"] = storage_revisions
+    retained_requests = {r: v for r, v in (old.get(banked.MARKER) or {}).items() if r in kept}
+    if retained_requests:
+        receipts[banked.MARKER] = retained_requests
     if hero_repair is not None:
         ratio = next(iter(selected))
         reason = "Light ink on light garment; design illegible."

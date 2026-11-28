@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import re
 from .native_mp4 import inspect_native_mp4, InvalidNativeMP4, MIN_VIDEO_BYTES, MAX_VIDEO_BYTES
+from .video_asset_identity import video_asset_id
 
 from fastapi import HTTPException
 
@@ -47,6 +48,7 @@ async def store_muse_video(
     *, tenant_id: str, listing_id: str, artwork_sha256: str,
     aspect: str, mp4: bytes,
     required_duration_seconds: tuple[float, float] | None = None,
+    storage_revision: str | None = None,
 ) -> dict:
     """No disk/master copy on VPS. Drive only, with full provenance readback."""
     if (not _LISTING.fullmatch(listing_id)
@@ -71,8 +73,11 @@ async def store_muse_video(
             provider=provider, root_folder_id=root, tenant_id=tenant_id,
             listing_id=listing_id, design_sha256=artwork_sha256,
         )
-        asset_id = f"muse-ugc:{listing_id}:{artwork_sha256}:{aspect}"
-        filename = "ugc-vertical.mp4" if aspect == "vertical" else "ugc-horizontal.mp4"
+        try:
+            asset_id = video_asset_id(listing_id, artwork_sha256, aspect, storage_revision)
+        except ValueError as exc:
+            raise HTTPException(422, "Invalid UGC storage revision") from exc
+        filename = f"ugc-{aspect}.mp4" if storage_revision is None else f"ugc-{aspect}-{storage_revision}.mp4"
         async def chunks():
             for offset in range(0, len(mp4), 1024 * 1024):
                 yield mp4[offset: offset + 1024 * 1024]
@@ -119,5 +124,6 @@ async def store_muse_video(
         "relativeFolder": folders["relative_path"],
         "storageVerified": True, "qaStatus": "pending_review",
         "mediaProcessing": "none", "nativeBytesPreserved": True,
+        **({"storageRevision": storage_revision} if storage_revision is not None else {}),
         **metadata,
     }
