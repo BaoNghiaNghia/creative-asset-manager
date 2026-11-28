@@ -49,4 +49,13 @@ def image_identity(request: Request,
                    authorization: str | None = Header(default=None),
                    x_cam_image_agent_id: str | None = Header(default=None),
                    db: Session = Depends(get_db)) -> ImageIdentity:
+    # Delegate dedicated image-worker authentication to the existing Lite authority.
+    # The legacy verifier remains in place for other existing image clients.
+    if authorization and x_cam_image_agent_id is None:
+        from .lite_api import lite_identity
+        try:
+            return lite_identity(request, authorization, None, db)
+        except HTTPException as exc:
+            if exc.status_code not in (401, 503):
+                raise
     return resolve_identity(request, authorization, x_cam_image_agent_id, db)

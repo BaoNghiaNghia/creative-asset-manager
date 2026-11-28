@@ -20,6 +20,7 @@ from app.core.database import get_db
 from . import policy as p
 from .identity import ImageIdentity, image_identity
 from .model import ImageBatch, ImageFlowControl, ImagePack, ImageRole
+from .readiness import schema_evidence
 
 REGISTRY = Path(__file__).with_name("skill_registry_candidate.json")
 BLOCKERS = (
@@ -86,9 +87,14 @@ def _registry() -> dict:
     return data
 
 
-def _gate(identity: ImageIdentity) -> dict:
-    return {
-        "protocol": p.PROTOCOL,
+def _gate(identity: ImageIdentity, db: Session) -> dict:
+    evidence = schema_evidence(db)
+    blockers = list(BLOCKERS)
+    if not evidence["centralSchemaReady"]:
+        blockers.insert(0, "CENTRAL_SCHEMA_NOT_MIGRATED")
+    return {**evidence,
+        "protocol": ("CAM_MUSE_IMAGE_ADAPTIVE_BATCH_V6_1"
+                     if identity.worker=="muse-image-01" else p.PROTOCOL),
         "jobType": "image",
         "workerId": identity.worker,
         "workerKind": identity.kind,
@@ -96,20 +102,22 @@ def _gate(identity: ImageIdentity) -> dict:
         "imageClaimAllowed": False,
         "liveClaimEnabled": False,
         "rendererCalled": False,
+        "rendererAllowed": False,
         "status": "PREPARED_DISABLED",
-        "blockers": list(BLOCKERS),
+        "blockers": blockers,
     }
 
 
 @router.get("/skill-registry")
-def skill_registry(response: Response, identity: Identity):
+def skill_registry(response: Response, identity: Identity, db: Database):
     _no_cache(response)
     candidate={}
     if identity.worker=="muse-image-01":
-        from .adaptive_v61 import REGISTRY
+        from .adaptive_v61 import REGISTRY, BUNDLE_SHA256
         candidate={**REGISTRY,"protocol":"CAM_MUSE_IMAGE_ADAPTIVE_BATCH_V6_1",
-                   "resourceId":"muse-native-imagegen-01"}
-    return {**_registry(), **_gate(identity), **candidate,
+                   "resourceId":"muse-native-imagegen-01","bundleSha256":BUNDLE_SHA256}
+    return {**_registry(), **candidate, **_gate(identity, db),
+            **({"protocol":candidate["protocol"]} if candidate else {}),
             "registryStatus": "candidate",
             "paletteVerified": False,
             "printBoxAuthority": "CAM_PRINT_BOX_SINGLE_AUTHORITY_V1",
@@ -119,10 +127,10 @@ def skill_registry(response: Response, identity: Identity):
 
 
 @router.get("/image-commands")
-def image_commands(response: Response, identity: Identity,
+def image_commands(response: Response, identity: Identity, db: Database,
                    limit: Annotated[int, Query(ge=1, le=20)] = 20):
     _no_cache(response)
-    return {**_gate(identity), "items": [], "commands": [],
+    return {**_gate(identity, db), "items": [], "commands": [],
             "queueAuthoritative": False, "reason": "IMAGE_CLAIMS_DISABLED",
             "limit": limit}
 
@@ -131,13 +139,19 @@ def image_commands(response: Response, identity: Identity,
 def image_work(response: Response, identity: Identity, db: Database,
                limit: Annotated[int, Query(ge=1, le=20)] = 20):
     _no_cache(response)
+    gate = _gate(identity, db)
+    if db.get_bind().dialect.name == "postgresql" and not gate["centralSchemaReady"]:
+        return {**gate, "flowRunning":False, "items":[], "limit":limit,
+                "centralPackCount":None,"centralRoleCounts":None,
+                "remainingWithoutImages":None,"queueAuthoritative":False,
+                "reason":"CENTRAL_SCHEMA_NOT_MIGRATED"}
     tenant = identity.tenant
     flow = db.get(ImageFlowControl, tenant)
     packs = db.scalar(select(func.count()).select_from(ImagePack).where(
         ImagePack.tenant_id == tenant)) or 0
     roles = dict(db.execute(select(ImageRole.status, func.count()).where(
         ImageRole.tenant_id == tenant).group_by(ImageRole.status)).all())
-    return {**_gate(identity),
+    return {**gate,
             "flowRunningRequested": bool(flow and flow.running),
             "flowRunning": False, "items": [], "limit": limit,
             "centralPackCount": packs,
@@ -151,6 +165,8 @@ def image_work(response: Response, identity: Identity, db: Database,
 def _owned_pack(db: Session, identity: ImageIdentity, listing: str,
                 pack_id: str, sku: str) -> ImagePack:
     # In this read-only phase no discovery of unowned or other-worker packs.
+    if db.get_bind().dialect.name == "postgresql" and not schema_evidence(db)["centralSchemaReady"]:
+        raise HTTPException(503,"image_central_schema_unverified")
     row = db.scalar(select(ImagePack).where(
         ImagePack.tenant_id == identity.tenant,
         ImagePack.listing_key == listing,
@@ -249,7 +265,7 @@ def image_status(response: Response, identity: Identity, db: Database,
                   "wave": lease.get("wave"), "epoch": pack.epoch}
     wave1 = all(i in verified for i in p.WAVES[1])
     wave2 = all(i in verified for i in p.WAVES[2])
-    payload={**_gate(identity), "listingId": listing_id, "packId": packId,
+    payload={**_gate(identity, db), "listingId": listing_id, "packId": packId,
             "garmentSku": sku, "packRevision": pack.pack_revision,
             "batchId": pack.batch_id, "artworkSha256": pack.artwork_sha256,
             "placementLockSha256": pack.placement_sha256,
@@ -301,7 +317,7 @@ def image_contract(response: Response, identity: Identity, db: Database,
     pinned=bool(metadata and approved and not approved.revoked and
                 approved.plan_sha256==pack.plan_sha256 and
                 approvals._plan_evidence(pack,approved.evidence))
-    return {**_gate(identity),"listingId":listing_id,"packId":packId,
+    return {**_gate(identity, db),"listingId":listing_id,"packId":packId,
             "garmentSku":sku,"packRevision":pack.pack_revision,
             "planSha256":pack.plan_sha256,"sourceSha256":pack.source_sha256,
             "artworkSha256":pack.artwork_sha256,
@@ -349,7 +365,7 @@ def image_qa_status(response: Response, identity: Identity, db: Database,
         status=qa.verdict
         if status=="pass":
             receipt_id=qa.receipt_id
-    result={**_gate(identity),"packId":packId,"garmentSku":sku,
+    result={**_gate(identity, db),"packId":packId,"garmentSku":sku,
             "role":role,"attemptId":attemptId,"imageSha256":imageSha256,
             "qaStatus":status,"qaReceiptId":receipt_id,
             "uploadAllowed":False,"reason":"IMAGE_CLAIMS_DISABLED"}

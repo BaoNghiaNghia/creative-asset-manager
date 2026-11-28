@@ -38,7 +38,7 @@ REGISTRY = {
     "maxBatchRoles": 13, "multiOutputSupported": False,
     "multiOutputEvidenceSha256": None, "nativeMinimumPx": 1600,
     "publicationMinimumPx": 2000, "claimEnabled": False,
-    "rendererAllowed": False, "autoWaveBarrier": False,
+    "rendererAllowed": False, "autoWaveBarrier": True,
     "status": "PREPARED_DISABLED",
 }
 
