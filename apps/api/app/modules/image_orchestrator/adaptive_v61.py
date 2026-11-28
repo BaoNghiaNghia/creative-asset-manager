@@ -22,33 +22,34 @@ from .write_api import (Backend, CommandQuery, ListingPath, PackHeader, SkuHeade
                         perform, service, scope, now, private, check_token)
 
 PROTOCOL = "CAM_MUSE_IMAGE_ADAPTIVE_BATCH_V6_1"
-BUNDLE_SHA256 = "a6f9720fa88426d2af9f69d434cc3634fef8051f864161c0ecb3bd3aa33dd950"
+BUNDLE_SHA256 = "da10307e9e6b3e04a9e19daa68d888033c9678ca30bdae8a8f40deed4a2038ea"
 REGISTRY = {
-    # Exact uploaded 230951-byte command-claim ZIP inspected by CAM, CRC valid,
-    # 55 entries, 53/53 manifest payloads and external manifest match.
+    # Exact 245691-byte CAM-built worn-repair ZIP, CRC and 57/57 payload hashes verified.
     "bundlePinEvidence": "CAM_VERIFIED_ZIP_MANIFEST_20261128",
     "bundleBytesVerifiedByCAM": True,
     "localRejectionProtocol": "CAM_IMAGE_LOCAL_REJECT_V1",
     "wornRepairProtocol": p.REPAIR_PROTOCOL,
-    # Remains closed until CAM independently verifies corrected prompt +
-    # runner repair support and pins that exact new bundle.
-    "wornRepairBundleVerified": False,
-    "bundleReportedBytes": 230951,
-    "bundleManifestSha256": "9959176449ecf2fda82b38bbf4203bef6256785201be9b2febeb4270963a355c",
-    "bundleRegistrySha256": "dee1a39c8cb4e5f87fe0975cde92cd60f5ec3b68cd56a16b76b9251798fed2e7",
-    "recoveryStateSha256": "3ad88a83ee0c6729263244e9307a3618e7e780f6391540ebe6d74862005cfd69",
+    # Verified offline code/prompt evidence, not proof of installation or live render.
+    "wornRepairBundleVerified": True,
+    "wornRepairEvidenceSha256": "0d14ea3d7265c534cdc317276d087e1100c929f19aa7fc25ed0551dc471e9882",
+    "wornRepairModuleSha256": "898f49c8f2fac987fa553004d39983d847b6322143b810c459e29003769d9c07",
+    "preflightSha256": "df3d8831f5357f7b2131e8b573649a3ff220d5e811d35cfa70be14b1fce3665e",
+    "bundleReportedBytes": 245691,
+    "bundleManifestSha256": "cf3154d3c8ba3850caf2697e091d6bbe88c144c8ac304cead18f4c8a6eb763b7",
+    "bundleRegistrySha256": "25931d0e879627d0ebe318bab5915f9ba9206d2fdb5220c049df2aae6210e8a4",
+    "recoveryStateSha256": "dcca2bc15ab281a87250ba200a3ed1d53af22b98797d5add7b8169cd86434ec4",
     "previewCanaryStoragePolicy": "CENTRAL_RECEIPTS_ONLY_NO_GALLERY_V1",
     "adaptiveBatchPolicy": PROTOCOL, "batchPlannerVersion": PROTOCOL,
-    "batchPlannerSha256": "c43aee9c096c9fce9dd2a7be2d6cbc66f1eb812de0fb3680ab38144ada61d16c",
-    "packRunnerSha256": "b401021cb5a22da487ae6b77bf5b29798ab05747fd915ebc72a01c3ab1f8dd6f",
+    "batchPlannerSha256": "7225588b73ef4ca2534933aaa8a1034978bc5034b6e67e8e7a0c1b3798809a8d",
+    "packRunnerSha256": "424569953ec16ff7c9555cebf7700c2a401b8c628d03b08f403c0d98e1d84a40",
     "nativeRunnerVersion": "CAM_MUSE_IMAGE_NATIVE_V1",
-    "nativeRunnerSha256": "432602ca6b582294cdb804e7cfaeac7e9f30d57754e673c0259ce4ff3dc77de5",
+    "nativeRunnerSha256": "996ce0a8b653d767864c5af60faab7e7756b13d5fbd3be0400043c377e368731",
     "nativePromptTemplateSha256": "455ee7cdc86e6bcbe62e4a68baad566908b98082bfce486f178c1303269db8df",
-    "clientSha256": "25de2c39a7f4b614337d2464695fee001e9392d9ce8dea37ba9f06749ff9536a",
+    "clientSha256": "f7bc830604f99abda49c64743f4f44bf0af1b4bf391439d5d219e4d575988f04",
     "transportSha256": "27a2b9c2f53a1213c575107bae1b8709206d36290d10eef89ea362bf0a1fce9f",
-    "rendererSha256": "6eabb012c418565f5ed2684d6e61c31a347c655eae287349e240317982cb4281",
-    "qaSha256": "e0879cc91ea59bcad17aebfff1185095f96cde417157ae020f09af3b466f862a",
-    "outboxSha256": "3fe5d400be9c84b427bed16d621b853f5905ed1f3e0c8f5729422f1f7da7bd4d",
+    "rendererSha256": "21b7faa15a122867873d71dc54f1c6143be42e8a740febe3080d78bb7390977e",
+    "qaSha256": "c01150f5c88e864411c53800df53d7fed8cd55cbdab42355044f4e51e738cc06",
+    "outboxSha256": "0c9017ba566e1c6a0245c322083782a40ec261be892aadbf5c19ec76cd214476",
     "maxBatchRoles": 13, "multiOutputSupported": False,
     "multiOutputEvidenceSha256": None, "nativeMinimumPx": 1600,
     "publicationMinimumPx": 2000, "claimEnabled": False,

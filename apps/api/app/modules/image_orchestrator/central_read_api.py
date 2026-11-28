@@ -364,7 +364,23 @@ def image_status(response: Response, identity: Identity, db: Database,
             "contractReady": False}
     if identity.worker=="muse-image-01":
         from .adaptive_v61 import barrier_snapshot
-        from .qa_submission import storage_receipt_id
+        from .qa_submission import storage_receipt_id,ImageQARecordSubmission
+        import re
+        # The renderer needs the actual rejected defects after restart,
+        # not a generic retry prompt. Only bounded machine-readable codes
+        # from this tenant/pack's immutable local-rejection ledger leave CAM.
+        defects={}
+        for submission in db.scalars(select(ImageQARecordSubmission).where(
+            ImageQARecordSubmission.tenant_id==identity.tenant,
+            ImageQARecordSubmission.pack_id==packId,
+            ImageQARecordSubmission.plan_sha256==pack.plan_sha256
+        ).order_by(ImageQARecordSubmission.received_at.desc()).limit(52)):
+            rejected=submission.record.get("localRejection",{})
+            record=rejected.get("record") if isinstance(rejected,dict) else None
+            if isinstance(record,dict) and isinstance(record.get("majorDefects"),list):
+                target=defects.setdefault(submission.role,set())
+                target.update(d for d in record["majorDefects"]
+                              if isinstance(d,str) and re.fullmatch(r"[a-z0-9_]{1,80}",d))
         mapped={}
         repair=(pack.ack_state or {}).get(p.REPAIR_METADATA_KEY)
         for row,item in zip(rows,roles):
@@ -372,7 +388,7 @@ def image_status(response: Response, identity: Identity, db: Database,
             stats=p.attempt_stats(item["status"],row.attempts,repair,row.role)
             entry={"status":item["status"],"attempts":stats["attemptCount"],"storageVerified":False,
                    "attemptId":row.attempt_id,"qaStatus":None,"lastOutcome":row.failure_code,
-                   **stats}
+                   "lastQaDefects":sorted(defects.get(row.role,set()))[:32],**stats}
             if receipt is not None:
                 entry.update(receipt)
                 entry["qaStatus"]="pass"
